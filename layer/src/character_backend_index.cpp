@@ -1,5 +1,4 @@
-// The device's index of the packages' sections (D-096, D-097): which sections a draw can match, the hash
-// of a draw's index region, and the draw handed to the package whose section it matches.
+// Index-region identity supplied to the original configuration matcher.
 #include "character_backend_internal.h"
 
 namespace efvk {
@@ -46,49 +45,7 @@ namespace character_internal {
 // (a copy into the buffer, anywhere in it), the edge fingerprint changed, or the periodic repeat.
 std::atomic<uint64_t> g_hash_full{0}, g_hash_bytes{0}, g_hash_new{0}, g_hash_gen{0}, g_hash_quick{0}, g_hash_due{0}, g_quick_reads{0}, g_quick_skipped{0};
 std::atomic<uint64_t> g_quick_read_us{0}; // microseconds of the edge fingerprint reads (write-combined memory)
-// The plans this thread ran for replaced draws (CharacterGeneration::plan_draw): character_record tells by it
-// whether a draw's lists ran (D-173).
-thread_local uint64_t t_draw_plans = 0;
 } // namespace character_internal
-
-void CharacterBackend::rebuild_index()
-{
-    auto next = std::make_shared<Index>();
-    for (uint32_t i = 0; i < controllers.size(); ++i) {
-        auto& c = *controllers[i];
-        std::shared_lock<std::shared_mutex> lock(c.mutex);
-        next->generations.push_back(c.generation);
-        const bool active_now = !c.stopped && c.active && c.active->activated.load(std::memory_order_relaxed);
-        next->activated.push_back(active_now ? 1 : 0);
-        if (c.stopped || !c.active) continue;
-        const auto& sections = c.active->package.sections;
-        for (uint32_t s = 0; s < sections.size(); ++s) {
-            next->by_hash[sections[s].hash].push_back({i, s});
-            // A hash-only section (a hidden game mesh) acts for an activated package only (D-084), so
-            // only such a package makes every indexed draw hashed (D-107): two lazy packages with one
-            // each had every draw of the frame hashed, 147 misses a frame in the seventh session.
-            if (sections[s].match_count == kCharacterNone) { if (active_now) next->hash_only = true; }
-            else next->counts.insert(sections[s].match_count);
-        }
-    }
-    std::unique_lock<std::shared_mutex> lock(index_mx);
-    index = std::move(next);
-}
-
-bool CharacterBackend::index_stale()
-{
-    std::shared_ptr<const Index> current;
-    { std::shared_lock<std::shared_mutex> lock(index_mx); current = index; }
-    if (!current || current->generations.size() != controllers.size()) return true;
-    for (uint32_t i = 0; i < controllers.size(); ++i) {
-        std::shared_lock<std::shared_mutex> lock(controllers[i]->mutex);
-        if (controllers[i]->generation != current->generations[i]) return true;
-        const auto& c = *controllers[i];
-        const bool active_now = !c.stopped && c.active && c.active->activated.load(std::memory_order_relaxed);
-        if (active_now != (current->activated[i] != 0)) return true;
-    }
-    return false;
-}
 
 // Caller holds res_mx. The index bytes of one draw, hashed once for every package of the device
 // (D-097) and then recognized by a short fingerprint; the full hash is repeated now and then because
@@ -98,7 +55,7 @@ bool CharacterBackend::index_stale()
 // would replace the wrong object; for the others every kQuickFrames, a stale hash there delays a
 // match by that much at most.
 constexpr uint64_t kQuickFrames = 16;
-bool index_region_hash(Device* device, const DrawRec& r, uint64_t now, const CharacterBackend::Index& index, uint32_t& hash)
+bool index_region_hash(Device* device, const DrawRec& r, uint64_t now, uint32_t& hash)
 {
     thread_local IndexHashTable table;
     auto ib = device->bufs.find(r.ib);
@@ -115,10 +72,6 @@ bool index_region_hash(Device* device, const DrawRec& r, uint64_t now, const Cha
                          now < found->second.next_full;
     // Stable bytes are not proof that a coherent mapped pool cannot be rewritten (BUG-040).
     // Positive matches must still inspect the fingerprint on every draw.
-    if (current && now < found->second.next_quick && !index.by_hash.count(found->second.hash)) {
-        found->second.seen = now; hash = found->second.hash; ++g_quick_skipped;
-        return true;
-    }
     uint8_t edge[128];
     const size_t head = static_cast<size_t>(std::min<uint64_t>(bytes, 64)), tail = static_cast<size_t>(std::min<uint64_t>(bytes - head, 64));
     const uint64_t read_began = host_time_us();
@@ -145,84 +98,14 @@ bool index_region_hash(Device* device, const DrawRec& r, uint64_t now, const Cha
     return true;
 }
 
-static bool character_record_matched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r);
-
-// An indexed draw (docs/vulkan-native-mods.md): hunting visits it; the sections of its index region run as before, with
-// the ShaderOverride entries of its modules among their lists (RuntimeDraw::stage_hashes); a draw no section made the
-// Mod's meets hunting's skip, and the ShaderOverride entries when the sections' lists did not run.
 bool character_record(CharacterBackend& b, CmdBuf* cb, const DrawRec& r)
 {
     if (!b.enabled.load(std::memory_order_relaxed)) return false;
     DrawFacts facts;
-    const bool hooks = b.device && b.device->shader_draws.load(std::memory_order_relaxed) && pipeline_modules(b.device, r.pipeline, facts.modules);
-    const bool marked = hooks && hunting_draw(b, cb, r, facts);
-    HuntingDrawScope marking(b, cb, r, facts.marking,marked);
-    if(cb->native_target_blocked)return true;
-    const uint64_t plans = t_draw_plans;
-    // Matched lists still run; their planner receives hunting_skip to suppress their draw commands.
-    if (character_record_matched(b, cb, marking.draw())) return true;
-    return hooks && shader_draw_unmatched(b, cb, marking.draw(), facts.modules, t_draw_plans == plans, marked);
+    pipeline_modules(b.device, r.pipeline, facts.modules);
+    const bool marked = hunting_draw(b, cb, r, facts);
+    HuntingDrawScope marking(b, cb, r, facts.marking, marked);
+    if (cb->native_target_blocked) return true;
+    return shader_draw_unmatched(b, cb, marking.draw(), facts.modules, true, marked);
 }
-
-static bool character_record_matched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r)
-{
-    // The first package whose section matches records the draw; the others never see it. The draw's
-    // index region is hashed once (D-097) and only the packages with a section of that hash are asked.
-    struct Clock {
-        CharacterBackend& b; uint64_t began;
-        ~Clock() { b.record_us += host_time_us() - began; ++b.record_calls; }
-    } clock{b, host_time_us()};
-    std::shared_ptr<const CharacterBackend::Index> index;
-    { std::shared_lock<std::shared_mutex> lock(b.index_mx); index = b.index; }
-    if (!index || (!index->hash_only && !index->counts.count(r.count))) return false;
-    uint32_t hash = 0;
-    {
-        std::shared_lock<std::shared_mutex> lock(b.device->res_mx);
-        const bool hashed = index_region_hash(b.device, r, b.frames.load(std::memory_order_relaxed), *index, hash);
-        b.hash_us += host_time_us() - clock.began; ++b.hash_calls;
-        if (!hashed) return false;
-    }
-    const auto found = index->by_hash.find(hash);
-    if (found == index->by_hash.end()) { ++b.hash_misses; return false; }
-    // The sections of the draw's hash in two rounds (D-173). First those with a component, a character's
-    // parts: the package records the draw as its character's, and the lists of every section the draw matches
-    // run with it, whichever INI declares them. Only a draw none of them matches goes to the sections without
-    // a component (another INI's of a Mod's folder, a Mod's own without one): their lists run once, with the
-    // first package that has such a section, and the plan says what the draw becomes.
-    bool component_matched = false;
-    for (const bool components : {true, false}) {
-        if (!components && component_matched) return false;
-        for (const auto& candidate : found->second) {
-            auto& c = *b.controllers[candidate.package];
-            std::shared_lock<std::shared_mutex> lock(c.mutex);
-            // A generation exchanged since the index was built sees the draw once the index is rebuilt.
-            if (c.stopped || !c.active || c.generation != index->generations[candidate.package]) continue;
-            const auto& section = c.active->package.sections[candidate.section];
-            if ((section.component != kCharacterNone) != components) continue;
-            if (section.match_count == kCharacterNone) {
-                // Hash-only sections (hidden game meshes) act for an activated character only.
-                if (!c.active->activated.load(std::memory_order_relaxed)) continue;
-            } else if (section.match_count != r.count || (section.match_first != kCharacterNone && section.match_first != r.first)) {
-                continue;
-            }
-            if (section.stride_slot != kCharacterNone) {
-                // A branch of a list that chooses the component by `vbN->stride` (LIMIT-041): the original
-                // reads the bound vertex buffer's stride, the layer the draw's pipeline binding.
-                std::shared_lock<std::shared_mutex> resources(b.device->res_mx);
-                const auto pipe = b.device->pipes.find(r.pipeline);
-                uint32_t stride = 0;
-                std::string why;
-                if (pipe == b.device->pipes.end() || !CharacterGeneration::vertex_stride(pipe->second, section.stride_slot, stride, why) ||
-                    stride != section.stride) continue;
-            }
-            if (components) component_matched = true;
-            const uint64_t plans_before = t_draw_plans;
-            if (generation_record(*c.active, cb, r, candidate.section)) return true;
-            // The draw's lists ran and left the draw to the game: they do not run again for another package.
-            if (!components && t_draw_plans != plans_before) return false;
-        }
-    }
-    return false;
-}
-
 } // namespace efvk

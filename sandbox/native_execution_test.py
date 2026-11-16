@@ -6,8 +6,7 @@ import subprocess
 import sys
 import time
 
-from harness import Checks, Sandbox, test_dir
-from runtime_fixture import CORE
+from harness import Checks, Sandbox, test_dir, configuration_root
 from native_compute_test import DXC, VALIDATOR
 from runtime_test import sandbox_shader_hashes, band_pixels
 from efmi_vk.hashes import crc32c
@@ -37,7 +36,7 @@ def compute(checks, case):
     (mods / "mod.ini").write_text("namespace = native_execution\n[ShaderOverrideCompute]\nhash = %08x\n" % crc32c(shader.read_bytes()) + commands, encoding="ascii")
     settings = root / "settings"; settings.mkdir()
     output = root / "compute.raw"
-    env = dict(EFMI_VK_M2_MODS=str(mods), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(settings), EFMI_VK_M2_ENABLED="1")
+    env = dict(EFMI_VK_CONFIGURATION=configuration_root(mods), EFMI_VK_M2_SETTINGS=str(settings), EFMI_VK_M2_ENABLED="1")
     args = ["--compute-shader", str(shader), "--compute-output", str(output)]
     if case == "indirect": args.append("--compute-indirect")
     with Sandbox(seconds=3, validation=True, entry="inject" if case == "inject" else "layer", env_extra=env, extra_args=args) as sb:
@@ -60,7 +59,7 @@ def graphics(checks, fragment, command, draw_kind, expected_max=None, zero_count
         (mods / "mod.ini").write_text("namespace = native_execution\n[ShaderOverridePixel]\nhash = %08x\nhandling = skip\n" % fragment + command, encoding="ascii")
     settings = root / "settings"; settings.mkdir()
     pixels = root / "pixels.raw"
-    env = dict(EFMI_VK_M2_MODS=str(mods), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(settings), EFMI_VK_M2_ENABLED="1",
+    env = dict(EFMI_VK_CONFIGURATION=configuration_root(mods), EFMI_VK_M2_SETTINGS=str(settings), EFMI_VK_M2_ENABLED="1",
                EFMI_VK_TEST_NOTICE="> native calls", EFMI_VK_TEST_NOTICES_READBACK=str(pixels))
     args=["--readable-swapchain"] + ([] if draw_kind == "indexed" else ["--" + draw_kind]) + (["--indirect-zero-count"] if zero_count else [])
     with Sandbox(seconds=3, validation=True, env_extra=env, extra_args=args) as sb:

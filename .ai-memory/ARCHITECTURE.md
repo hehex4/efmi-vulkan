@@ -1,5 +1,13 @@
 # EFMI Vulkan - Architecture
 
+Current migration, D-304 (2026-11-16): production loads one original root INI and
+Include registry through ConfigurationProgram. CharacterProgram, CharacterCore,
+CharacterGeneration and per-package controllers/activation have been deleted.
+Below, package rendering describes the superseded implementation. Generic geometry,
+original Core application resource execution and ordered GPU work are still being
+ported; see docs/configuration-execution-rewrite.md and CURRENT_STATE.md. Do not use
+the former package model as an implementation requirement.
+
 > Rewritten 2026-11-10 from the code (docs/architecture-review-2.1.md, P4-1). What was here before, the
 > history of the candidates 0.5 to 2.0, is `.ai-memory/archive/ARCHITECTURE-until-2.1.md`. Verified state,
 > versions and what is deployed are in CURRENT_STATE.md, never here.

@@ -3302,3 +3302,12 @@ This is an interpreter/resource prerequisite. Production still loads CharacterGe
 packages; integration, generic application imports/draw execution and deletion of the
 old paths remain the active task. Layer/candidate stays 3.2.1. No game, installed-file,
 launcher, system or remote changes. No claim of completed architecture rewrite.
+
+
+## 2026-11-16: D-304 removes production character package loading
+
+Source and four development DLLs move to 3.2.2 / ABI 964248fc551584a0. The root configuration and original includes own loading; global command matching and one F10 generation replace character discovery, controllers, activation and package rendering. CharacterProgram/CharacterCore/CharacterGeneration source and offline package-planning entries/checks were deleted. configuration / EFMI_VK_CONFIGURATION is the new root option; per-package module overrides are refused. The original reference remains IniHandler Include recursion, CustomResource::Substantiate and HackerContext command ordering. Vulkan owners and explicit hazards/order must replace DX11 runtime services.
+
+Evidence: configuration-area.out passes 10 original-root, 40 GPU-resource and 13 production loader/global-matcher/F10/module-exchange checks; native-calls 60 and native-files 42 pass. Final original runtime passes 553, tracker 813 after retired package-cache checks, offline binary-format decoder 148. Installed root load again reads 2,172 variables / 848 file resources / 44 diagnostics / zero load gaps. Validation remains clean for these GPU checks. A decoder compile error from a removed transitive include was fixed by its explicit runtime header; only that target was rebuilt. An initial direct runtime invocation supplied a relative fixture root and was correctly rejected, then passed with the absolute project path.
+
+Generic geometry bindings, exact semantic metadata integration, original Core application resource imports and ordered in-draw GPU execution remain active work. Remaining historical package-rendering/capture tests and documentation need migration. No old renderer fallback remains. The release checker now targets root configurations and small synthetic unpack fixtures, but no new release archive was tested or created. Candidate remains 3.2.1; root dist/game history unchanged. No game, installed Mod/Core/launcher/system mutation or remote write. Continue generic execution, then native queue/access/readiness work; do not stop at this loading milestone.

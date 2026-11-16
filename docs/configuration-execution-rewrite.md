@@ -53,5 +53,29 @@ adapter: 2,172 variables, 848 referenced file resources, 44 original diagnostics
 zero adapter gaps during loading. No character/Core extension is supplied. This proves
 configuration loading, not live application binding import or Core rendering.
 
-Backend migration and package-path removal remain active work. Production layer and
-candidate are still 3.2.1; these prerequisite checks are not game acceptance.
+The production entry is now being replaced in D-304. It loads `configuration`
+(`EFMI_VK_CONFIGURATION`) as the root containing d3dx.ini. `auto` searches the
+injected DLL's ancestors for that file. The original Include rules select inputs;
+the backend neither enumerates character INIs nor accepts a package path.
+
+Removed source paths: CharacterProgram discovery/catalogues, CharacterController,
+CharacterGeneration, the package hash index/activation worker, native CharacterCore
+substitution, per-Mod persistence migration and offline package-planning commands.
+F10 exchanges the complete configuration. Global matching evaluates every matching
+section, including distinct sections sharing a namespace across directories. The
+public module ABI retains its historical names; no character loading is behind them.
+
+Production checks pass 13 loading/matching/F10/module-exchange assertions, 60 native
+GPU call assertions and 42 native file-resource assertions. Final affected-area checks
+pass root 10 / owned GPU 40 / production 13; the original interpreter passes 553,
+tracker 813 and retained offline format decoder 148. Source and four matching
+development DLLs are 3.2.2 / ABI 964248fc551584a0. The separately verified candidate
+remains 3.2.1. No game acceptance is claimed.
+
+The removal deliberately does not retain the former package renderer as a fallback.
+The ordinary GPU frontend and native resource executor are present, but generic mesh
+bindings, application resource import for original Core execution, exact shader
+semantics integration and ordered in-draw GPU work remain required. Existing capture
+replay and package-rendering acceptance fixtures need migration; their historical
+results do not validate this replacement. Finish these adapters before claiming
+compatibility completion or returning to the remaining native queue work.

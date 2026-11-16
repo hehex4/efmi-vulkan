@@ -5,9 +5,8 @@ import struct
 import sys
 import time
 
-from harness import Checks, Sandbox, test_dir
+from harness import Checks, Sandbox, test_dir, configuration_root
 from native_compute_test import compile_shader, read_compute_result
-from runtime_fixture import CORE
 from efmi_vk.hashes import crc32c
 from efmi_vk.probe_client import ProbeClient
 
@@ -33,7 +32,7 @@ def buffers(checks, case):
     if case == "empty_swap": (mods / "test.ini").unlink()
     settings = root / "settings"; settings.mkdir()
     output, keys = root / "compute.raw", root / "keys.txt"; keys.write_text("1\n", encoding="ascii")
-    env = dict(EFMI_VK_M2_MODS=str(mods), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(settings),
+    env = dict(EFMI_VK_CONFIGURATION=configuration_root(mods), EFMI_VK_M2_SETTINGS=str(settings),
                EFMI_VK_M2_ENABLED="1", EFMI_VK_TEST_KEYS=str(keys))
     args = ["--compute-shader", str(shader), "--compute-output", str(output), "--compute-bindings", "--compute-repeat", "2"]
     if case == "push": args += ["--descriptors", "push"]

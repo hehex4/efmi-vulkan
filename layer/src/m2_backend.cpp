@@ -137,23 +137,16 @@ void m2_pass_end(Device* device,CmdBuf* cb){
 void m2_create(Device* device,const VkPhysicalDeviceProperties& properties,const VkPhysicalDeviceMemoryProperties& memory)
 {
     if(!character_configured() || g_cfg.mode!=Mode::Probe || !g_cfg.track_resources)return;
-    // Character packages and Mods directories use the same replacement module.
-    // The historical single-component package no longer selects another executor.
-    std::error_code directory_error;
-    if(!g_cfg.m2_mods.empty() || is_character_package(g_cfg.m2_package) ||
-       std::filesystem::is_directory(std::filesystem::u8path(g_cfg.m2_package),directory_error)){
-        device->physical_properties=properties;device->memory_properties=memory;
-        device->character_module=builtin_character_module();
-        device->character=device->character_module->create(device,properties,memory);
-        if(device->character)device->character_module->activate(*device->character);
-        device->character_mode=true;
-        std::lock_guard<std::mutex> lock(g_module.mx);
-        g_module.generation=0;g_module.path.clear();g_module.version=device->character_module->version;
-        g_module.staged_path.clear();g_module.error.clear();g_module.enabled=-1;
-        return;
-    }
-    logf("Replacement package is neither a character package nor a Mods directory; single-component M2 packages are retired");
+    device->physical_properties=properties;device->memory_properties=memory;
+    device->character_module=builtin_character_module();
+    device->character=device->character_module->create(device,properties,memory);
+    if(device->character)device->character_module->activate(*device->character);
+    device->character_mode=true;
+    std::lock_guard<std::mutex> lock(g_module.mx);
+    g_module.generation=0;g_module.path.clear();g_module.version=device->character_module->version;
+    g_module.staged_path.clear();g_module.error.clear();g_module.enabled=-1;
 }
+
 void m2_stop(Device* device){
     if(device->character_mode){
         std::shared_ptr<CharacterBackend> active,staged;
@@ -282,6 +275,7 @@ std::string probe_m2_module(const std::string& path,const std::string& package){
     std::wstring wide(path.size()+1,L'\0');
     const int chars=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,path.c_str(),-1,&wide[0],static_cast<int>(wide.size()));
     if(path.empty() || chars<=0)return fail("module path is not valid UTF-8");
+    if(!package.empty())return fail("Per-package module loading has been removed; configure the root INI installation");
     const HMODULE library=LoadLibraryW(wide.c_str());
     if(!library)return fail("module cannot be loaded, error "+std::to_string(GetLastError()));
     const auto entry=reinterpret_cast<CharacterModuleEntry>(GetProcAddress(library,EFVK_MODULE_ENTRY));
@@ -289,7 +283,6 @@ std::string probe_m2_module(const std::string& path,const std::string& package){
     // table of functions, which therefore lives as long as the process.
     static HostApi api;
     Config config=g_cfg;
-    if(!package.empty())config.m2_package=package;
     api.size=sizeof(HostApi);api.abi=EFVK_ABI;api.config=&config;api.log=host_log;api.crc32c=crc32c;
     api.read_buffer_locked=host_read_buffer;api.collect_buffer_ranges_locked=collect_buffer_ranges_locked;
     api.gpu_bones=[]{return g_cfg.m2_gpu_bones;};

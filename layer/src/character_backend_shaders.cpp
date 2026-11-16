@@ -34,7 +34,7 @@ bool pipeline_modules(Device* device, VkPipeline pipeline, PipelineModules& out)
         if (i < 0 || !stage.shader) continue;
         out.hashes[i] = stage.shader->hash; out.mask |= 1u << i; out.stages |= stage.stage;
     }
-    // The render targets for `oN` as a replaced draw's (CharacterGeneration::render_targets): the pipeline's subpass.
+    // The render targets for `oN` are declared by the pipeline's subpass.
     if (info.recipe && info.recipe->render_pass && info.recipe->subpass < info.recipe->render_pass->subpasses.size()) {
         const auto& sub = info.recipe->render_pass->subpasses[info.recipe->subpass];
         for (size_t i = 0; i < sub.colors.size() && i < 8; ++i)
@@ -558,7 +558,7 @@ void character_activate(CharacterBackend& b)
 void shader_hooks_frame(CharacterBackend& b, bool presenting)
 {
     native_file_frame(b.native_calls,b.textures.get());
-    CharacterProgram* program = b.folder ? b.folder->program : nullptr;
+    ConfigurationProgram* program = b.folder ? b.folder->program : nullptr;
     std::shared_ptr<const CharacterBackend::ShaderHooks> current;
     { std::shared_lock<std::shared_mutex> lock(b.index_mx); current = b.shader_hooks; }
     if (!current ? b.folder != nullptr : current->folder != b.folder) {
@@ -571,15 +571,6 @@ void shader_hooks_frame(CharacterBackend& b, bool presenting)
             if ((fixes ? fixes->revision : 0) != (previous ? previous->revision : 0)) {
                 decltype(b.twins) retired;
                 { std::unique_lock<std::shared_mutex> lock(b.twins_mx); retired.swap(b.twins); b.twins_failed.clear(); }
-                // A staged generation may have warmed its local lookup before this revision was published.
-                // Its next draw must ask the revision-keyed variant cache again.
-                for (const auto& controller : b.controllers) {
-                    std::shared_lock<std::shared_mutex> lock(controller->mutex);
-                    if (controller->active) {
-                        std::lock_guard<std::mutex> mod(controller->active->mod_mx);
-                        controller->active->variant_lookup.clear();
-                    }
-                }
                 prepare_twins(b);
             }
             if (fixes) {
@@ -619,13 +610,19 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
     bool skip = marked;
     std::shared_ptr<const CharacterBackend::ShaderHooks> hooks;
     if (run_lists) { std::shared_lock<std::shared_mutex> lock(b.index_mx); hooks = b.shader_hooks; }
-    bool named = false;
+    uint32_t index_hash = 0;
+    bool matched_index = false;
+    if (hooks && hooks->program && r.kind == DK_INDEXED) {
+        std::shared_lock<std::shared_mutex> lock(b.device->res_mx);
+        matched_index = index_region_hash(b.device, r, b.frames.load(std::memory_order_relaxed), index_hash);
+    }
+    bool named = matched_index;
     if (hooks && hooks->program)
         for (unsigned i = 0; i < 6 && !named; ++i)
             named = (modules.mask >> i & 1u) && std::binary_search(hooks->hashes.begin(), hooks->hashes.end(), modules.hashes[i]);
     if (named) {
         efmi::frontend::RuntimeDraw request;
-        request.native_calls = true;
+        request.native_calls = true; request.hash = index_hash; request.hunting_skip = marked;
         request.native_resource = [&](const efmi::frontend::NativeBinding& binding, efmi::frontend::NativeResource& resource, std::string& why) {
             return native_resource(b.device, cb, r, binding, resource, why);
         };
@@ -655,7 +652,8 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
         {
             // The folder's generation is one program: one plan at a time with every package's (D-131).
             std::lock_guard<std::mutex> lock(*hooks->folder->plan_mx);
-            ran = hooks->program->runtime()->shader_draw(request, plan, reason);
+            ran = matched_index ? hooks->program->runtime()->draw(request, plan, reason)
+                                : hooks->program->runtime()->shader_draw(request, plan, reason);
         }
         b.shader_draws_run.fetch_add(1, std::memory_order_relaxed);
         if (!ran) {

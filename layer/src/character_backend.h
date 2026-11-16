@@ -1,6 +1,5 @@
-// Whole-character replacement from a character package: every matched section of one mod, with one
-// merged skeleton per character instance and optional static materials.
-// Inactive unless a character package is explicitly configured.
+// Original configuration execution and Vulkan shader/resource replacement.
+// Public ABI names are retained for the exchangeable backend module interface.
 #pragma once
 #include "common.h"
 

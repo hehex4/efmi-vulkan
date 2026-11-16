@@ -13,6 +13,19 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-304: Remove the package loader before rebuilding generic execution (2026-11-16)
+
+One ConfigurationProgram owns the original root and includes, with ordinary GPU
+resource execution and no native CharacterCore extension. The root configuration
+option replaces Mod/Core/package selection. Global original matching and whole-registry
+F10 exchange replace the per-package index/controllers. Delete the former source and
+offline planning entry points rather than retain them as a fallback. This intentionally
+leaves generic mesh/application-resource adapters as explicit active work; the old
+renderer cannot count as acceptance of their replacement. DX11 reference-counted
+lifetime with deferred destruction, hazard tracking and single-context ordering must
+be supplied explicitly by each Vulkan adapter. Version 3.2.2 is an intermediate
+development build, not a completed compatibility candidate.
+
 ## D-302: Verify the candidate after the shared restoration protocol change (2026-11-16)
 
 The 3.2.1 candidate packages the matching host implementation and exact semantic cache after D-301's affected-area/module regression. Preserve 3.2.0 as rollback with its provenance. The superseded 3.1.8 archive remains only because automatic approval review rejected its retirement; this is an explicit retention exception, not a second intended rollback. Sandbox package loads and real-character verification remain separate.

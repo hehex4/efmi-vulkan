@@ -410,11 +410,8 @@ void util_init(HMODULE self)
 
     read_settings_file(g_module_dir + L"\\efmi_vk.cfg");
 
-    g_cfg.m2_package = setting("EFMI_VK_M2_PACKAGE", "m2_package");
-    if (g_cfg.m2_package == "off") g_cfg.m2_package.clear();
-    g_cfg.m2_mods = setting("EFMI_VK_M2_MODS", "m2_mods");
-    if (g_cfg.m2_mods == "off") g_cfg.m2_mods.clear();
-    g_cfg.m2_core = setting("EFMI_VK_M2_CORE", "m2_core");
+    g_cfg.configuration_root = setting("EFMI_VK_CONFIGURATION", "configuration");
+    if (g_cfg.configuration_root == "off") g_cfg.configuration_root.clear();
     g_cfg.m2_settings = setting("EFMI_VK_M2_SETTINGS", "m2_settings");
     {
         const std::string zero = setting("EFMI_VK_M2_DIMENSION_ZERO", "m2_dimension_zero");
@@ -424,11 +421,8 @@ void util_init(HMODULE self)
         }
     }
     g_cfg.m2_owned = setting("EFMI_VK_M2_OWNED", "m2_owned") != "0";
-    g_cfg.m2_folder_generation = setting("EFMI_VK_M2_FOLDER_GENERATION", "m2_folder_generation") != "0";
     g_cfg.m2_reserve_mb = strtoull(setting("EFMI_VK_M2_RESERVE_MB", "m2_reserve_mb").c_str(), nullptr, 10);
     {
-        const std::string expiry = setting("EFMI_VK_M2_IDENTITY_EXPIRY_MS", "m2_identity_expiry_ms");
-        if (!expiry.empty()) g_cfg.m2_identity_expiry_ms = strtoull(expiry.c_str(), nullptr, 10);
         const std::string save = setting("EFMI_VK_SETTINGS_SAVE_SECONDS", "settings_save_seconds");
         if (!save.empty()) g_cfg.settings_save_seconds = strtoull(save.c_str(), nullptr, 10);
         g_cfg.shader_cache = setting("EFMI_VK_SHADER_CACHE", "shader_cache") != "0";
@@ -438,7 +432,6 @@ void util_init(HMODULE self)
         const std::string reduce = setting("EFMI_VK_M2_TEXTURE_REDUCE_MB", "m2_texture_reduce_mb");
         if (!reduce.empty()) g_cfg.m2_texture_reduce_mb = strtoull(reduce.c_str(), nullptr, 10);
     }
-    g_cfg.m2_texture_preload = setting("EFMI_VK_M2_TEXTURE_PRELOAD", "m2_texture_preload") == "1";
     g_cfg.m2_pageable = setting("EFMI_VK_M2_PAGEABLE", "m2_pageable") != "0";
     g_cfg.m2_gpu_bones = setting("EFMI_VK_M2_GPU_BONES", "m2_gpu_bones") != "0";
     std::string m2_enabled = setting("EFMI_VK_M2_ENABLED", "m2_enabled");

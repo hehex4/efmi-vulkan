@@ -68,7 +68,7 @@ def build_runtime(out: Path, test: bool = False) -> list[str]:
     legacy += [ROOT / "frontend/xxmi" / (name + ".cpp") for name in ("command_module", "resource_hash_module", "runtime_override")]
     sources = [ROOT / "frontend/xxmi" / (name + ".cpp") for name in
                ("runtime", "runtime_input", "runtime_parser", "runtime_shim", "draw_plan", "resource_plan", "shader_state", "shader_regex", "shader_assembly", "gpu_resources", "gpu_bindings", "gpu_images", "gpu_parameters", "gpu_shaders", "gpu_graphics", "input_layout", "gpu_layout", "image_formats", "owned_generation", "owned_runtime")]
-    sources += [ROOT / "frontend/xxmi" / (name + ".cpp") for name in ("character_core", "efmittl_bridge", "skeleton_plan", "palette_files")]
+    sources += [ROOT / "frontend/xxmi" / (name + ".cpp") for name in ("efmittl_bridge", "skeleton_plan", "palette_files")]
     sources += [ROOT / "frontend/xxmi" / (name + ".cpp") for name in ("vertex_plan", "shader_input_index")]
     sources += [ROOT / "frontend/core/palette_bank.cpp", ROOT / "frontend/assets/png.cpp"]
     sources += [ROOT / "frontend/xxmi/buffer_queries.cpp", ROOT / "frontend/xxmi/texture_properties.cpp"]
@@ -114,7 +114,7 @@ def build_runtime(out: Path, test: bool = False) -> list[str]:
             if test:
                 run_cl(vcvars, str(out), flags + ["/DNOMINMAX", str(ROOT / "sandbox/xxmi_runtime.cpp"),
                        str(ROOT / "layer/src/character_package.cpp"), str(ROOT / "layer/src/merged_skeleton.cpp"),
-                       str(ROOT / "layer/src/pipeline_recipe.cpp"), str(ROOT / "layer/src/character_program.cpp"), str(ROOT / "frontend/assets/dds.cpp"),
+                       str(ROOT / "layer/src/pipeline_recipe.cpp"), str(ROOT / "frontend/assets/dds.cpp"),
                        *objects, "/Fe:" + str(out / "runtime_test.exe"), "/link", "/NOLOGO", "/OPT:REF", "/OPT:ICF", *libraries])
     except Exception as exc:
         output.write(str(exc))
@@ -129,27 +129,10 @@ if __name__ == "__main__":
     parser.add_argument("--out", type=Path, default=ROOT / "build/xxmi-runtime")
     args = parser.parse_args()
     build_runtime(args.out, test=True)
-    package = ROOT / "build/character/arcane-materials.bin"
-    mod = Path("D:/XXMI-Launcher-Portable-v2.1.6/EFMI/Mods/arcane fes 1.2")
-    # A fixture from an installed Mod: only while the checkout has its package and the Mod is installed
-    # (the user removes and replaces Mods; a checkout that still has the package must not fail for that).
-    if package.is_file() and (mod / "arcane.ini").is_file():
-        from prepare_runtime import prepare
-        prepare(package, package.with_suffix(".json"), mod / "arcane.ini", mod.parents[1] / "Core/EFMI",
-                "arcane_fes", args.out / "fixture/actual-live.bin")
     result = subprocess.run([str(args.out.resolve() / "runtime_test.exe"), str(args.out.resolve())],
                             capture_output=True, text=True, timeout=40)
     write_ascii(args.out / "runtime.txt", result.stdout + result.stderr)
     print(result.stdout)
     if result.returncode:
         print(result.stderr[-6000:])
-    if result.returncode == 0:
-        second = ROOT / "build/characters/yvonne/mesh.bin"
-        source = Path("D:/XXMI-Launcher-Portable-v2.1.6/EFMI/Mods/Yvonne Ensnared Heart 1.6/yvonne.ini")
-        if second.is_file() and source.is_file():
-            result = subprocess.run([str(args.out.resolve() / "runtime_test.exe"), "--inspect-character",
-                str(second), str(source), str(source.parents[2] / "Core/EFMI"), "yvonne", "texture-roles"],
-                capture_output=True, text=True, timeout=40)
-            write_ascii(second.parent / "runtime-inspection.out", result.stdout + result.stderr)
-            print(result.stdout if not result.returncode else result.stderr[-6000:])
     raise SystemExit(result.returncode)

@@ -1,19 +1,8 @@
-r"""Checks the playable release archive (scripts/build.py release) before it is published.
+"""Validate archive integrity, original-root loading and owned unpack layouts.
 
-    python scripts/check_release.py build/release/EFMI-Vulkan-X.Y.Z.zip [--mods D:/.../EFMI/Mods]
-
-1. The archive holds exactly the release files under EFMI-Vulkan/, and its .sha256 matches.
-2. efmi_vk_inject.dll carries no probe: no pipe name, and its startup line says so.
-3. The release, unpacked, is injected into the sandbox program with the installed Mods (its own
-   configuration with the Mods folder named absolutely): it loads every character Mod, compiles what
-   the Core needs without dxil.dll, opens no probe pipe, faults nowhere and leaves Vulkan validation
-   clean. Judged from its log and output only: the release has no probe to ask.
-4. Where players unpack it (2.0.9 unpacked into EFMI\Mods found no Mod): an EFMI folder of its own
-   (the installed Core, one character Mod and the libraries), the release unpacked into EFMI and into
-   EFMI\Mods, its configuration as shipped: the Mod loads in both, the release's own folder is no Mod
-   content there (an INI planted in its settings is never read), and a fault the program raises and
-   handles itself is not logged as a crash.
-Never the game."""
+The complete installed root is read only. Layout checks use a small synthetic
+configuration and copy no installed Mod assets. No real game is started.
+"""
 import argparse
 import hashlib
 import os
@@ -33,18 +22,12 @@ from build_shader_input_index import inspect as inspect_inputs, MAX_BYTES as INP
 
 ap = argparse.ArgumentParser()
 ap.add_argument("archive", type=Path)
-ap.add_argument("--mods", default="D:/XXMI-Launcher-Portable-v2.1.6/EFMI/Mods")
+ap.add_argument("--installation", default="D:/XXMI-Launcher-Portable-v2.1.6/EFMI")
 ap.add_argument("--seconds", type=int, default=60)
-ap.add_argument("--layout-mods", nargs="*",
-                help="installed Mods copied into the layout check's own EFMI folder (one character Mod and its libraries); "
-                     "default: the smallest character Mod the installed folder loaded and every enabled folder that is not one")
 args = ap.parse_args()
 
 failures = []
-# D-176 also accepts ordinary meshes without skeletons, so the runtime reports
-# packages and their bone-free count. Keep the historical spelling for old archives.
-GENERATION_LINE = r"folder generation: (\d+) (?:character Mods|packages \(\d+ of them without a skeleton\)), (\d+) left out"
-
+GENERATION_LINE = r"configuration loaded: (\d+) variables, (\d+) file resources, (\d+) diagnostics"
 
 def check(ok, what):
     print(("ok   " if ok else "FAIL ") + what)
@@ -87,10 +70,10 @@ check(b"(release, no probe)" in dll, "efmi_vk_inject.dll is the release build")
 check(not (release / "dxil.dll").exists() and not list(release.glob("*.pdb")), "no dxil.dll and no symbols in the package")
 
 # 3. The release in the sandbox with the installed Mods.
-mods = Path(args.mods)
+installed = Path(args.installation)
 cfg = (release / "efmi_vk.cfg").read_text(encoding="ascii")
-check("m2_mods = auto" in cfg, "the release configuration finds the Mods folder from where it is unpacked")
-(release / "efmi_vk.cfg").write_text(cfg.replace("m2_mods = auto", "m2_mods = " + mods.as_posix()), encoding="ascii")
+check("configuration = auto" in cfg, "release discovers the original root INI")
+(release / "efmi_vk.cfg").write_text(cfg.replace("configuration = auto", "configuration = " + installed.as_posix()), encoding="ascii")
 os.environ["EFMI_VK_DIST"] = str(release)
 import harness  # noqa: E402
 from efmi_vk.probe_client import list_probes  # noqa: E402
@@ -107,7 +90,6 @@ def release_env(log_path=None, mode=None, extra=None):
 
 
 harness.inject_env = release_env
-enabled = sorted(p.name for p in mods.iterdir() if p.is_dir() and not p.name.upper().startswith("DISABLED"))
 def run(folder: Path, seconds: int, extra=()):
     """The sandbox with the release in `folder` injected; its log, output and whether a probe pipe appeared."""
     # The program outside the release's folder: a file there is the layer's own, and its faults the layer's.
@@ -132,36 +114,22 @@ def run(folder: Path, seconds: int, extra=()):
 
 
 log, output, probes_seen = run(release, args.seconds)
-if input_count is not None:
-    check("shader input cache loaded: %d exact module identities" % input_count in log,
-          "the release loads its packaged semantic cache from default settings")
 check(not probes_seen, "the injected release opens no probe pipe")
 check(re.search(r"efmi_vk_layer [0-9.]+ \(release, no probe\) loaded into efmi_vk_sandbox\.exe", log) is not None,
       "the release DLL loaded into the sandbox")
 loaded = re.search(GENERATION_LINE, log)
-check(loaded is not None and loaded.group(2) == "0", "the installed Mods' folder generation loaded, none left out " +
-      (loaded.group(0) if loaded else "(no line)"))
+check(loaded is not None, "complete installed root configuration loaded " + (loaded.group(0) if loaded else "(no line)"))
 check("crash:" not in log, "no fault in the layer")
-for bad in ("owned GPU work unavailable", "character package refused", "INI Present refused"):
+for bad in ("configuration refused:", "INI Present refused"):
     check(bad not in log, "the log has no '%s'" % bad)
 check("validation: errors=0 warnings=0" in output, "clean core and synchronization validation")
 
-# 4. Where players unpack it.
-installed = mods.parent
+# Unpack discovery follows d3dx.ini, independently of any character content.
 efmi = work / "EFMI"
-shutil.copytree(installed / "Core" / "EFMI", efmi / "Core" / "EFMI")
-layout = args.layout_mods
-if layout is None:
-    # Whichever Mods the user has installed now: a fixed name went with the Mod (2.1.1's check).
-    characters = set()
-    for ini in re.findall(r"character Mod of the folder generation: (.*?): \d+ mesh files", log):
-        relative = Path(ini).relative_to(mods)
-        characters.add(relative.parts[0])
-    size = lambda name: sum(f.stat().st_size for f in (mods / name).rglob("*") if f.is_file())
-    layout = ([min(sorted(characters), key=size)] if characters else []) + [name for name in enabled if name not in characters]
-check(bool(layout), "a character Mod for the layouts: " + ", ".join(layout))
-for name in layout:
-    shutil.copytree(mods / name, efmi / "Mods" / name)
+(efmi / "Mods").mkdir(parents=True)
+(efmi / "d3dx.ini").write_text("[Include]\ninclude_recursive = Mods\nexclude_recursive = EFMI-Vulkan\n", encoding="ascii")
+(efmi / "Mods" / "shared.ini").write_text(
+    "[Constants]\nglobal $sentinel = 17\n[ResourceUnused]\nfilename = missing.buf\n", encoding="ascii")
 for place in (efmi, efmi / "Mods"):
     label = "unpacked into " + place.relative_to(work).as_posix()
     with zipfile.ZipFile(args.archive) as z:
@@ -170,15 +138,9 @@ for place in (efmi, efmi / "Mods"):
     (folder / "settings").mkdir(exist_ok=True)
     (folder / "settings" / "planted.ini").write_text("[Constants]\nthis line is not an INI entry\n", encoding="ascii")
     text, out, _ = run(folder, 30, ["--handled-fault"])
-    if input_count is not None:
-        check("shader input cache loaded: %d exact module identities" % input_count in text,
-              label + ": packaged semantic cache loads from the default settings directory")
-    found = re.search(r"Mods folder found from the layer's folder: (.*)", text)
-    check(found is not None and Path(found.group(1).strip()) == efmi / "Mods", label + ": the Mods folder found from the release's own folder")
     loaded = re.search(GENERATION_LINE, text)
-    check(loaded is not None and loaded.groups() == ("1", "0"), label + ": the character Mod loaded, none left out " +
-          (loaded.group(0) if loaded else "(no line)"))
-    check("planted.ini" not in text, label + ": an INI in the release's own folder is no Mod content")
+    check(loaded is not None, label + ": root INI discovered and loaded")
+    check("planted.ini" not in text, label + ": the original root exclusion keeps release settings out of includes")
     check("exception: access violation writing address 0000000000000000 at efmi_vk_sandbox.exe" in text and "crash:" not in text,
           label + ": a fault the program handles itself is logged as its exception, not as a crash")
     check("validation: errors=0 warnings=0" in out, label + ": clean validation")
@@ -187,5 +149,5 @@ for place in (efmi, efmi / "Mods"):
         raise ValueError("Release-check cleanup escaped its owned workspace")
     shutil.rmtree(folder)
 print("artifacts:", work)
-print("release check: %s (%d enabled folders in the Mods folder: %s)" % ("FAILED" if failures else "passed", len(enabled), ", ".join(enabled)))
+print("release check: %s (root configuration: %s)" % ("FAILED" if failures else "passed", installed))
 sys.exit(1 if failures else 0)

@@ -121,9 +121,11 @@ VkPipeline character_bind(CharacterBackend& b, CmdBuf* cb, VkPipeline pipeline, 
             return pipeline;
         }
     }
-    // BUG-089: the generic owner_for dropped every package's snapshot batch this recording had not used yet.
-    const auto held = character_owner_for(cb->owners, &b.twins, [] { return std::make_shared<TwinOwner>(); });
-    if (!held) return pipeline;
+    // Preserve every other recording owner; an unrelated bind cannot retire it.
+    std::shared_ptr<CommandOwner> held;
+    for (const auto& existing : cb->owners)
+        if (existing && existing->backend == &b.twins) { held = existing; break; }
+    if (!held) { held = std::make_shared<TwinOwner>(); held->backend = &b.twins; cb->owners.push_back(held); }
     auto& owner = static_cast<TwinOwner&>(*held);
     owner.used = true;
     if (std::find(owner.held.begin(), owner.held.end(), twin) == owner.held.end()) owner.held.push_back(twin);

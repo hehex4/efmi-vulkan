@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIST = os.environ.get("EFMI_VK_DIST", os.path.join(ROOT, "dist"))
@@ -23,6 +24,18 @@ def test_dir(prefix: str) -> str:
     parent = os.path.join(ROOT, "build", "tests")
     os.makedirs(parent, exist_ok=True)
     return tempfile.mkdtemp(prefix=prefix, dir=parent)
+
+
+def configuration_root(mods: Path) -> str:
+    """Make an original root INI for an explicitly project-owned test fixture."""
+    root = mods.resolve().parent
+    if not root.is_relative_to(Path(ROOT).resolve() / "build"):
+        raise ValueError("Configuration fixture must stay inside the project build directory")
+    ini = root / "d3dx.ini"
+    if not ini.exists():
+        ini.write_text("[Include]\ninclude_recursive = " + mods.name +
+                       "\n[Hunting]\nhunting = 2\nreload_config = F10\n", encoding="ascii")
+    return str(root)
 
 
 class Checks:
@@ -52,8 +65,7 @@ class Checks:
 
 # The defaults of layer/src/common.h, as the environment spells them.
 PINNED_SETTINGS = {
-    "EFMI_VK_M2_PACKAGE": "off",
-    "EFMI_VK_M2_MODS": "off",
+    "EFMI_VK_CONFIGURATION": "off",
     "EFMI_VK_M2_DIMENSION_ZERO": "off",
     "EFMI_VK_M2_ENABLED": "0",
     "EFMI_VK_RESOURCES": "1",

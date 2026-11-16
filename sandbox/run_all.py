@@ -38,6 +38,7 @@ STEPS = [
     ("installed INI operation census", [os.path.join(ROOT, "scripts", "ini_operation_census.py")]),
     ("original INI runtime", [os.path.join(ROOT, "scripts", "build_xxmi_runtime.py")]),
     ("original root configuration", [os.path.join(ROOT, "scripts", "check_configuration.py")]),
+    ("configuration backend", [os.path.join(HERE, "configuration_backend_test.py")]),
     # D-129: every writable global of the runtime is per generation, per thread, the load's, locked or
     # classified as safe to share; run after the runtime's build above.
     ("INI runtime globals classified", [os.path.join(ROOT, "scripts", "check_engine_globals.py")]),
@@ -53,18 +54,7 @@ STEPS = [
     ("DX11 texture properties from Vulkan images", [os.path.join(ROOT, "scripts", "check_texture_properties.py")]),
     ("Core facts from SPIR-V", [os.path.join(ROOT, "scripts", "check_core_facts.py")]),
     ("RabbitFX texture roles", [os.path.join(ROOT, "scripts", "check_texture_roles.py")]),
-    ("installed Mods offline plans", [os.path.join(ROOT, "scripts", "check_mods_dry_run.py")]),
-    # D-131: the whole Mods folder in one generation gives every character Mod what its own does.
-    ("installed Mods offline plans in one folder generation", [os.path.join(ROOT, "scripts", "check_folder_generation.py")]),
-    # D-137: every section of every installed Mod plans in every state the Mods' keys reach as a player
-    # presses them (the original's own dispatch decides what changes).
-    ("installed Mods offline plans in every key state", [os.path.join(ROOT, "scripts", "check_mod_states.py")]),
-    # BUG-077: a Mod with a missing, short or twice-declared buffer file loads and degrades as the original.
-    ("installed Mod with broken files offline plans", [os.path.join(ROOT, "scripts", "check_mod_degradation.py")]),
-    # docs/architecture-review-2.1.md Phase 0: what one Mod, one INI or one name of the Core gets wrong stays
-    # with it (the Core's version and names, a second INI under one namespace, an input the load refuses, a
-    # CustomShader without the owned runtime).
-    ("installed Mod failures contained, offline plans", [os.path.join(ROOT, "scripts", "check_mod_containment.py")]),
+    ("installed root configuration", [os.path.join(ROOT, "scripts", "check_configuration.py"), "--only", "gpu", "--installation", "D:/XXMI-Launcher-Portable-v2.1.6/EFMI"]),
     # --mod-first: no matched draw shows the game's mesh, not even while a new object is identified or
     # an EFMI Mod registers with the Core's API (the user's bar; held instead, 2026-10-26).
     ("captured frame replayed with the Mods folder", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
@@ -265,7 +255,7 @@ STEPS = [
 # Steps by the area of the layer they check, for --only.
 GROUPS = {
     "backend-retirement": ["legacy backend retirement", "module ABI boundary", "native module", "character replacement", "matched native descriptors", "application texture rebinding", "native tracker", "Vulkan validation", "text check"],
-    "package-validation": ["character package validation", "installed Mods offline plans in one folder generation", "application texture rebinding", "native tracker", "Vulkan validation", "text check"],
+    "package-validation": ["character package validation", "application texture rebinding", "native tracker", "Vulkan validation", "text check"],
     "native-graphics-readiness": ["native graphics shader readiness", "native graphics file readiness", "native compute first use", "nonblocking draw readiness", "native file bindings", "native tracker", "Vulkan validation", "text check"],
     "queue-overlap": ["actual queue overlap", "text check"],
     "semaphore-lifetime": ["actual queue overlap", "native graphics file readiness", "native tracker", "two queues, bones", "bone regions reused", "probe end to end", "Vulkan validation", "text check"],

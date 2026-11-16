@@ -7,7 +7,14 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
-## D-303 prerequisite verified; backend rewrite remains active
+## D-304 loading path removed; finish generic execution before native queue work
+
+- Done: production root configuration loading, global hash matching, single Present/F10 generation and module exchange; removed character package discovery/controllers/activation, native Core substitution and offline package-planning entries. Source/four development DLLs are 3.2.2 / ABI 964248fc551584a0. Verification and scope are in CURRENT_STATE.md.
+- Next: execute generic file/owned vertex/index bindings and layouts, bridge actual application resources to the original Core GPU commands, and preserve explicit command order/lifetime. Reconnect exact shader semantic metadata. Do not reinstate package/character boundaries or native initializer substitutions.
+- Migrate remaining legacy capture/replacement fixtures and configuration documentation. The release checker uses root configurations now but no new candidate has been produced. Candidate 3.2.1 is historical acceptance of the removed architecture, not this rewrite.
+- Then resume native I-01 scheduler, I-04 phases, I-05 readiness and capture coverage. No real-game authorization.
+
+## D-303 prerequisite verified; historical intermediate state
 
 - Done: original root Include loading, GPU resource execution without a character extension, 10 CPU / 40 GPU checks and 553 original runtime checks. Installed configuration loads read-only with 2,172 variables, 848 referenced resources, 44 original diagnostics and zero adapter gaps at load.
 - Next: connect a single configuration generation to the loaded backend, translate evaluated geometry and live application resources, and remove package discovery/controllers/activation paths. Do not count the old 22-package release check as acceptance of this rewrite. The load-only evidence does not establish Core execution at a game draw.

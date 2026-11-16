@@ -1,6 +1,4 @@
-// The character backend of a device: the folders and packages it is configured with, the device's setup,
-// its creation and stop, and what the module is called for when a pipeline is retired, a pass ends, the
-// application submits and a frame is presented. Its other parts: character_backend_internal.h.
+// Device setup and lifecycle of the configuration execution module.
 #include "character_backend_internal.h"
 #include "native_images.h"
 
@@ -31,24 +29,11 @@ efmi::frontend::RuntimeInput sample_ini_input()
     return input;
 }
 
-// The character Mods of an EFMI Mods folder (D-078).
-std::vector<std::string> mods_characters(std::string& reason)
-{
-    std::vector<std::string> found;
-    for (const auto& path : CharacterProgram::mods_characters(mods_folder(), reason)) found.push_back(path.u8string());
-    if (found.size() > kMaxPackages) { found.resize(kMaxPackages); logf("character Mods: more than 4096 in %s, the first 4096 are used", mods_folder().u8string().c_str()); }
-    if (found.empty() && reason.empty()) reason = "no character Mod in " + mods_folder().u8string();
-    return found;
-}
 } // namespace
 
 namespace character_internal {
 // Directory generation (D-078): a character Mod is named by its INI instead of a package file.
-bool is_mod_ini(const std::string& path)
-{
-    const auto extension = std::filesystem::u8path(path).extension().wstring();
-    return !_wcsicmp(extension.c_str(), L".ini");
-}
+
 // A configured folder; a relative one is taken from the layer's own folder, where its configuration
 // is (the release names `../Mods` from EFMI\EFMI-Vulkan), never from the game's working directory.
 std::filesystem::path absolute_folder(const std::string& path)
@@ -63,58 +48,21 @@ std::filesystem::path absolute_folder(const std::string& path)
 // The configured Mods folder. `auto` (the release's) is the Mods folder of the EFMI folder the layer sits
 // in or under: the first folder upward from the DLL's own that holds Mods and Core\EFMI, so the release
 // works unpacked into EFMI (EFMI\EFMI-Vulkan) and into EFMI\Mods alike.
-std::filesystem::path mods_folder()
+std::filesystem::path configuration_root()
 {
-    if (g_cfg.m2_mods != "auto") return absolute_folder(g_cfg.m2_mods);
-    static const std::filesystem::path found = [] {
-        const auto start = module_folder();
-        std::error_code error;
-        for (auto at = start; !at.empty() && at.has_relative_path(); at = at.parent_path())
-            if (std::filesystem::is_directory(at / "Mods", error) && std::filesystem::is_directory(at / "Core" / "EFMI", error)) {
-                logf("Mods folder found from the layer's folder: %s", (at / "Mods").u8string().c_str());
-                return at / "Mods";
-            }
-        logf("Mods folder not found: no folder at or above %s holds Mods and Core\\EFMI. Put EFMI-Vulkan into the EFMI folder of the "
-             "XXMI Launcher, or name the Mods folder in efmi_vk.cfg (m2_mods)", start.u8string().c_str());
-        return std::filesystem::path{};
-    }();
-    return found;
+    if (g_cfg.configuration_root != "auto") return absolute_folder(g_cfg.configuration_root);
+    std::error_code error;
+    for (auto at = module_folder(); !at.empty() && at.has_relative_path(); at = at.parent_path())
+        if (std::filesystem::is_regular_file(at / "d3dx.ini", error)) return at;
+    return {};
 }
 std::filesystem::path module_folder()
 {
     // Configuration belongs to the injected host, even when replacement code lives elsewhere.
     return std::filesystem::path(module_dir());
 }
-CharacterProgram::Source mod_source(const std::string& ini)
-{
-    CharacterProgram::Source source;
-    source.ini = std::filesystem::absolute(std::filesystem::u8path(ini)).lexically_normal();
-    const auto mods = mods_folder();
-    source.core = g_cfg.m2_core.empty() ? mods.parent_path() / "Core" / "EFMI" : absolute_folder(g_cfg.m2_core);
-    source.settings = g_cfg.m2_settings.empty() ? module_folder() / "settings" : absolute_folder(g_cfg.m2_settings);
-    source.mod_namespace = CharacterProgram::declared_namespace(source.ini);
-    source.mods = mods;
-    return source;
-}
-std::vector<std::string> configured_packages(std::string& reason)
-{
-    if (!g_cfg.m2_mods.empty()) return mods_characters(reason);
-    const std::string& path = g_cfg.m2_package;
-    std::error_code error;
-    const auto where = std::filesystem::u8path(path);
-    if (!std::filesystem::is_directory(where, error)) return {path};
-    std::vector<std::string> found;
-    for (const auto& entry : std::filesystem::directory_iterator(where, error)) {
-        if (!entry.is_regular_file(error) || entry.path().extension() != ".bin") continue;
-        std::filesystem::path sidecar = entry.path();
-        sidecar += ".runtime.json";
-        if (std::filesystem::is_regular_file(sidecar, error)) found.push_back(entry.path().u8string());
-    }
-    std::sort(found.begin(), found.end());
-    if (found.size() > 32) { found.resize(32); logf("character packages: more than 32 in %s, the first 32 are used", path.c_str()); }
-    if (found.empty()) reason = "no live character package in " + path;
-    return found;
-}
+
+
 } // namespace character_internal
 
 void CharacterBackend::open_pipeline_cache()
@@ -171,7 +119,6 @@ void CharacterBackend::close_pipeline_cache()
 CharacterBackend::~CharacterBackend()
 {
     if (twins_sweep.valid()) twins_sweep.get();
-    for (auto& c : controllers) c->stop();
     if (folder_loading.valid()) { auto candidate = folder_loading.get(); if (candidate) candidate->stop(); }
     if (folder_staged) folder_staged->stop();
     if (folder) folder->stop();
@@ -264,6 +211,7 @@ std::shared_ptr<CharacterBackend> character_create(Device* d, const VkPhysicalDe
 {
     auto backend = std::make_shared<CharacterBackend>();
     backend->device = d;
+    backend->enabled.store(g_cfg.m2_enabled, std::memory_order_relaxed);
     backend->open_pipeline_cache();
     {
         VariantDispatch draw;
@@ -277,57 +225,23 @@ std::shared_ptr<CharacterBackend> character_create(Device* d, const VkPhysicalDe
     }
     backend->textures = std::make_unique<TextureResidency>(d, m);
     if (!backend->textures->usable()) logf("character textures unavailable: %s", backend->textures->reason().c_str());
-    backend->translucency = std::make_unique<Translucency>(d, m);
-    backend->bone_merge = std::make_unique<BoneMerge>(d, p, m);
-    if (!backend->bone_merge->usable()) logf("character bones stay on the CPU: %s", backend->bone_merge->reason().c_str());
-    std::error_code error;
-    const bool directory = !g_cfg.m2_mods.empty() || std::filesystem::is_directory(std::filesystem::u8path(g_cfg.m2_package), error);
-    backend->properties = p; backend->memory = m; backend->directory = directory;
-    backend->controllers.reserve(kMaxPackages);
-    if (!g_cfg.m2_mods.empty() && g_cfg.m2_folder_generation) {
-        // One generation for the whole Mods folder (D-131): a controller per package carved from it.
-        backend->folder = folder_create(d, p, m, backend->textures.get(), backend->variants, backend->translucency.get(), backend->bone_merge.get());
-        for (auto& package : backend->folder->packages) {
-            if (backend->controllers.size() >= kMaxPackages) { logf("character packages: no room for %s (4096 at most)", package->package_path.c_str()); break; }
-            auto controller = std::make_unique<CharacterController>();
-            controller->path = package->package_path; controller->lazy = true; controller->folder_member = true;
-            controller->active = package;
-            backend->controllers.push_back(std::move(controller));
-        }
-        if (backend->controllers.empty() && !backend->folder->program && !backend->folder->empty)
-            backend->reason = backend->folder->reason.empty() ? "no usable folder generation" : backend->folder->reason;
-        backend->folder->announce();
-        logf("character packages: %zu from the folder generation of %s", backend->controllers.size(), mods_folder().u8string().c_str());
-        backend->rebuild_index();
-        // The first frame's draws meet the generation's ShaderOverride sections (docs/vulkan-native-mods.md).
-        shader_hooks_frame(*backend,false);
-        // The first frame's draws see the gates of the generation loaded here (D-133).
-        g_dither_off.store(std::any_of(backend->folder->gates.begin(), backend->folder->gates.end(), [](const auto& g) { return g.value != 0; }),
-                           std::memory_order_relaxed);
-        g_dither_gated.store(!backend->folder->gates.empty(), std::memory_order_relaxed);
-        // A backend made while the game has its pipelines (a module exchange) prepares their twins here,
-        // off the game's threads; one made with the device has none yet.
-        prepare_twins(*backend);
-        backend->twins_swept = g_dither_gated.load(std::memory_order_relaxed);
-        return backend;
-    }
-    for (const auto& path : configured_packages(backend->reason)) {
-        auto controller = std::make_unique<CharacterController>();
-        controller->path = path; controller->lazy = directory;
-        controller->active = generation_create(d, p, m, path, directory, backend->textures.get(), backend->variants, backend->translucency.get(),
-                                               backend->bone_merge.get());
-        backend->controllers.push_back(std::move(controller));
-    }
-    if (directory) logf("character packages: %zu from %s", backend->controllers.size(),
-                        g_cfg.m2_mods.empty() ? g_cfg.m2_package.c_str() : g_cfg.m2_mods.c_str());
-    backend->rebuild_index();
+    backend->properties = p; backend->memory = m;
+    backend->folder = folder_create(d, m, backend->variants);
+    backend->reason = backend->folder->reason;
+    backend->folder->announce();
+    shader_hooks_frame(*backend, false);
+    g_dither_off.store(std::any_of(backend->folder->gates.begin(), backend->folder->gates.end(),
+        [](const auto& gate) { return gate.value != 0; }), std::memory_order_relaxed);
+    g_dither_gated.store(!backend->folder->gates.empty(), std::memory_order_relaxed);
+    prepare_twins(*backend);
+    backend->twins_swept = g_dither_gated.load(std::memory_order_relaxed);
     return backend;
 }
+
 void character_stop(CharacterBackend& b)
 {
     if (b.twins_sweep.valid()) b.twins_sweep.get();
     { std::unique_lock<std::shared_mutex> lock(b.index_mx); b.shader_hooks.reset(); }
-    for (auto& c : b.controllers) c->stop();
     if (b.folder_loading.valid()) { auto candidate = b.folder_loading.get(); if (candidate) candidate->stop(); }
     if (b.folder_staged) { b.folder_staged->stop(); b.folder_staged.reset(); }
     if (b.folder) b.folder->stop();
@@ -351,126 +265,18 @@ void character_retire(CharacterBackend& b, uint32_t id)
             if (std::get<1>(*it) == id) it = b.twins_failed.erase(it); else ++it;
     }
     { std::unique_lock<std::shared_mutex> lock(g_dither_mx); g_dither_pipelines.erase(id); }
-    if (b.translucency) b.translucency->retire(id);
-    { std::lock_guard<std::mutex> lock(b.copy_mx); b.copy_facts.erase(id); }
-    for (auto& c : b.controllers) {
-        std::shared_lock<std::shared_mutex> lock(c->mutex);
-        if (c->active) generation_retire(*c->active, id);
-        if (c->staged) generation_retire(*c->staged, id);
-    }
 }
 // After the application ended a classic render pass (D-113). The library's depth-copy hook: every
 // draw of the game's copy shader in the pass is told to the generations that loaded EFMITTL (its pre
 // list: `$copy_after_lit` when the lit pass was seen). Then the pass's captures and composite.
-void character_pass_end(CharacterBackend& b, CmdBuf* cb)
-{
-    if (!b.enabled.load(std::memory_order_relaxed) || !b.translucency) return;
-    b.translucency->pass_end(cb);
-    if (!b.translucency->listening()) return;
-    // The game's copy shader among the pass's draws without indices (its full-screen passes).
-    bool copied = false;
-    for (size_t i = cb->pass.first_draw; i < cb->draws.size() && !copied; ++i) {
-        const DrawRec& r = cb->draws[i];
-        if (r.kind != DK_DRAW || !r.pipeline) continue;
-        uint32_t id = 0; bool known = false;
-        std::vector<uint32_t> fragment;
-        {
-            std::shared_lock<std::shared_mutex> tracker(b.device->res_mx);
-            const auto pipe = b.device->pipes.find(r.pipeline);
-            if (pipe == b.device->pipes.end() || !pipe->second.recipe) continue;
-            id = pipe->second.id;
-            std::lock_guard<std::mutex> lock(b.copy_mx);
-            const auto found = b.copy_facts.find(id);
-            if (found != b.copy_facts.end()) { known = true; copied = found->second; }
-            else for (const auto& stage : pipe->second.recipe->stages)
-                if (stage.stage == VK_SHADER_STAGE_FRAGMENT_BIT && stage.shader) fragment = stage.shader->code;
-        }
-        if (!known) {
-            copied = copy_fragment(fragment);
-            std::lock_guard<std::mutex> lock(b.copy_mx);
-            if (b.copy_facts.size() >= 8192) b.copy_facts.clear();
-            b.copy_facts[id] = copied;
-        }
-    }
-    if (!copied) return;
-    // The hook's pre list sets one flag; once per pass is as many times as it matters.
-    for (auto& c : b.controllers) {
-        std::shared_ptr<CharacterGeneration> g;
-        {
-            std::shared_lock<std::shared_mutex> lock(c->mutex);
-            if (c->stopped || !c->active || !c->active->program || !c->active->program->efmittl() ||
-                !c->active->activated.load(std::memory_order_relaxed)) continue;
-            g = c->active;
-        }
-        std::lock_guard<std::mutex> lock(g->mod_mx);
-        if (g->program) g->program->library_hook(efmi::frontend::LibraryHook::CopyShader);
-    }
-}
+void character_pass_end(CharacterBackend&, CmdBuf*) {}
 
-VkResult character_submit(CharacterBackend& b, VkQueue q, SubmitWork& work)
+VkResult character_submit(CharacterBackend& b, VkQueue q, SubmitWork&)
 {
-    // The textures' uploads and publication on this queue, before any package's work (D-094).
-    ThreadTrace* const trace = b.device && b.device->trace ? b.device->trace() : nullptr;
-    if (b.textures) { StageMark stage(trace, "character submission: texture uploads"); const auto result = b.textures->before_submit(q); if (result != VK_SUCCESS) return result; }
-    // The merged skeletons the submitted recordings read (D-127): per application batch, the imports its
-    // recordings carry and their snapshots' copies, in a command buffer of ours the host puts at the front
-    // of that batch, so the game's own waits order them on whichever queue the game chose.
-    if (b.bone_merge && b.device && !work.batches.empty() &&
-        std::find(b.device->material_queues.begin(), b.device->material_queues.end(), q) != b.device->material_queues.end()) {
-        StageMark stage(trace, "character submission: bone imports");
-        std::vector<const void*> keys;
-        for (auto& c : b.controllers) {
-            std::shared_lock<std::shared_mutex> lock(c->mutex);
-            if (c->active) keys.push_back(c->active->generation_key.get());
-            if (c->staged) keys.push_back(c->staged->generation_key.get());
-        }
-        thread_local std::vector<BoneBatch> batches;
-        thread_local std::vector<CharacterCommand*> mine;
-        batches.resize(work.batches.size());
-        for (size_t i = 0; i < work.batches.size(); ++i) {
-            BoneBatch& batch = batches[i]; batch.clear();
-            mine.clear();
-            for (CmdBuf* cb : work.batches[i].cbs)
-                for (auto& owner : cb->owners)
-                    if (owner && std::find(keys.begin(), keys.end(), owner->backend) != keys.end())
-                        mine.push_back(static_cast<CharacterCommand*>(owner.get()));
-            // The batch's own imports first; then an import taken from another recording, only while that
-            // recording is still not submitted (an earlier batch of this call submits it first) and no
-            // recording of this batch imports the component itself.
-            auto has = [&](const BoneRing* ring, uint32_t component) {
-                for (const auto& job : batch.jobs) if (job.ring.get() == ring && job.component == component) return true;
-                return false;
-            };
-            for (auto* owner : mine)
-                for (const auto& job : owner->bone_jobs) if (job.recording == owner->recording) batch.jobs.push_back(job);
-            for (auto* owner : mine)
-                for (const auto& job : owner->bone_jobs)
-                    if (job.recording != owner->recording && job.recording && job.recording->pending(job.epoch) && !has(job.ring.get(), job.component))
-                        batch.jobs.push_back(job);
-            for (auto* owner : mine)
-                for (const auto& held : owner->rings) batch.copies.push_back({held.first, held.second});
-            for (auto* owner : mine) owner->recording->submitted();
-        }
-        VkSemaphore timeline = VK_NULL_HANDLE; uint64_t value = 0;
-        if (b.bone_merge->prepare(q, batches, timeline, value)) {
-            for (size_t i = 0; i < batches.size(); ++i) if (batches[i].cb) work.batches[i].prefix.push_back(batches[i].cb);
-            work.signals.push_back({timeline, value});
-        }
-        for (auto& batch : batches) batch.clear(); // the rings and recordings are not kept past the call
-    }
-    for (auto& c : b.controllers) {
-        std::shared_lock<std::shared_mutex> lock(c->mutex); if (c->stopped) continue;
-        auto result = c->active ? generation_submit(*c->active, q) : VK_SUCCESS;
-        if (result == VK_SUCCESS && c->staged) result = generation_submit(*c->staged, q);
-        if (result != VK_SUCCESS) return result;
-    }
+    if (b.textures) { const auto result = b.textures->before_submit(q); if (result != VK_SUCCESS) return result; }
     return VK_SUCCESS;
 }
-void character_submitted(CharacterBackend& b, VkQueue q, SubmitWork& work, VkResult result)
-{
-    if (!b.bone_merge) return;
-    for (const auto& signal : work.signals) b.bone_merge->finish(q, signal.semaphore, signal.value, result == VK_SUCCESS);
-}
+void character_submitted(CharacterBackend&, VkQueue, SubmitWork&, VkResult) {}
 // Each package runs its Present work in turn; a presenter waits for what the one before handed on.
 void character_frame(CharacterBackend& b, bool had_draws, PresentWork* present)
 {
@@ -481,54 +287,22 @@ void character_frame(CharacterBackend& b, bool had_draws, PresentWork* present)
     } clock{b, host_time_us()};
     if (had_draws) b.frames.fetch_add(1, std::memory_order_relaxed);
     if (b.textures) b.textures->frame();
-    if (b.translucency) b.translucency->frame();
     // The keys, the window and the cursor, once for every package (they cost per package before).
     auto input = sample_ini_input();
     OwnedPresenter::sample(b.device, present, input);
-    bool rescan = false;
-    for (auto& c : b.controllers) {
-        c->frame(had_draws, present, input);
-        if (c->reload_taken) { c->reload_taken = false; rescan = true; }
-    }
-    if (b.folder) folder_frame_and_exchange(b, had_draws, present, input);
-    else if (rescan && b.directory) character_rescan(b);
+    folder_frame_and_exchange(b, had_draws, present, input);
     // Route 2: the ShaderOverride hashes of the generation in place, the hunting keys of this presentation.
     shader_hooks_frame(b);
-    if (b.index_stale()) b.rebuild_index();
 }
 bool character_usable(CharacterBackend& b, std::string& reason)
 {
-    reason = b.reason;
-    // LoadConfigFile/ReloadConfig does not require a character package. A native-only or empty
-    // installation generation still owns its ShaderOverride, hunting and ShaderFixes state.
-    bool any = b.controllers.empty() && b.folder && (b.folder->program || b.folder->empty);
-    for (auto& c : b.controllers) {
-        std::shared_lock<std::shared_mutex> lock(c->mutex);
-        std::string why;
-        if (c->active && generation_usable(*c->active, why)) any = true;
-        else if (reason.empty()) reason = why;
-    }
-    if (any) reason.clear();
-    return any;
+    const bool loaded = b.folder && b.folder->program;
+    reason = loaded ? std::string{} : b.folder ? b.folder->reason : b.reason;
+    return loaded;
 }
 // Every usable package is ready; a lazy one counts as ready, it prepares on its first match.
-bool character_ready(CharacterBackend& b)
-{
-    bool any = b.controllers.empty() && b.folder && (b.folder->program || b.folder->empty);
-    for (auto& c : b.controllers) {
-        std::shared_lock<std::shared_mutex> lock(c->mutex);
-        std::string why;
-        if (!c->active || !generation_usable(*c->active, why)) continue;
-        any = true;
-        if (!c->lazy && !generation_ready(*c->active)) return false;
-    }
-    return any;
-}
-void character_enable(CharacterBackend& b, bool enabled)
-{
-    b.enabled.store(enabled, std::memory_order_relaxed);
-    for (auto& c : b.controllers) { std::shared_lock<std::shared_mutex> lock(c->mutex); if (c->active) generation_enable(*c->active, enabled); }
-}
+bool character_ready(CharacterBackend& b) { return b.folder && b.folder->program; }
+void character_enable(CharacterBackend& b, bool enabled) { b.enabled.store(enabled, std::memory_order_relaxed); }
 
 const CharacterModule* builtin_character_module()
 {
@@ -550,7 +324,3 @@ const CharacterModule* builtin_character_module()
 }
 
 } // namespace efvk
-
-#if defined(EFVK_CHARACTER_CACHE_TESTS)
-#include "../../sandbox/character_cache_cases.h"
-#endif

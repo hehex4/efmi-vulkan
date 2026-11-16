@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#define EFVK_VERSION "3.2.1"
+#define EFVK_VERSION "3.2.2"
 #define EFVK_PROTOCOL 1
 #define EFVK_LAYER_NAME "VK_LAYER_EFMI_probe"
 
@@ -43,31 +43,24 @@ enum class Entry {
 struct Config {
     Mode mode = Mode::Probe;
     Entry entry = Entry::Layer;
-    std::string m2_package; // character package or package directory; Mods folders use m2_mods
-    // Directory generation (D-078): the EFMI Mods folder whose character Mods run without packages,
-    // the Core folder they run with (default: Core\EFMI beside the Mods folder) and the project-owned
-    // folder their settings are saved in (default: settings beside the replacement module).
-    std::string m2_mods, m2_core, m2_settings;
+    std::string configuration_root; // root containing d3dx.ini; auto searches DLL ancestors
+    // Project-owned persistence and shader caches; never write into the installation.
+    std::string m2_settings;
     // The measured DX11 result for a 2D file at a 3D shader image on one device (zero: the
     // dx11-invalid-2d-to-3d-zero policy, docs/character-materials.md), as "vendor:device"; the
     // directory generation applies it only on that device. The evidence is checked by the tooling.
     uint32_t m2_dimension_zero_vendor = 0, m2_dimension_zero_device = 0;
     bool m2_enabled = false;
     uint64_t m2_reserve_mb = 0; // device-local memory kept free for the application; 0: automatic (D-092, D-094)
-    uint64_t m2_identity_expiry_ms = 10000; // an object not drawn this long is forgotten (D-100); tests shorten it
     // Persistent INI variables are saved at most this often while they change, as the original's
     // settings_auto_save_interval ([System] of d3dx.ini, 60 by default and in the installation).
     uint64_t settings_save_seconds = 60;
     bool shader_cache = true; // translated CustomShader stages kept in settings/shader-cache (D-126)
     uint64_t m2_texture_budget_mb = 0; // cap of the textures' device memory; 0: half the device-local heap (D-094)
     uint64_t m2_texture_reduce_mb = 16; // a texture file this large loads without its top mip level when memory is tight; 0: never
-    bool m2_texture_preload = false;    // every image of a package demanded at its activation (tests); default on first bind
     bool m2_pageable = true;            // VK_EXT_memory_priority and VK_EXT_pageable_device_local_memory when supported (D-095)
     bool m2_gpu_bones = true;           // the merged skeleton imported by compute dispatches, not CPU reads (D-117); the probe can switch it
     bool m2_owned = true; // owned GPU execution (Present work, GPU work in draws); m2_owned = 0 turns it off
-    // D-131: the Mods folder (m2_mods) as one INI generation, its character Mods' packages carved from it;
-    // m2_folder_generation = 0 keeps a generation per character Mod.
-    bool m2_folder_generation = true;
     bool keep_log_open = true;
     uint64_t unmap_snapshot_limit = 16ull << 20; // largest staging buffer copied when its memory is unmapped
     uint32_t shadow_usage = 0;                   // VkBufferUsageFlags that get a CPU shadow (set in util.cpp)
@@ -92,8 +85,8 @@ struct Config {
 };
 
 extern Config g_cfg;
-// A character package, a directory of them or a Mods folder (D-078) is configured.
-inline bool character_configured() { return !g_cfg.m2_package.empty() || !g_cfg.m2_mods.empty(); }
+// The original root configuration is explicitly enabled.
+inline bool character_configured() { return !g_cfg.configuration_root.empty(); }
 
 // What happened while attaching; reported by the status command.
 struct AttachInfo {

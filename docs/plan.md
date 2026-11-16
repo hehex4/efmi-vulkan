@@ -1,5 +1,10 @@
 # EFMI Vulkan implementation plan (v2)
 
+Current architecture directive (2026-11-16): original root configuration and lazy
+resource execution replace all character/Mod package loading. D-304 removes the
+old runtime entry; generic draw/resource execution remains in progress. Follow
+docs/configuration-execution-rewrite.md where this historical plan differs.
+
 Date: 2026-10-11.
 Status at the time of writing: no code, nothing run inside the game. The facts below come from static inspection of local files and public sources.
 Previous version (v1, not in this repository): `D:\XXMI-Launcher-Portable-v2.1.6\EFMI\output\efmi-vulkan-plan-20261011\`.
