@@ -91,3 +91,70 @@ run = CustomShaderPanel
     resources.backbuffer(nullptr,DXGI_FORMAT_UNKNOWN);image.reset();ini.reset();gpu.reset();
     check(!budgets.resident->used() && !budgets.staging->used() && !host.objects->used(),"The mixed generation retires its owned budgets");
 }
+
+// No native character/Core extension: original includes and resource declarations
+// alone determine loading, references, execution and lifetime.
+static void configuration_resource_cases(Device& d,const std::filesystem::path& root)
+{
+    std::filesystem::create_directories(root/"Content");
+    write(root/"d3dx.ini",R"ini([Include]
+include_recursive = Content
+[Constants]
+global $before = 0
+global $after = 0
+global $copied = 0
+global $frame = 0
+[ResourceAlias]
+[ResourceCopy]
+bind_flags = shader_resource unordered_access
+[ResourceNeverUsed]
+type = StructuredBuffer
+stride = 4
+filename = missing-unused.buf
+[Present]
+if $frame == 0
+ ResourceAlias = ref Resource\library\Data
+ store = $before, ResourceAlias, 2
+ ResourceCopy = copy ResourceAlias
+ cs-u0 = ref ResourceAlias
+ clear = cs-u0 0x41000000
+ store = $after, Resource\library\Data, 2
+ store = $copied, ResourceCopy, 2
+endif
+$frame = $frame + 1
+)ini");
+    write(root/"Content/resources.ini",R"ini(namespace = library
+[ResourceData]
+type = StructuredBuffer
+stride = 4
+data = R32_FLOAT 1 2 3 4
+bind_flags = shader_resource unordered_access
+)ini");
+    frontend::RuntimeConfig config{root,{},root/"settings","configuration"};
+    config.installation=root;
+    gpu::ResourceBudgets budgets;auto host=shader_host(d);
+    auto gpu=std::make_shared<frontend::GpuShaderRuntime>(d.resource,host,L"F:/vulkan/dxc-1.9.2609/bin/x64/dxcompiler.dll",budgets);
+    auto& resources=gpu->resources();std::string why;
+    resources.begin(d.queue,frontend::GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+    auto ini=frontend::IniRuntime::load(config,frontend::owned_generation({},gpu),why);
+    if(!ini)throw std::runtime_error("Load ordinary GPU configuration: "+why);++checks;
+    {auto ticket=resources.finish();if(ticket)ticket->wait();}
+    const auto dormant=budgets.resident->used();
+    check(ini->status().variables.at("$frame")==0,"Loading does not run Present or resource users early");
+    resources.begin(d.queue,frontend::GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+    check(ini->present({},1,0,why),"Original Present executes without a character extension");
+    {auto ticket=resources.finish();if(ticket)ticket->wait();}
+    const auto values=ini->status().variables;
+    check(values.at("$before")==3 && values.at("$after")==8 && values.at("$copied")==3,
+          "Cross-file resource references alias storage while copies preserve earlier contents");
+    check(budgets.resident->used()>dormant,"Resources are instantiated by executed commands");
+    const auto used=budgets.resident->used();
+    resources.begin(d.queue,frontend::GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+    check(ini->present({},2,0,why),"A later Present reuses the same configuration");
+    {auto ticket=resources.finish();if(ticket)ticket->wait();}
+    check(budgets.resident->used()==used,"Unused resource declarations stay dormant on later frames");
+    check(ini->status().gaps.empty(),"Ordinary resource execution produces no adapter refusal");
+    ini.reset();gpu.reset();
+    check(!budgets.resident->used() && !budgets.staging->used() && !host.objects->used(),
+          "Configuration retirement releases all completed resource owners");
+}

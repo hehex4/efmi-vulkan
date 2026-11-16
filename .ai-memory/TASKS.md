@@ -1,6 +1,18 @@
 # EFMI Vulkan - Tasks
 
 
+## Active priority: remove character-based loading (user, 2026-11-16)
+
+- Replace package discovery/loading/activation with the original root INI and Include registry, command-driven resources and a shared Vulkan execution path. Remove the former runtime paths, not just their names. Execute installed Core commands as configuration content; do not select character packages from skeleton initializers.
+- First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
+- After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
+
+## D-303 prerequisite verified; backend rewrite remains active
+
+- Done: original root Include loading, GPU resource execution without a character extension, 10 CPU / 40 GPU checks and 553 original runtime checks. Installed configuration loads read-only with 2,172 variables, 848 referenced resources, 44 original diagnostics and zero adapter gaps at load.
+- Next: connect a single configuration generation to the loaded backend, translate evaluated geometry and live application resources, and remove package discovery/controllers/activation paths. Do not count the old 22-package release check as acceptance of this rewrite. The load-only evidence does not establish Core execution at a game draw.
+- Continue native queue/access scheduling after this rewrite. Last built production artifacts remain 3.2.1.
+
 ## D-302: Verified no-probe 3.2.1 candidate (2026-11-16)
 
 - Source and four development DLLs are 3.2.1 / ABI 7c4613bb6a168795. The current unpublished candidate is build/candidate-current/EFMI-Vulkan-3.2.1.zip, SHA-256 26b596072fcd2629ec5991cc5068cb81dae2e88dd34c5b93b9de26b6a957251a, built from runtime commit 5833025 (D-301). Matching host/backend artifacts are required for the new shared restoration state.

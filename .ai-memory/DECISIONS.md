@@ -4,6 +4,15 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## User directive: retire character/Mod loading boundaries (2026-11-16)
+
+The user requires the compatibility route to load and execute like original DX11
+3DMigoto, explicitly deleting character-based loading, then continuing the Vulkan
+native route. This supersedes D-078/D-131/D-174/D-177's package loading model. Shared
+parsing with per-Mod backend generations is insufficient. Original includes and
+matching command lists decide execution; declared resources, not character bundles,
+are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
+
 ## D-302: Verify the candidate after the shared restoration protocol change (2026-11-16)
 
 The 3.2.1 candidate packages the matching host implementation and exact semantic cache after D-301's affected-area/module regression. Preserve 3.2.0 as rollback with its provenance. The superseded 3.1.8 archive remains only because automatic approval review rejected its retirement; this is an explicit retention exception, not a second intended rollback. Sandbox package loads and real-character verification remain separate.

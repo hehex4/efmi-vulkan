@@ -90,7 +90,7 @@ def main() -> int:
         report["parameter_consumer_sha256"] = hashlib.sha256(spirv.read_bytes()).hexdigest()
         objects = build_runtime(ROOT / "build/xxmi-runtime")
         executable = out / "resource_gpu.exe"
-        sources = [ROOT / "sandbox/resource_gpu.cpp", ROOT / "layer/src/merged_skeleton.cpp"]
+        sources = [ROOT / "sandbox/resource_gpu.cpp", ROOT / "layer/src/merged_skeleton.cpp", ROOT / "layer/src/pipeline_recipe.cpp"]
         log = io.StringIO()
         try:
             with contextlib.redirect_stdout(log):

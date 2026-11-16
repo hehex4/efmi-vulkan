@@ -1515,6 +1515,35 @@ static int present_ini(const std::filesystem::path& root,unsigned frames){
 }
 int wmain(int argc,wchar_t** argv){
     setvbuf(stdout,nullptr,_IONBF,0);
+    if(argc==4 && !wcscmp(argv[1],L"--load-configuration")){
+        try{{
+            Device device;device.init(false,false,true,false,false,false,true,true,true);
+            const auto root=std::filesystem::absolute(argv[2]);
+            const auto settings=std::filesystem::absolute(argv[3]);
+            frontend::RuntimeConfig config{root,{},settings,"configuration-inspection"};config.installation=root;
+            config.shader_hooks=true;
+            auto gpu=std::make_shared<frontend::GpuShaderRuntime>(device.resource,shader_host(device),
+                L"F:/vulkan/dxc-1.9.2609/bin/x64/dxcompiler.dll",gpu::ResourceBudgets{},root);
+            gpu->enable_cached_bytecode(L"F:/vulkan/vkd3d-2.1-build/efmi-vkd3d-shader.dll",gpu::DxbcFloat32Mode::Software);
+            auto& resources=gpu->resources();resources.begin(device.queue,frontend::GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+            std::string why;auto ini=frontend::IniRuntime::load(config,frontend::owned_generation({},gpu),why);
+            if(!ini)throw std::runtime_error(why);
+            {auto ticket=resources.finish();if(ticket)ticket->wait();}
+            const auto status=ini->status();
+            printf("configuration loaded: variables=%zu resources=%zu diagnostics=%zu gaps=%zu\n",
+                status.variables.size(),ini->resources().size(),size_t(status.diagnostics),status.gaps.size());
+            for(const auto& gap:status.gaps)printf("gap: %s\n",gap.c_str());
+            }
+            return errors || warnings?1:0;
+        }catch(const std::exception& e){fprintf(stderr,"load-configuration: %s\n",e.what());return 1;}
+    }
+    if(argc==3 && !wcscmp(argv[1],L"--configuration")){
+        try{{Device device;device.init(false,false,true,false,false,false,true,true,true);
+            configuration_resource_cases(device,std::filesystem::absolute(argv[2]));}
+            printf("configuration resources: %u checks passed; validation errors=%u warnings=%u\n",unsigned(checks),unsigned(errors),unsigned(warnings));
+            return errors || warnings?1:0;
+        }catch(const std::exception& e){fprintf(stderr,"configuration resources: %s\n",e.what());return 1;}
+    }
     if(argc==4 && !wcscmp(argv[1],L"--present-ini")){
         try{return present_ini(std::filesystem::absolute(argv[2]),unsigned(_wtoi(argv[3])));}
         catch(const std::exception& e){fprintf(stderr,"present-ini: %s\n",e.what());return 1;}
@@ -1546,6 +1575,7 @@ int wmain(int argc,wchar_t** argv){
         original_pixel_binding_sets(device,root/"pixel-binding-sets");graphics_link_pixels(device,root/"graphics-link");
         graphics_coordinate_pixels(device,root/"graphics-coordinates");original_graphics_state_descriptions();owned_graphics(device,root/"owned-graphics");
         original_graphics_creation_defaults();original_ini_graphics(device,root/"ini-graphics");original_backbuffer(device,root/"backbuffer");imported_backbuffer(device,root/"imported-backbuffer");original_image_panel(device,root/"panel");original_owned_operands(device,root/"owned-operands");owned_generation_cases(device,root/"owned-generation");original_ini_graphics_nesting(device,root/"ini-graphics-nesting");
+        configuration_resource_cases(device,root/"configuration-resources");
         original_ini_graphics_sampling(device,root/"ini-graphics-sampling");original_ini_graphics_state_pixels(device,root/"ini-graphics-state");
         original_ini_graphics_depth(device,root/"ini-graphics-depth");original_ini_graphics_caller_and_failure(device,root/"ini-graphics-caller");
         original_ini_geometry(device,root/"ini-geometry");original_core_text(root/"core-text");

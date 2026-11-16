@@ -367,7 +367,8 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
             std::shared_ptr<RuntimeExtension> extension;bool complete=false;
             ~LoadGuard(){if(!complete && extension)extension->execution_failed();}
         } load_guard{p.extension};
-        if ((config.inputs.empty() && config.mods_directory.empty()) || config.libraries.size() > 16 || !config.resource_root.is_absolute() ||
+        const bool root_configuration = config.inputs.empty() && config.mods_directory.empty() && !config.installation.empty();
+        if ((!root_configuration && config.inputs.empty() && config.mods_directory.empty()) || config.libraries.size() > 16 || !config.resource_root.is_absolute() ||
             !config.settings_directory.is_absolute() || config.settings_name.empty() || config.settings_name.size() > 80 ||
             config.settings_name.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_") != std::string::npos)
             throw std::runtime_error("Invalid frontend input/settings location");
@@ -379,7 +380,13 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         if (!config.installation.empty()) {
             std::error_code error;
             const auto d3dx = config.installation / "d3dx.ini";
-            if (std::filesystem::is_regular_file(d3dx, error)) read_installation(d3dx);
+            if (root_configuration) {
+                if (!config.installation.is_absolute() || !std::filesystem::is_regular_file(d3dx, error))
+                    throw std::runtime_error("Root configuration d3dx.ini is unavailable");
+                if (!std::filesystem::equivalent(config.resource_root, config.installation, error) || error)
+                    throw std::runtime_error("Root configuration includes must resolve from its installation directory");
+                read_ini(d3dx, L"");
+            } else if (std::filesystem::is_regular_file(d3dx, error)) read_installation(d3dx);
         }
         if (!config.mods_directory.empty()) {
             auto relative = config.mods_directory.lexically_relative(config.resource_root);
@@ -623,7 +630,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         // Directory generations validate all enabled files. Legacy explicit
         // profiles intentionally import only a reachable Core subgraph; those
         // partial inputs do not declare the rest of the Core's dependencies.
-        if (!config.mods_directory.empty()) HostCompileRemainingLists(boundaries);
+        if (root_configuration || !config.mods_directory.empty()) HostCompileRemainingLists(boundaries);
         auto all_roots = registered_command_lists;
         // The optimizer releases its temporary ownership of branch lists.
         // Removed branches then die; only adapt surviving children through

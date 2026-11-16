@@ -3277,3 +3277,28 @@ Source2.7.7/ABIed438873594532dd implementation and isolated fixture integration 
 - d302-release-build.out includes all 5,265 exact semantic identities. d302-release-check.out passes archive/content/digest checks, no-probe checks, all 22 installed package loads with none left out, both owned unpack layouts, default cache loading and core/synchronization validation. ZIP CRC and equality with the active cache also pass. This verifies sandbox package loading, not 22 real characters.
 - build-result.json records current provenance; rollback-3.2.0.json and the unchanged 3.2.0 archive preserve the prior verified candidate. Automatic approval review rejected retirement of the now superseded candidate-d296/3.1.8 archive, its sidecar and provenance, returning only blocked by policy. Those files remain, as do the previously blocked temporary directories. No bypass or retry was attempted for this rejection.
 - D-298/D-299/D-301 are committed and merged into main. I-01 production queue/resource scheduling remains the principal architecture blocker; I-04 still needs other phases/original-output aliases/automatic input nulling, I-05 one-shot compute readiness and I-06 broader inputs remain open. None is closed by these sandbox results. Root dist stays 2.1.8 and the last historical game build stays 2.1.7; no game load/deployment, launcher/system change or remote write occurred.
+
+## 2026-11-16: D-303 original configuration prerequisite
+
+The user requires complete removal of character/Mod package loading before continuing
+Vulkan-native work. Read original IniHandler::ParseIncludedIniFiles,
+CommandList::CustomResource::Substantiate and HackerContext::BeforeDraw. DX11 owns
+reference-counted deferred lifetime, hazards and context order; Vulkan must preserve
+these explicitly. The current package frontend/backend mismatch is confirmed and the
+new directive is recorded in AGENTS and docs/configuration-execution-rewrite.md.
+
+The initial root-only fixture fails at Invalid frontend input/settings location.
+IniRuntime now reads the complete root configuration and original Include tree; the
+focused fixture passes 10 checks. OwnedGeneration's null-native fixture fails at its
+mandatory native-extension constructor, then passes 40 GPU checks after ordinary GPU
+execution is allowed. Core/synchronization validation reports zero errors/warnings.
+Original INI runtime passes 553 checks. A read-only installed-root load reports 2,172
+variables, 848 referenced files, 44 original diagnostics and no load-time adapter gaps.
+The GPU test build exposed a missing pipeline_recipe.cpp link dependency in its script;
+that dependency is now explicit. Logs use build/configuration-*.out and existing build
+locations are reused. Text/diff checks pass.
+
+This is an interpreter/resource prerequisite. Production still loads CharacterGeneration
+packages; integration, generic application imports/draw execution and deletion of the
+old paths remain the active task. Layer/candidate stays 3.2.1. No game, installed-file,
+launcher, system or remote changes. No claim of completed architecture rewrite.

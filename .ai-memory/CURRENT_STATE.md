@@ -5,6 +5,19 @@
 > Branches: main and engine-work, the branch of the worktree `.worktrees/fix` where the work is done; main is fast-forwarded to verified commits. Local commits and the remote-tracking ref are distinguished below.
 
 
+## Active priority: original configuration execution rewrite (2026-11-16)
+
+- The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
+- Source inspection confirms the mismatch: discover_folder scans skeleton initializer INIs, excludes namespace/package units, creates per-Mod CharacterProgram views and CharacterGeneration instances, and routes draws through their package index. One shared parser alone does not remove those loading boundaries.
+- Work begins with a focused original-root-configuration fixture. No backend migration or package-path removal is yet claimed. The last verified source/candidate remains 3.2.1 / D-302 below. No real-game action is authorized by this rewrite request.
+
+## D-303: Original configuration entry and ordinary GPU resource execution
+
+- IniRuntime now accepts a root installation without a caller-enumerated input list, reads its complete d3dx.ini and uses the original Include implementation. Persistence remains in the explicitly project-owned settings directory. Explicit-input diagnostic fixtures keep their bounded inputs.
+- OwnedGeneration can run the ordinary GPU adapter without a native character/Core extension. No named Core list is intercepted in that mode. Configuration tests reproduce the former missing entry and mandatory-native-extension failures before the fixes.
+- scripts/check_configuration.py passes 10 root/namespace/include/generation checks and 40 headless GPU checks with zero core/synchronization validation errors or warnings. The original INI runtime regression passes 553 checks. A read-only load of the installed root configuration through the ordinary GPU adapter succeeds: 2,172 variables, 848 referenced file resources, 44 original diagnostics, zero adapter gaps at load. This does not execute game draws or validate live Core imports.
+- The production backend still uses the former CharacterProgram/CharacterGeneration loading path. Replace it and add generic application resource/draw adapters next, then delete package discovery/controllers and their obsolete configuration. This is a frontend prerequisite, not completion of the requested rewrite. Last built layer/candidate stays 3.2.1; no game activity or installed-file mutation.
+
 ## D-302: Verified no-probe 3.2.1 candidate (2026-11-16)
 
 - Source and four development DLLs are 3.2.1 / ABI 7c4613bb6a168795. The current unpublished candidate is build/candidate-current/EFMI-Vulkan-3.2.1.zip, SHA-256 26b596072fcd2629ec5991cc5068cb81dae2e88dd34c5b93b9de26b6a957251a, built from runtime commit 5833025 (D-301). Matching host/backend artifacts are required for the new shared restoration state.

@@ -38,6 +38,7 @@ static void write(const std::filesystem::path& path, const char* text)
 #include "runtime_window_cases.h"
 #include "runtime_library_cases.h"
 #include "runtime_concurrency_cases.h"
+#include "runtime_configuration_cases.h"
 static const char* fixture = R"ini(namespace = runtime_test
 [Constants]
 global persist $dress = 0
@@ -295,6 +296,10 @@ int wmain(int argc, wchar_t** argv)
 {
     try {
         if (argc == 2 && !wcscmp(argv[1], L"--state-table")) return state_table();
+        if (argc == 3 && !wcscmp(argv[1], L"--configuration")) {
+            runtime_configuration_cases(argv[2]);
+            printf("Configuration: %d checks passed\n", checks); return 0;
+        }
         if (argc == 6 && !wcscmp(argv[1], L"--judge-scene"))
             return judge_scene(argv[2], _wtoi(argv[3]), uint32_t(wcstoul(argv[4], nullptr, 16)), uint32_t(wcstoul(argv[5], nullptr, 16)));
         if (argc > 1 && !wcscmp(argv[1], L"--inspect-character")) return inspect_character(argc, argv);
@@ -334,6 +339,7 @@ int wmain(int argc, wchar_t** argv)
         runtime_library_hook_cases(folder);
         runtime_host_value_cases(folder);
         runtime_concurrency_cases(folder);
+        runtime_configuration_cases(folder);
         const auto ini = folder / "mod.ini"; write(ini, fixture);
         const auto settings = folder / "settings";
         std::filesystem::remove(settings / "runtime.ini");

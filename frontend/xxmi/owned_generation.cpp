@@ -2,6 +2,12 @@
 
 namespace efmi::frontend {
 namespace {
+// Ordinary configuration execution has no intercepted Core lists or character
+// discovery. All declared CustomShaders and resources use the GPU adapter.
+class ConfigurationExtension final : public RuntimeExtension {
+public:
+    std::vector<std::wstring> install(DrawPlanAdapter&) override { return {}; }
+};
 class OwnedGeneration final : public RuntimeExtension {
     std::shared_ptr<RuntimeExtension> native_;
     std::shared_ptr<GpuShaderRuntime> gpu_;
@@ -13,7 +19,8 @@ class OwnedGeneration final : public RuntimeExtension {
     };
 public:
     OwnedGeneration(std::shared_ptr<RuntimeExtension> native,std::shared_ptr<GpuShaderRuntime> gpu):native_(std::move(native)),gpu_(std::move(gpu)){
-        if(!native_ || !gpu_)throw std::runtime_error("An owned generation needs both a native and a GPU extension");
+        if(!gpu_)throw std::runtime_error("An owned generation needs its GPU extension");
+        if(!native_)native_=std::make_shared<ConfigurationExtension>();
     }
     std::wstring declarations() override {return native_->declarations();}
     std::vector<std::wstring> declaration_units() override {return native_->declaration_units();}

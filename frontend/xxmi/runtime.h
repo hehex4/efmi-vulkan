@@ -40,8 +40,9 @@ struct RuntimeConfig {
     // installed Core's patternless ShaderRegex over vertex shaders (in its main.ini, not an input), its filter_index
     // or 1. NaN: none, and `vs` reads 0.
     float vertex_shader_filter = std::numeric_limits<float>::quiet_NaN();
-    // The installation (the folder of the original's d3dx.ini): its own sections join the generation
-    // first, as the original parses that file first; empty for none.
+    // With no explicit inputs/mods_directory, load this installation's complete d3dx.ini and
+    // original Include tree. Explicit-input diagnostic fixtures retain their bounded inputs.
+    // Resource persistence always uses settings_directory, never the installed user_config.
     std::filesystem::path installation;
 };
 struct RuntimeInput {
