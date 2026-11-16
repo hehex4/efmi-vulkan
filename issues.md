@@ -107,6 +107,12 @@ sufficient. Source inspection confirms the central problems, with these correcti
   located inputs have no names or HLSL semantic decorations. Arbitrary source
   semantic edits therefore need evidence beyond Vulkan Location numbers. In-draw
   owned imports also need ordered insertion; a query callback alone is insufficient.
+  D-292 narrows the input-identity gap: 39 initial asset shaders retain paired
+  API programs and channel metadata. The offline reader checks 1,682 binary pairs
+  and independently validates 323 vertex modules; 3 exactly match historical
+  captures. Register numbers disagree with locations in 211 pairs. VFS coverage,
+  compiler-encoding confirmation and runtime semantic integration remain open;
+  see [the input metadata evidence](docs/shader-input-metadata.md).
 - **I-07: private implementation coupling fixed by D-279 (3.0.7).** The roots are in
   `scripts/build.py::ABI_ROOTS`; `scripts/build_character_module.py` does not exist.
   `character_module.h` does not directly include the three headers listed below.

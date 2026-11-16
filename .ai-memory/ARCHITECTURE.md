@@ -407,3 +407,13 @@ Failures preserve it. Driver calls run outside the history lock. This corrects
 signal-source classification; it does not establish payload/value hazards or
 cross-queue order. Shared ABI remains 347c72b0cc7d0e40, but old hosts need replacement
 while closed because a backend exchange cannot install host acquisition hooks.
+
+## Offline input metadata reader (D-292)
+
+The layer still does not infer semantic names from Vulkan locations. The separate
+offline asset reader pairs DXBC and SPIR-V through shader pass/tier/keyword and
+requirement metadata, verifies common source-channel tables and reports exact
+binary matches. Initial assets demonstrate that stripped SPIR-V names do not
+imply loss of all installed input identity. No runtime index is installed. See
+docs/shader-input-metadata.md for the 39-object/323-module scope and remaining
+VFS discovery, compiler-encoding and runtime integration requirements.

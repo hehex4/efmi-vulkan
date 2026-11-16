@@ -1736,3 +1736,12 @@ Correction 1.3.9: the destructor points `G` at the generation's own globals, whi
 
 - Found while batching first-use texture loads: TextureResidency::bind saved an Image reference, unlocked mutex_ and then used image.handle while declare() could append and reallocate images_ (for example an F10 candidate declaring its paths on another generation's worker). This is a source-level invalidation hazard; no game crash is attributed to it.
 - The batch path keeps only ImageId indices and shared ResourceRequest handles while unlocked, and resolves Image again under the residency mutex. It also checks stopped_ before any timeline access after reacquiring the lock. Completed-only timeline publication is unchanged. The 35-step suite, including live reloads and dual-queue validation, and 266 standalone resource/cache GPU checks passed. No game verification this round.
+
+## I-06 evidence refinement: asset metadata exists outside stripped captures (D-292)
+
+Initial assets contain paired API programs and source-channel tables. The generic
+offline reader proves 1,682 binary pairs, including 211 with different register
+and location sets; 323 unique vertex modules pass independent validation. Only
+3 unique modules match historical captures. Broad asset discovery and runtime
+integration remain open. Missing SPIR-V names alone no longer justify declaring
+input identity irrecoverable. See docs/shader-input-metadata.md; runtime is 3.1.7.
