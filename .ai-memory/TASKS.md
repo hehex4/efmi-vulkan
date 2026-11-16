@@ -1,6 +1,14 @@
 # EFMI Vulkan - Tasks
 
 
+## D-302: Verified no-probe 3.2.1 candidate (2026-11-16)
+
+- Source and four development DLLs are 3.2.1 / ABI 7c4613bb6a168795. The current unpublished candidate is build/candidate-current/EFMI-Vulkan-3.2.1.zip, SHA-256 26b596072fcd2629ec5991cc5068cb81dae2e88dd34c5b93b9de26b6a957251a, built from runtime commit 5833025 (D-301). Matching host/backend artifacts are required for the new shared restoration state.
+- d302-release-build.out includes all 5,265 exact semantic identities. d302-release-check.out passes archive/content/digest checks, no-probe checks, all 22 installed package loads with none left out, both owned unpack layouts, default cache loading and core/synchronization validation. ZIP CRC and equality with the active cache also pass. This verifies sandbox package loading, not 22 real characters.
+- build-result.json records current provenance; rollback-3.2.0.json and the unchanged 3.2.0 archive preserve the prior verified candidate. Automatic approval review rejected retirement of the now superseded candidate-d296/3.1.8 archive, its sidecar and provenance, returning only blocked by policy. Those files remain, as do the previously blocked temporary directories. No bypass or retry was attempted for this rejection.
+- D-298/D-299/D-301 are committed and merged into main. I-01 production queue/resource scheduling remains the principal architecture blocker; I-04 still needs other phases/original-output aliases/automatic input nulling, I-05 one-shot compute readiness and I-06 broader inputs remain open. None is closed by these sandbox results. Root dist stays 2.1.8 and the last historical game build stays 2.1.7; no game load/deployment, launcher/system change or remote write occurred.
+
+
 ## D-301: Detached color targets can become sampled inputs (2026-11-16)
 
 - Runtime 3.2.1 / ABI 7c4613bb6a168795 fixes the supported subset of BUG-157 / I-04. A non-original retained color target initially in COLOR_ATTACHMENT_OPTIMAL can be written, detached and sampled through an exact-view/subresource proof. Actual output splits establish GENERAL for its read phases; reattachment uses the tracked current layout, and scope end restores the original layout even for an inactive target.

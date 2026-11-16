@@ -4,6 +4,10 @@ Design decisions D1 to D11 of the product itself are in `docs/plan.md`, section 
 
 
 
+## D-302: Verify the candidate after the shared restoration protocol change (2026-11-16)
+
+The 3.2.1 candidate packages the matching host implementation and exact semantic cache after D-301's affected-area/module regression. Preserve 3.2.0 as rollback with its provenance. The superseded 3.1.8 archive remains only because automatic approval review rejected its retirement; this is an explicit retention exception, not a second intended rollback. Sandbox package loads and real-character verification remain separate.
+
 ## D-301: A detached sampled target carries a restoration obligation (2026-11-16)
 
 Preflight supplies the descriptor's future readable layout only when a prior actual output split proves detachment of the same retained color view and subresource. GENERAL is temporary: later attachment uses the tracked current layout, and scope end restores every changed target, including those no longer active. Keep the original layout separate from this phase choice. The flag is shared recording state, requiring ABI 7c4613bb6a168795 and a matching host. DX11 reference-counted lifetime with deferred destruction, hazard tracking and one-context order remain explicit Vulkan duties. This does not permit simultaneous input/output bindings, aliases, unknown earlier transitions or additional queues.

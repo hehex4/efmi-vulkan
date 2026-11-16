@@ -19,6 +19,9 @@ root dist test executables/mismatch DLL files (about 45 MiB) remain because both
 the additional cleanup and a narrower file-only deletion were rejected by
 automatic approval review. Only blocked by policy was returned; no specific
 reason was supplied. This is a tooling exception, not a runtime regression.
+D-302 also received blocked by policy for the superseded candidate-d296/3.1.8
+archive, SHA sidecar and provenance. Those files remain; 3.2.0 is the intended
+rollback for the verified 3.2.1 candidate. No bypass was attempted.
 Do not bypass the review or count these files as deleted.
 D-298 also received a blocked-by-policy rejection for six completed test/build
 fixture directories; they remain. The returned reason contained no further detail.

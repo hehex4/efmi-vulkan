@@ -3,7 +3,7 @@
 Review input: 2026-11-15; updated 2026-11-16. The review input is `issues.md` against source 3.0.4. Changes below
 are local commits on main and engine-work. Current source is
 3.2.1, ABI `7c4613bb6a168795`. The latest separately checked no-probe candidate
-is 3.2.0 with the exact semantic cache (D-300); earlier candidates below are historical. No real-game verification is included in this audit.
+is 3.2.1 with the exact semantic cache (D-302); earlier candidates below are historical. No real-game verification is included in this audit.
 
 | Finding | Implemented or verified | Remaining boundary |
 |---|---|---|
@@ -15,7 +15,7 @@ is 3.2.0 with the exact semantic cache (D-300); earlier candidates below are his
 | I-06, DX11 input compatibility | D-281 implements cross-slot textures. D-292..D-294 establish 5,265 unambiguous asset identities and 101 exact historical vertex matches. D-295 uses them for matched own/merged semantic layouts; D-298/D-299 validate independent masks against effective semantic or supported legacy declarations. The semantic GPU suite passes 143 checks and the full affected-area regression passes. | 68 historical vertex identities remain unmatched. Inherited application inputs, semantic relinking, numeric conversion and order-dependent edits remain limited; in-draw CustomShader/private-bone inputs still need ordered adapters. |
 | I-07, private ABI coupling | D-279 puts native scope callbacks behind the module and retains private pipeline objects through opaque owners. A module with a different private object layout exchanges into the unchanged sandbox host. | Shared tracker/protocol layout changes correctly require a matching host. |
 | I-08, old execution paths | D-282 retires the selectable single-component M2 executor. D-284 removes full-mesh binary re-encoding/decoding during runtime validation. File framing and content validation remain shared. | File size alone does not justify unrelated rewrites. |
-| I-09, verification and artifacts | Four development artifacts are 3.2.1 and focused checks pass. D-300 packages the 3.2.0 no-probe candidate with semantic metadata; 22-package loading and both owned unpack layouts pass. | Root dist and game deployment remain older; sandbox and historical evidence do not close real-character verification. |
+| I-09, verification and artifacts | Four development artifacts are 3.2.1 and focused checks pass. D-302 packages the 3.2.1 no-probe candidate with semantic metadata; 22-package loading and both owned unpack layouts pass. | Root dist and game deployment remain older; sandbox and historical evidence do not close real-character verification. |
 
 D-294 supplies the content-addressed semantic cache; D-295 loads it at generation creation and applies it to matched draws. Source declaration order, numeric conversion and other input limits remain explicit; see [the metadata evidence](shader-input-metadata.md).
 
@@ -189,3 +189,15 @@ descriptor, 52 output-memory and 76 Vulkan validation checks. Wider sampled
 ranges, recycled identities and missing/earlier split proofs do not get this
 exception. Other image phases, original-output aliases, automatic input nulling
 and cross-queue resource scheduling remain open. No real game was loaded.
+
+
+## D-302: Candidate matches the shared restoration state
+
+The current archive is `build/candidate-current/EFMI-Vulkan-3.2.1.zip`, SHA-256
+`26b596072fcd2629ec5991cc5068cb81dae2e88dd34c5b93b9de26b6a957251a`,
+built from `5833025` with ABI `7c4613bb6a168795`. All 22 package loads, both owned
+unpack layouts, default cache loading and core/synchronization validation pass.
+The prior 3.2.0 archive remains the rollback. Automatic approval review blocked
+retirement of the older 3.1.8 archive, which remains as a recorded exception.
+No game was loaded or deployed; the remaining architecture boundaries above
+are not closed by these sandbox results.

@@ -60,3 +60,13 @@ SHA sidecar and provenance record. The prior 3.1.8 archive is the candidate
 rollback. D-298 temporary-directory deletion was rejected by automatic approval
 review with only blocked by policy; those test copies remain and were not
 removed through another mechanism. Future cleanup must account for this exception.
+
+
+## Current deliverable after D-302
+
+The active archive is build/candidate-current/EFMI-Vulkan-3.2.1.zip with its SHA
+sidecar and current build-result.json. The 3.2.0 archive is the intended rollback;
+rollback-3.2.0.json preserves its provenance. Automatic approval review rejected
+retirement of candidate-d296's superseded 3.1.8 ZIP, SHA sidecar and provenance,
+returning only blocked by policy. Those files remain as an additional exception.
+Previously rejected temporary-directory deletions were not retried or bypassed.
