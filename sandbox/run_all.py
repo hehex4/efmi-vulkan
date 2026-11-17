@@ -67,6 +67,7 @@ STEPS = [
     ("native inherited graphics unknown source", [os.path.join(HERE, "native_inherited_graphics_test.py"), "unknown_source"]),
     ("native inherited graphics unknown layout", [os.path.join(HERE, "native_inherited_graphics_test.py"), "unknown_layout"]),
     ("native inherited graphics nested", [os.path.join(HERE, "native_inherited_graphics_test.py"), "nested"]),
+    ("native inherited graphics retained image", [os.path.join(HERE, "native_inherited_graphics_test.py"), "reference"]),
     ("original source hash entry fnv", [os.path.join(HERE, "native_source_declarations_test.py"), "exact_inherit_source_fnv"]),
     ("original source hash entry embedded", [os.path.join(HERE, "native_source_declarations_test.py"), "exact_inherit_source_embedded"]),
     ("original source hash entry bytecode", [os.path.join(HERE, "native_source_declarations_test.py"), "exact_inherit_source_bytecode"]),

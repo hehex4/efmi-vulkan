@@ -45,7 +45,8 @@ def scene(checks, case):
     calls=status.get("shader_overrides",{})
     if case=="two_queues":checks.check("queue" in calls.get("last_reason",""),case+": unsupported queue graph reported")
     elif case=="sync2":checks.check("synchronization2" in calls.get("last_reason",""),case+": unsupported signal scopes reported")
-    elif case=="mutable":checks.check("owned optimal" in calls.get("last_reason",""),case+": mutable format image reported")
+    elif case=="mutable":checks.check("source slot unavailable" in calls.get("last_reason","") and calls.get("refused",0)>0,
+                                     case+": unsupported mutable source refuses during original context projection")
     else:checks.check(calls.get("executed",0)>0 and not calls.get("last_reason"),case+": application image reference executes without a layout refusal")
     checks.check("Validation Error" not in sb.output() and "VUID-" not in sb.output(),case+": core and synchronization validation clean")
     (root/"status.json").write_text(json.dumps(status,indent=2),encoding="ascii")
@@ -122,7 +123,11 @@ def graphics_scene(checks,case):
             if case=="graphics_reload":
                 source.write_text(source.read_text().replace("return float4(color.r*255,0,color.g*63.75,1);", "return float4(0,color.r*255,0,1);"),encoding="ascii")
                 compile_shader(source,fixes,"%08x"%fragment,"ps")
-                keys.write_text("1 121\n",encoding="ascii");time.sleep(.2);keys.write_text("1\n",encoding="ascii");time.sleep(1);trigger.touch()
+                keys.write_text("1 121\n",encoding="ascii");time.sleep(.2);keys.write_text("1\n",encoding="ascii")
+                _,ready=wait_graphics_ready(probe,lambda s:s.get("configuration_generation",{}).get("reloads",0)>0 and
+                    s.get("shader_fixes",{}).get("revision",0)>1 and s.get("shader_fixes",{}).get("binds",0)>0,3)
+                checks.check(ready,case+": reloaded replacement frames settle before capture")
+                trigger.touch()
             if case in ("graphics","graphics_push","graphics_secondary"):
                 _,ready=wait_graphics_ready(probe,lambda s:s.get("shader_fixes",{}).get("binds",0)>0 and
                     s.get("shader_overrides",{}).get("executed",0)>0,3)
@@ -138,6 +143,7 @@ def graphics_scene(checks,case):
         checks.check(fixes.get("loaded")==1 and fixes.get("binds",0)>0 and not fixes.get("warnings"),case+": exchanged module validates and binds ShaderFixes")
         checks.check(pixels.is_file(),case+": post-exchange capture completed")
     checks.check(calls.get("executed",0)>0 and not calls.get("last_reason"),case+": in-pass retained application image executes")
+    checks.check(pixels.is_file(),case+": current sandbox completed the image readback")
     checks.check(colored_pixels(pixels,(0,255,0) if case=="graphics_reload" else (255,0,255))>100,case+": shader reads actual application texels")
     checks.check("Validation Error" not in sb.output() and "VUID-" not in sb.output(),case+": Vulkan and synchronization validation clean")
     (root/"status.json").write_text(json.dumps(status,indent=2),encoding="ascii");print("artifacts:",root)

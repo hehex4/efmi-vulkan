@@ -13,6 +13,19 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-345: Retain imported image view provenance across calls (2026-11-17)
+
+Original UsableRefView and SetResource (CommandList.cpp 12409-12450) preserve
+matching view/resource references; typed destinations create compatible views
+when required. DX11 defers destruction, tracks hazards and orders the context.
+The prepared Vulkan bridge must keep equivalent ownership and use the current
+recording's layout tracker, not a named reference's old layout. Imported bindings
+retain native view provenance; the bridge recovers that identity only for an
+external image with identical handle, view type, format and complete range.
+Changed allocations or views cannot borrow an unrelated native view identity.
+Private copies continue through the existing GENERAL-layout contract. Admission
+and prepared packets retain the underlying view/allocation until GPU completion.
+
 ## D-344: Exact inherited graphics stages and input semantics (2026-11-17)
 
 Original CommandList.cpp 2872-2897 changes only explicitly overridden stages;

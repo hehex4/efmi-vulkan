@@ -14,6 +14,9 @@ struct GpuResourceBinding {
     gpu::Buffer buffer;
     gpu::Image image;
     gpu::ImageView image_view;
+    // Native view provenance survives named references across application calls.
+    // It is reused only when allocation, format, type and complete range match.
+    std::shared_ptr<const NativeResource> native_view;
     std::shared_ptr<gpu::ResourceInitialization> initialization;
     ImageSourceDescription image_description;
     D3D11_BUFFER_DESC description{};
@@ -95,6 +98,7 @@ public:
         unsigned slot=0;
         // Null means explicitly unbound; source facts are shared across views.
         std::shared_ptr<const ApplicationImageSource> source;
+        std::shared_ptr<const NativeResource> native_view;
         bool view_known=false,volume_full_depth=false;
         DXGI_FORMAT format=DXGI_FORMAT_UNKNOWN;
         VkImageViewType view_type=VK_IMAGE_VIEW_TYPE_2D;

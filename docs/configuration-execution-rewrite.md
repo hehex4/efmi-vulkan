@@ -41,6 +41,15 @@ combining or renaming character packages does not implement this contract.
 
 ## Evidence and status
 
+D-344/D-345 add exact inherited graphics stages and static input semantics,
+including nested override restoration and retained imported image references
+between application calls. Fresh sandbox pixels cover inherited VS/IA plus an
+explicit pixel shader, copying and referencing the produced application image,
+and refusal when source or layout proof is absent. Current graphics state and
+viewport/sampler inheritance, executable graphics regex, current-value Store and
+broader queue/source contracts remain open. These results do not establish game
+acceptance or completion of compatibility.
+
 D-329 connects production source projection, original registry transactions,
 per-call/final binding application and whole application-image layout handoff.
 First-use CPU allocations retain independent producers across discarded recordings

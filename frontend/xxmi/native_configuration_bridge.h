@@ -66,6 +66,14 @@ std::unique_ptr<PreparedConfigurationDraw> OwnedRuntime::prepare_native_draw(std
                         source=std::move(value);
                     }
                     binding.source=source;binding.view_known=true;binding.volume_full_depth=true;
+                    if(r.prepared_source && r.prepared_source->native_view){
+                        // Reuse the root provenance, not a growing chain of prior snapshots.
+                        binding.native_view=r.prepared_source->native_view;
+                    }else if(r.image_view_id && (r.identity&3)==2){
+                        auto native=std::make_shared<NativeResource>(r);
+                        native->prepared_source.reset();native->prepared_admission.reset();
+                        binding.native_view=std::move(native);
+                    }
                     binding.format=DXGI_FORMAT(r.format);binding.view_type=VkImageViewType(r.view_type);
                     binding.range={r.aspect,r.base_mip,r.mip_count,r.base_layer,r.layer_count};
                 }
@@ -114,6 +122,12 @@ std::unique_ptr<PreparedConfigurationDraw> OwnedRuntime::prepare_native_draw(std
                             if(value.image && value.image_view!=baseline.image_view){resource->image_view=0;resource->image_view_id=0;continue;}
                             break;
                         }
+                    }
+                    if(value.native_view && value.image && value.image_view && value.image->is_external()){
+                        const auto& native=*value.native_view;const auto& view=*value.image_view;const auto& range=view.range();
+                        if(native.image==uint64_t(value.image->image()) && native.view_type==view.type() && native.view_format==view.format() &&
+                           native.aspect==range.aspectMask && native.base_mip==range.baseMipLevel && native.mip_count==range.levelCount &&
+                           native.base_layer==range.baseArrayLayer && native.layer_count==range.layerCount)*resource=native;
                     }
                     resource->bound=true;resource->prepared_admission=snapshot->admission();
                     resource->prepared_source=std::make_shared<const GpuResourceBinding>(value);resource->keep=resource->prepared_source;

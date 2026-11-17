@@ -19,7 +19,7 @@ from build_shader_model_index import encode_sources
 
 def main():
     case = sys.argv[1] if len(sys.argv) > 1 else 'enabled'
-    if case not in ('enabled', 'unknown_source', 'unknown_layout', 'nested'):
+    if case not in ('enabled', 'unknown_source', 'unknown_layout', 'nested', 'reference'):
         raise ValueError('Unknown inherited graphics fixture')
     checks = Checks('native inherited graphics ' + case)
     root = Path(ROOT) / 'build/native-inherited-graphics'
@@ -46,6 +46,9 @@ def main():
         'o0 = ref set_viewport o0\noD = null\n' + ''.join('o%d = null\n' % i for i in range(1, 8)) +
         ('run = CustomShaderNested\n' if case == 'nested' else '') +
         'ResourceOriginalVB = ref vb0\nvb0 = ref ResourceTriangle\ndraw = from_caller\nvb0 = ref ResourceOriginalVB\n[CustomShaderNested]\nvs = offscreen.hlsl\ndraw = 3,0\n', encoding='ascii')
+    if case == 'reference':
+        ini = mods / 'graphics.ini'
+        ini.write_text(ini.read_text().replace('ResourceSaved = copy o0', 'ResourceSaved = ref o0'), encoding='ascii')
     sample = root / 'sample.hlsl'
     sample.write_text('[[vk::binding(5,1)]] [[vk::combinedImageSampler]] Texture2D<float4> tex;\n'
                       '[[vk::binding(5,1)]] [[vk::combinedImageSampler]] SamplerState samp;\n'
@@ -70,7 +73,7 @@ def main():
         checks.equal(sb.proc.returncode, 0, 'Inherited graphics sandbox exits normally')
         (root / (case + '-stdout.txt')).write_text(sb.output(), encoding='utf-8')
         (root / (case + '-layer.log')).write_text(sb.log(), encoding='utf-8')
-    accepted = case in ('enabled', 'nested')
+    accepted = case in ('enabled', 'nested', 'reference')
     checks.check(pixels.exists(), 'This process produced a fresh completed image')
     checks.equal(colored_pixels(pixels, (255, 255, 0)) > 200, accepted, 'Inherited VS/IA produce actual replacement pixels; unknown proof preserves the caller')
     reason = status.get('shader_overrides', {}).get('last_reason', '')

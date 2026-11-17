@@ -4349,3 +4349,9 @@ missing source/layout and nested variants. Old-DLL reproduction builds helper
 and frontend in inherited-graphics-before.out; latest C++ unverified. No game.
 
 D-344 verified: matching 3.5.9 / ABI 1b6562d4f3a7bcc0. Inherited graphics 20, production graphics 20, compute inheritance 12, indirect regex 16, transaction 5, Core 22, tracker 1042, ABI 16; owned graphics 234/prepared 155/CPU 57/interpreter 602/text 759 pass, validation clean. Initial old-DLL result was swapchain import, not an inheritance reproduction. Fresh pixel files and a visible readback notice replace invalid stale-file iterations. Diff reviewed. Commit/main fast-forward, then continue cross-call imported image view provenance and graphics state; no game action.
+
+## 2026-11-17: D-345 retained application image provenance (in progress)
+
+D-344 committed as 68e443d and main fast-forwarded. Production reference mode reproduces 3/5 with a private GENERAL-image rejection. Original UsableRefView/SetResource reviewed. Source 3.6.0 retains exact native view provenance across named resources, guarded by external allocation/type/format/range equality; layouts remain current-recording facts. Matching DLL build session 3036, ABI 7708438110c71786. Verification pending; no game action.
+
+D-345 complete in sandbox: reference 5/5; graphics variants 25, original graphics 20, transaction 5, tracker 1042, ABI 16. Application-image suite 77/79 initially exposed old mutable diagnostic and expired-notice reload capture; repaired failed cases pass 10/10 with fresh readback/readiness assertions. Prepared 155/graphics 234 validation clean. Final review reuses root native provenance to prevent prior-snapshot owner chains; rebuilt matching 3.6.0/7708438110c71786 and retained/copy/compute/graphics rechecks pass 20. Text 759 and diff check pass. Commit/main fast-forward; continue current graphics state and viewport import. No game action.

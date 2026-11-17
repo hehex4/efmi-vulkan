@@ -112,5 +112,6 @@ void GpuResourceRuntime::import_application_view(GpuResourceBinding& value,const
         imported_image_views_[key]=value.image_view;
     }
     value.view_format=input.format;
+    value.native_view=input.native_view;
 }
 }

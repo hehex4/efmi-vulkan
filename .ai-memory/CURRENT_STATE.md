@@ -10,7 +10,24 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
-Active D-344: D-343 committed as 9188a52 and main fast-forwarded. Source 3.5.9
+Active D-345: D-344 committed as 68e443d and main fast-forwarded. Source 3.6.0
+preserves native image view provenance across named references. Only identical
+external image/type/format/full-range views recover the native identity; current
+layout remains checked by the existing recording tracker, never the saved layout.
+The production reference case reproduces 3/5 at 3.5.9 (private GENERAL rejection).
+Matching DLL/tracker build passes at ABI 7708438110c71786. Reference now passes
+5/5; copy/nested/unknown cases pass 20, graphics 20, transaction 5, tracker 1042,
+ABI 16. Application images initially pass 77/79: old mutable diagnostic expected
+the pre-rewrite stage, and reload captured after the two-second notice expired.
+Corrected diagnostic/readiness checks pass 10/10; prepared 155 and graphics 234
+pass clean. Final review found a potential prior-snapshot owner chain; reuse root
+provenance when importing an already-prepared reference. Final matching build
+passes (inherited-image-reference-final-binaries.out); reference/copy pass 10 and
+retained compute/graphics imports pass 10 after that fix. Text 759 and diff check
+pass. No active process. Commit/main fast-forward, then continue current graphics
+state/viewport inheritance. No game action or compatibility-completion claim.
+
+D-344: D-343 committed as 9188a52 and main fast-forwarded. Source 3.5.9
 adds per-call graphics source reset, known absent stages of the active graphics
 pipeline, lazy bounded exact DXBC graphics translation, and an original input
 layout built from exact ShaderInputIndex semantic mappings and static native
