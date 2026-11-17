@@ -489,8 +489,11 @@ void GpuResourceRuntime::copy_to(ResourceCopyOperation& op,ResourceCopyTarget& d
         // The original clears a constant-slot offset unless ->Region was used.
         if(dst.type==Target::CONSTANT_BUFFER && op.src.evaluation_mode!=Mode::RESOURCE_REGION){source.offset=0;source.visible_size=0;source.region=false;}
         set(dst,state,source);
-        if(source.image && (op.options&ResourceCopyOptions::SET_VIEWPORT))viewport_={0,0,float(source.image_description.texture.Width),
-            source.image_description.dimension==D3D11_RESOURCE_DIMENSION_TEXTURE1D?0.0f:float(source.image_description.texture.Height),0,1};
+        if(source.image && (op.options&ResourceCopyOptions::SET_VIEWPORT)){
+            viewport_={0,0,float(source.image_description.texture.Width),
+                source.image_description.dimension==D3D11_RESOURCE_DIMENSION_TEXTURE1D?0.0f:float(source.image_description.texture.Height),0,1};
+            native_viewport_.reset();viewport_known_=true;
+        }
         if(no_view_cache)cache.drop_view();return;
     }
     if(source.image){image_copy(op,dst,state,std::move(source),custom,cache);return;}

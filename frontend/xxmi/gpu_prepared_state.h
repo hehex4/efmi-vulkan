@@ -78,10 +78,12 @@ struct GpuResourceRuntime::PreparedState {
     std::set<Slot> ini_slots;
     bool unknown_slots;
     D3D11_VIEWPORT viewport;
+    std::optional<VkViewport> native_viewport;
+    bool viewport_known;
     bool backbuffer_targeted;
     uint64_t parameter_uploads;
     bool parameter_republish;
-    explicit PreparedState(const GpuResourceRuntime& r):slots(r.slots_),ini_slots(r.ini_slots_),unknown_slots(r.unknown_application_slots_),viewport(r.viewport_),backbuffer_targeted(r.backbuffer_targeted_),
+    explicit PreparedState(const GpuResourceRuntime& r):slots(r.slots_),ini_slots(r.ini_slots_),unknown_slots(r.unknown_application_slots_),viewport(r.viewport_),native_viewport(r.native_viewport_),viewport_known(r.viewport_known_),backbuffer_targeted(r.backbuffer_targeted_),
         parameter_uploads(r.parameter_uploads_),parameter_republish(r.parameter_republish_){}
 };
 void GpuResourceRuntime::remember(CustomResource& r){
@@ -140,7 +142,7 @@ void GpuResourceRuntime::rollback_prepared() noexcept {
     undo.cached_sources.restore(cached_sources_);
     undo.resource_pools.restore(resource_copy_pools_);undo.command_pools.restore(command_copy_pools_);undo.range_views.restore(range_views_);
     undo.resource_images.restore(resource_image_pools_);undo.command_images.restore(command_image_pools_);
-    slots_=std::move(undo.slots);viewport_=undo.viewport;backbuffer_targeted_=undo.backbuffer_targeted;
+    slots_=std::move(undo.slots);viewport_=undo.viewport;native_viewport_=undo.native_viewport;viewport_known_=undo.viewport_known;backbuffer_targeted_=undo.backbuffer_targeted;
     ini_slots_=std::move(undo.ini_slots);
     unknown_application_slots_=undo.unknown_slots;
     parameter_republish_=parameter_republish_ || undo.parameter_republish || parameter_uploads_!=undo.parameter_uploads;

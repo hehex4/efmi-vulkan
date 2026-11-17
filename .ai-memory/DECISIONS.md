@@ -13,6 +13,25 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-346: Inherit representable current graphics state (2026-11-17)
+
+Original RunCustomShader (CommandList.cpp 2898-2935) reads and merges only the
+explicitly overridden state groups and always saves viewports. DX11 provides
+deferred reference lifetime, hazard tracking and context order; Vulkan snapshots
+pointer-free pipeline/core-dynamic facts and executes through retained prepared
+packets. Convert only source-representable blend, depth/stencil, raster and topology
+groups. Unsupported extensions, per-face stencil masks, raster discard, advanced
+blend or unknown viewport facts remain unknown; explicit complete overrides may
+still replace those groups. Never substitute constructor defaults as evidence.
+
+Preserve the current raw Vulkan viewport until an original set_viewport command
+changes it. Normalize winding between the positive native viewport and the DX
+negative-height convention when importing/emitting raster state. Save raw and
+logical viewport forms for nested CustomShaders and speculative rollback. Require
+known viewport state before prepared graphics work instead of silently skipping
+an inherited draw with an uninitialized logical viewport. Sampler inheritance and
+executable graphics regex are separate unfinished contracts.
+
 ## D-345: Retain imported image view provenance across calls (2026-11-17)
 
 Original UsableRefView and SetResource (CommandList.cpp 12409-12450) preserve

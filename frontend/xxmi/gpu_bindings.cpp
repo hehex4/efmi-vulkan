@@ -75,7 +75,7 @@ void GpuResourceRuntime::publish_bindings(Bindings pending){
     slots_.merge(pending);
 }
 GpuResourceRuntime::OutputState GpuResourceRuntime::save_outputs() const {
-    active();OutputState state;state.viewport=viewport_;
+    active();OutputState state;state.viewport=viewport_;state.native_viewport=native_viewport_;state.viewport_known=viewport_known_;
     // Pinned save_om_state stores only D3D11_PS_CS_UAV_REGISTER_COUNT slots,
     // despite the parser accepting the larger D3D11.1 register range.
     for(const auto& item:slots_)if(attachment(item.first) || (om(item.first) && std::get<2>(item.first)<8))state.bindings.insert(item);
@@ -87,6 +87,6 @@ void GpuResourceRuntime::restore_outputs(OutputState&& state) noexcept {
     for(auto i=slots_.begin();i!=slots_.end();)if(om(i->first))i=slots_.erase(i);else ++i;
     for(auto& old:slots_)if(old.second)for(const auto& saved:state.bindings)
         if(source_bindings_overlap(old.second,saved.second)){old.second={};break;}
-    slots_.merge(state.bindings);viewport_=state.viewport;
+    slots_.merge(state.bindings);viewport_=state.viewport;native_viewport_=state.native_viewport;viewport_known_=state.viewport_known;
 }
 }

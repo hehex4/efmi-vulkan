@@ -6,6 +6,8 @@
 #include <map>
 #include <set>
 #include <tuple>
+#include <optional>
+#include <cmath>
 
 namespace efmi::frontend {
 struct ApplicationResourceState;
@@ -152,12 +154,21 @@ public:
     // This neither imports application resources nor computes a DX11 hash.
     void identify_resource(const GpuResourceBinding&,SourceResourceIdentity);
     const D3D11_VIEWPORT& viewport() const {return viewport_;}
+    const std::optional<VkViewport>& native_viewport() const {return native_viewport_;}
+    bool viewport_known() const {return viewport_known_;}
+    void application_viewport(const VkViewport* value){
+        viewport_={};native_viewport_.reset();viewport_known_=value!=nullptr;
+        if(value){native_viewport_=*value;viewport_={value->x,value->height<0?value->y+value->height:value->y,
+            value->width,std::abs(value->height),value->minDepth,value->maxDepth};}
+    }
     const GpuResourceBinding& ini_parameters() const {return parameters_;}
     // Recorded uploads, not completed GPU execution or application binding.
     uint64_t parameter_uploads() const {return parameter_uploads_;}
     gpu::ResourceCommands& commands(){return commands_;}
     struct OutputState {
         D3D11_VIEWPORT viewport{};
+        std::optional<VkViewport> native_viewport;
+        bool viewport_known=false;
         std::map<std::tuple<wchar_t,ResourceCopyTargetType,unsigned>,GpuResourceBinding> bindings;
     };
     OutputState save_outputs() const;
@@ -261,6 +272,8 @@ private:
     std::map<SlotRangeCopyOperation*,std::vector<GpuResourceBinding>> range_views_;
     VkQueue queue_=VK_NULL_HANDLE;
     D3D11_VIEWPORT viewport_{};
+    std::optional<VkViewport> native_viewport_;
+    bool viewport_known_=false;
     ExecutionSite site_=ExecutionSite::OutsideRenderPass;
     // A store's reads in flight in replaced draws' scopes, with the value's offset in each (D-147).
     // Commands that failed after recording part of their work: not run again in this generation.

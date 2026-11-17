@@ -311,7 +311,10 @@ void GpuResourceRuntime::image_copy(ResourceCopyOperation& op,ResourceCopyTarget
     out.visible_size=0;out.region=false;
     if(!custom)select_view(out,image_view_kind(destination.type),false,false);
     cache=out;set(destination,state,out);
-    if(op.options&ResourceCopyOptions::SET_VIEWPORT)viewport_={0,0,float(d.Width),out.image_description.dimension==D3D11_RESOURCE_DIMENSION_TEXTURE1D?0.0f:float(d.Height),0,1};
+    if(op.options&ResourceCopyOptions::SET_VIEWPORT){
+        viewport_={0,0,float(d.Width),out.image_description.dimension==D3D11_RESOURCE_DIMENSION_TEXTURE1D?0.0f:float(d.Height),0,1};
+        native_viewport_.reset();viewport_known_=true;
+    }
     if((op.options&ResourceCopyOptions::NO_VIEW_CACHE) || op.src.forbid_view_cache)cache.drop_view();
 }
 void GpuResourceRuntime::image_clear(GpuResourceBinding b,ClearViewCommand& op) {

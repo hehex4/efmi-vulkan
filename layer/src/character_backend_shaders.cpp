@@ -7,6 +7,7 @@
 #include "native_targets.h"
 #include "native_configuration.h"
 #include "texture_identity.h"
+#include "native_source_graphics.h"
 #include "../../frontend/xxmi/shader_assembly.h"
 
 namespace efvk {
@@ -655,6 +656,11 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
         // Serialize the entire speculative original context, including host
         // preflight and admission, against Present, reload and other draws.
         std::lock_guard<std::mutex> plan_lock(*hooks->folder->plan_mx);
+        if(!request.compute){
+            std::shared_lock<std::shared_mutex> resources(b.device->res_mx);
+            const auto pipeline=b.device->pipes.find(r.pipeline);
+            if(pipeline!=b.device->pipes.end() && pipeline->second.recipe)request.graphics_state=source_graphics_state(*cb,*pipeline->second.recipe);
+        }
         if(auto* geometry=hooks->folder->geometry.get();geometry && (geometry->models || geometry->sources)){
             std::shared_lock<std::shared_mutex> resources(b.device->res_mx);
             const auto pipeline=b.device->pipes.find(r.pipeline);

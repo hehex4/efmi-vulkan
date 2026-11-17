@@ -10,7 +10,26 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
-Active D-345: D-344 committed as 68e443d and main fast-forwarded. Source 3.6.0
+Active D-346: D-345 committed as b8e2594 and main fast-forwarded. Verified
+source 3.6.1 adds pointer-free NativeGraphicsState, current static/core-dynamic
+blend/depth/raster/topology capture, guarded source-state conversion, and exact
+native viewport/scissor inheritance. Positive native viewports use a winding
+conversion so source raster overrides retain the DX viewport convention. Explicit
+set_viewport clears native orientation; nested restore and prepared rollback keep
+both forms. Unknown viewport now refuses rather than silently skipping a draw.
+New state/state_nested production modes omit graphics/viewport overrides and
+check actual pixels plus nested state restoration. Old DLLs reproduce 3/5 with
+unknown application graphics state. Matching 3.6.1 / ca3dfae1e8932a4d binaries
+pass both cases (10). Native DX11 pixel comparisons cover blend/scissor/culling/
+viewport: graphics resources 334, prepared 155 pass clean. Production inherited
+graphics 35, explicit graphics 20, inherited compute 12, indirect regex 16,
+transaction 5, Core 22, tracker 1042, ABI 16 and text 761 pass. CPU 57 and full
+interpreter 602 pass. Logs: inherited-graphics-state-{before,binaries,reference,
+prepared,regression,cpu,interpreter}.out. No active process. Review/commit/main
+fast-forward, continue original indirect graphics callers, samplers and graphics
+regex. No game action; compatibility remains incomplete.
+
+D-345: D-344 committed as 68e443d and main fast-forwarded. Source 3.6.0
 preserves native image view provenance across named references. Only identical
 external image/type/format/full-range views recover the native identity; current
 layout remains checked by the existing recording tracker, never the saved layout.

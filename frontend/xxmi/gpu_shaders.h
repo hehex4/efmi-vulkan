@@ -72,6 +72,7 @@ private:
     bool draw_graphics(DrawCommand&,CommandListState&);
     void inherit_compute();
     void inherit_graphics();
+    void application_graphics(const NativeGraphicsState*);
     std::shared_ptr<gpu::HlslProgram> inherited_graphics_program(const std::shared_ptr<const SourceShaderCode>&,unsigned);
     std::vector<gpu::ShaderDescriptor> descriptors(const std::vector<const gpu::HlslProgram*>&);
     gpu::Sampler sampler(wchar_t,unsigned);

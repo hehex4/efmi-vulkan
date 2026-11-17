@@ -84,6 +84,40 @@ static void original_ini_graphics(Device& d,const std::filesystem::path& root){
         output.reset();f.release();
     }
 }
+static void inherited_native_graphics_pixels(Device& d,const std::filesystem::path& root){
+    for(unsigned mode=0;mode<5;++mode){
+        const auto directory=root/std::to_string(mode);const auto programs=ini_graphics_programs(directory);
+        const std::string ini=std::string(ini_graphics_resources)+"[CustomShaderMain]\nvs = graphics.hlsl\nps = graphics.hlsl\ndraw = 3,0\n[Present]\nrun = CustomShaderMain\n";
+        ShaderFixture f(d,directory,ini.c_str());auto state=std::make_shared<frontend::NativeGraphicsState>();
+        state->known=15;state->viewport_known=state->scissor_known=true;
+        state->viewport=mode==4?VkViewport{1,4,2,-4,0,1}:VkViewport{0,0,4,4,0,1};
+        state->scissor=mode==1?VkRect2D{{1,0},{2,4}}:VkRect2D{{0,0},{4,4}};
+        state->raster.polygonMode=VK_POLYGON_MODE_FILL;state->raster.lineWidth=1;
+        state->raster.frontFace=VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        state->raster.cullMode=mode==2?VK_CULL_MODE_FRONT_BIT:mode==3?VK_CULL_MODE_BACK_BIT:VK_CULL_MODE_NONE;
+        state->depth.depthCompareOp=VK_COMPARE_OP_LESS;
+        VkPipelineColorBlendAttachmentState blend{};blend.colorWriteMask=15;
+        blend.blendEnable=mode==0;blend.srcColorBlendFactor=VK_BLEND_FACTOR_SRC_ALPHA;blend.dstColorBlendFactor=VK_BLEND_FACTOR_ONE;
+        blend.srcAlphaBlendFactor=VK_BLEND_FACTOR_ONE;blend.dstAlphaBlendFactor=VK_BLEND_FACTOR_ZERO;
+        state->blend.push_back(blend);frontend::RuntimeDraw draw;draw.graphics_state=state;
+        f.backend->application_compute(draw);f.present();
+        auto output=f.backend->resources().binding(L'\0',ResourceCopyTargetType::RENDER_TARGET,0).image;
+        const auto actual=f.backend->resources().commands().readback(d.queue,output,image_region(output));
+        const auto expected=native_linked_graphics(programs.first,programs.second,{},[&](auto* device,auto* context){
+            native_ini_parameters(device,context,3);
+            auto raster=CD3D11_RASTERIZER_DESC(D3D11_DEFAULT);raster.CullMode=mode==2?D3D11_CULL_FRONT:mode==3?D3D11_CULL_BACK:D3D11_CULL_NONE;
+            raster.FrontCounterClockwise=mode==4;raster.ScissorEnable=TRUE;
+            ImageNativeReference::Ptr<ID3D11RasterizerState> rs;check(SUCCEEDED(device->CreateRasterizerState(&raster,&rs)),"Native inherited raster reference");context->RSSetState(rs.Get());
+            const D3D11_RECT clip=mode==1?D3D11_RECT{1,0,3,4}:D3D11_RECT{0,0,4,4};context->RSSetScissorRects(1,&clip);
+            if(mode==4){const D3D11_VIEWPORT viewport{1,0,2,4,0,1};context->RSSetViewports(1,&viewport);}
+            auto desc=CD3D11_BLEND_DESC(D3D11_DEFAULT);auto& b=desc.RenderTarget[0];b.BlendEnable=mode==0;
+            b.SrcBlend=D3D11_BLEND_SRC_ALPHA;b.DestBlend=D3D11_BLEND_ONE;
+            ImageNativeReference::Ptr<ID3D11BlendState> bs;check(SUCCEEDED(device->CreateBlendState(&desc,&bs)),"Native inherited blend reference");context->OMSetBlendState(bs.Get(),nullptr,UINT_MAX);
+        });
+        check(actual==expected,"Inherited native blend/scissor/culling/viewport pixels match original DX11 state");
+        output.reset();draw.graphics_state.reset();state.reset();f.release();
+    }
+}
 static void original_ini_graphics_nesting(Device& d,const std::filesystem::path& root){
     const auto programs=ini_graphics_programs(root);
     const std::string ini=std::string(ini_graphics_resources)+R"ini(

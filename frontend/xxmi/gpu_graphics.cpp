@@ -50,6 +50,9 @@ gpu::GraphicsDescription description(const SourceGraphicsState& source,const gpu
     result.raster.polygonMode=r.FillMode==D3D11_FILL_SOLID?VK_POLYGON_MODE_FILL:VK_POLYGON_MODE_LINE;
     result.raster.cullMode=r.CullMode==D3D11_CULL_NONE?VK_CULL_MODE_NONE:r.CullMode==D3D11_CULL_FRONT?VK_CULL_MODE_FRONT_BIT:VK_CULL_MODE_BACK_BIT;
     result.raster.frontFace=r.FrontCounterClockwise?VK_FRONT_FACE_COUNTER_CLOCKWISE:VK_FRONT_FACE_CLOCKWISE;
+    // Source winding assumes the DX viewport convention. Preserve native positive
+    // viewports while keeping explicit/merged source raster state in that convention.
+    if(draw.viewport.height>0)result.raster.frontFace=result.raster.frontFace==VK_FRONT_FACE_CLOCKWISE?VK_FRONT_FACE_COUNTER_CLOCKWISE:VK_FRONT_FACE_CLOCKWISE;
     result.raster.depthClampEnable=!r.DepthClipEnable;
     const auto& z=source.depth;result.depth.depthTestEnable=z.DepthEnable;result.depth.depthWriteEnable=z.DepthEnable && z.DepthWriteMask==D3D11_DEPTH_WRITE_MASK_ALL;
     result.depth.depthCompareOp=compare(z.DepthFunc);result.depth.stencilTestEnable=z.StencilEnable;
@@ -91,6 +94,78 @@ SourceGraphicsState source_graphics_normalize(SourceGraphicsState s){
     return s;
 }
 void GpuShaderRuntime::set_graphics_state(const SourceGraphicsState& state){graphics_=source_graphics_normalize(state);graphics_known_=15;pixel_samplers_known_=true;}
+void GpuShaderRuntime::application_graphics(const NativeGraphicsState* native){
+    graphics_=source_graphics_defaults();graphics_known_=0;
+    resources_.application_viewport(native && native->viewport_known?&native->viewport:nullptr);
+    if(!native)return;
+    const auto& n=*native;
+    auto accept=[&](unsigned bit,auto convert){if(!(n.known&bit))return;
+        try{convert();graphics_known_|=uint8_t(bit);}catch(const std::runtime_error&){}};
+    accept(1,[&]{
+        require(n.blend.size()<=8,"Native blend attachment count exceeds source slots");
+        auto factor=[](VkBlendFactor value,bool alpha)->D3D11_BLEND{
+            switch(value){
+            case VK_BLEND_FACTOR_ZERO:return D3D11_BLEND_ZERO;case VK_BLEND_FACTOR_ONE:return D3D11_BLEND_ONE;
+            case VK_BLEND_FACTOR_SRC_COLOR:return D3D11_BLEND_SRC_COLOR;case VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR:return D3D11_BLEND_INV_SRC_COLOR;
+            case VK_BLEND_FACTOR_DST_COLOR:return D3D11_BLEND_DEST_COLOR;case VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR:return D3D11_BLEND_INV_DEST_COLOR;
+            case VK_BLEND_FACTOR_SRC_ALPHA:return D3D11_BLEND_SRC_ALPHA;case VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA:return D3D11_BLEND_INV_SRC_ALPHA;
+            case VK_BLEND_FACTOR_DST_ALPHA:return D3D11_BLEND_DEST_ALPHA;case VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA:return D3D11_BLEND_INV_DEST_ALPHA;
+            case VK_BLEND_FACTOR_SRC_ALPHA_SATURATE:return D3D11_BLEND_SRC_ALPHA_SAT;
+            case VK_BLEND_FACTOR_CONSTANT_COLOR:return D3D11_BLEND_BLEND_FACTOR;
+            case VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR:return D3D11_BLEND_INV_BLEND_FACTOR;
+            case VK_BLEND_FACTOR_CONSTANT_ALPHA:require(alpha,"Native constant alpha RGB blend is not source-representable");return D3D11_BLEND_BLEND_FACTOR;
+            case VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA:require(alpha,"Native constant alpha RGB blend is not source-representable");return D3D11_BLEND_INV_BLEND_FACTOR;
+            default:throw std::runtime_error("Native dual-source blend requires source output-index lowering");}
+        };
+        auto blend=graphics_.blend;blend.IndependentBlendEnable=TRUE;blend.AlphaToCoverageEnable=n.alpha_to_coverage;
+        for(size_t i=0;i<8;++i){auto& b=blend.RenderTarget[i];b.RenderTargetWriteMask=0;
+            if(i>=n.blend.size())continue;const auto& v=n.blend[i];b.RenderTargetWriteMask=UINT8(v.colorWriteMask);b.BlendEnable=v.blendEnable;
+            if(!v.blendEnable)continue;
+            require(v.colorBlendOp<=VK_BLEND_OP_MAX && v.alphaBlendOp<=VK_BLEND_OP_MAX,"Native advanced blending is not source-representable");
+            b.SrcBlend=factor(v.srcColorBlendFactor,false);b.DestBlend=factor(v.dstColorBlendFactor,false);b.BlendOp=D3D11_BLEND_OP(v.colorBlendOp+1);
+            b.SrcBlendAlpha=factor(v.srcAlphaBlendFactor,true);b.DestBlendAlpha=factor(v.dstAlphaBlendFactor,true);b.BlendOpAlpha=D3D11_BLEND_OP(v.alphaBlendOp+1);
+        }
+        graphics_.blend=blend;graphics_.blend_factor=n.blend_constants;graphics_.sample_mask=n.sample_mask;
+    });
+    accept(2,[&]{
+        const auto& d=n.depth;require(!d.depthBoundsTestEnable,"Native depth bounds is not source-representable");
+        auto depth=graphics_.depth;depth.DepthEnable=d.depthTestEnable;depth.DepthWriteMask=d.depthWriteEnable?D3D11_DEPTH_WRITE_MASK_ALL:D3D11_DEPTH_WRITE_MASK_ZERO;
+        require(d.depthCompareOp<=VK_COMPARE_OP_ALWAYS,"Native depth comparison invalid");depth.DepthFunc=D3D11_COMPARISON_FUNC(d.depthCompareOp+1);
+        depth.StencilEnable=d.stencilTestEnable;
+        if(d.stencilTestEnable){
+            require(d.front.compareMask==d.back.compareMask && d.front.compareMask<=255 && d.front.writeMask==d.back.writeMask && d.front.writeMask<=255 &&
+                d.front.reference==d.back.reference,"Native per-face stencil masks/reference differ from source state");
+            depth.StencilReadMask=UINT8(d.front.compareMask);depth.StencilWriteMask=UINT8(d.front.writeMask);
+            auto face=[](const VkStencilOpState& v){require(v.failOp<=VK_STENCIL_OP_DECREMENT_AND_WRAP && v.passOp<=VK_STENCIL_OP_DECREMENT_AND_WRAP &&
+                v.depthFailOp<=VK_STENCIL_OP_DECREMENT_AND_WRAP && v.compareOp<=VK_COMPARE_OP_ALWAYS,"Native stencil operation invalid");
+                return D3D11_DEPTH_STENCILOP_DESC{D3D11_STENCIL_OP(v.failOp+1),D3D11_STENCIL_OP(v.depthFailOp+1),D3D11_STENCIL_OP(v.passOp+1),D3D11_COMPARISON_FUNC(v.compareOp+1)};};
+            depth.FrontFace=face(d.front);depth.BackFace=face(d.back);graphics_.stencil_ref=d.front.reference;
+        }
+        graphics_.depth=depth;
+    });
+    accept(4,[&]{
+        const auto& r=n.raster;require(!r.rasterizerDiscardEnable && r.lineWidth==1 &&
+            (!r.depthBiasEnable || (!r.depthBiasConstantFactor && !r.depthBiasClamp && !r.depthBiasSlopeFactor)),"Native raster rules require another source adapter");
+        require(n.viewport_known && n.scissor_known && (r.polygonMode==VK_POLYGON_MODE_FILL || r.polygonMode==VK_POLYGON_MODE_LINE) &&
+            r.cullMode<=VK_CULL_MODE_BACK_BIT,"Native raster state is not source-representable");
+        auto& out=graphics_.raster;out.FillMode=r.polygonMode==VK_POLYGON_MODE_FILL?D3D11_FILL_SOLID:D3D11_FILL_WIREFRAME;
+        out.CullMode=r.cullMode==VK_CULL_MODE_NONE?D3D11_CULL_NONE:r.cullMode==VK_CULL_MODE_FRONT_BIT?D3D11_CULL_FRONT:D3D11_CULL_BACK;
+        out.FrontCounterClockwise=(r.frontFace==VK_FRONT_FACE_COUNTER_CLOCKWISE) != (n.viewport.height>0);
+        out.DepthClipEnable=!r.depthClampEnable;out.ScissorEnable=TRUE;
+    });
+    accept(8,[&]{
+        switch(n.topology){
+        case VK_PRIMITIVE_TOPOLOGY_POINT_LIST:require(!n.restart,"Source list restart unsupported");graphics_.topology=D3D11_PRIMITIVE_TOPOLOGY_POINTLIST;break;
+        case VK_PRIMITIVE_TOPOLOGY_LINE_LIST:require(!n.restart,"Source list restart unsupported");graphics_.topology=D3D11_PRIMITIVE_TOPOLOGY_LINELIST;break;
+        case VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST:require(!n.restart,"Source list restart unsupported");graphics_.topology=D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;break;
+        case VK_PRIMITIVE_TOPOLOGY_LINE_STRIP:require(n.restart,"Native strip without restart needs source index adaptation");graphics_.topology=D3D11_PRIMITIVE_TOPOLOGY_LINESTRIP;break;
+        case VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP:require(n.restart,"Native strip without restart needs source index adaptation");graphics_.topology=D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP;break;
+        default:throw std::runtime_error("Native adjacency/tessellation requires another source adapter");}
+    });
+    if(n.scissor_known && int64_t(n.scissor.offset.x)+n.scissor.extent.width<=INT_MAX && int64_t(n.scissor.offset.y)+n.scissor.extent.height<=INT_MAX){
+        scissor_={n.scissor.offset.x,n.scissor.offset.y,LONG(int64_t(n.scissor.offset.x)+n.scissor.extent.width),LONG(int64_t(n.scissor.offset.y)+n.scissor.extent.height)};scissor_known_=true;
+    }
+}
 gpu::Sampler GpuShaderRuntime::source_sampler(const D3D11_SAMPLER_DESC& source){
     const uint32_t filter=uint32_t(source.Filter);
     require(!(filter&~0xd5u) && ((filter&0x40u)==0 || (filter&0x55u)==0x55u),"Source sampler reduction/filter needs another adapter");
@@ -153,9 +228,11 @@ bool GpuShaderRuntime::draw_graphics(DrawCommand& command,CommandListState& stat
     }
     if(graphics_.topology==D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED)return true;
     require(!stages_[1] && !stages_[2],"Source tessellation execution needs another graphics adapter");
+    require(!prepared || resources_.viewport_known(),"Prepared CustomShader inherits an unknown application viewport");
     const auto& viewport=resources_.viewport();if(viewport.Width==0 || viewport.Height==0)return true;
     require(viewport.Width>0 && viewport.Height>0,"Source viewport dimensions are invalid");
     draw.viewport={viewport.TopLeftX,viewport.TopLeftY+viewport.Height,viewport.Width,-viewport.Height,viewport.MinDepth,viewport.MaxDepth};
+    if(resources_.native_viewport())draw.viewport=*resources_.native_viewport();
     auto extent=[&](const gpu::ImageView& image){if(!image)return;const auto size=image->owner()->extent(image->range().baseMipLevel);
         if(!draw.extent.width){draw.extent={size.width,size.height};draw.layers=image->range().layerCount;}
         else{draw.extent.width=std::min(draw.extent.width,size.width);draw.extent.height=std::min(draw.extent.height,size.height);}};

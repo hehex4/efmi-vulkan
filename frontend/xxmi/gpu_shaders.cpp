@@ -114,6 +114,7 @@ void GpuShaderRuntime::application_compute(const RuntimeDraw& draw){
     indirect_arguments_=draw.indirect_arguments;
     stages_.fill(nullptr);source_graphics_.fill(nullptr);stages_known_=0;graphics_known_=0;
     scissor_known_=pixel_samplers_known_=false;known_samplers_.clear();samplers_.clear();
+    application_graphics(draw.compute?nullptr:draw.graphics_state.get());
     input_layout_.reset();original_layout_.reset();source_input_elements_=draw.input_elements;source_input_known_=draw.input_layout_known;
     if(!draw.compute && (draw.shader_stages&1))for(unsigned i=0;i<5;++i){
         if(draw.shader_stages&(1u<<i))source_graphics_[i]=draw.source_codes[i];

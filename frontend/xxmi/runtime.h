@@ -1,6 +1,7 @@
 #pragma once
 #include "../assets/file_plan.h"
 #include "native_bindings.h"
+#include "native_graphics_state.h"
 #include <cmath>
 #include <limits>
 #include <tuple>
@@ -104,6 +105,7 @@ enum class ShaderDeclarationQuery { ConstantType,ConstantSize,ResourceType,Resou
 // EFMITTL's vertex shader groups a draw's vertex shader stands for (D-113, D-171, D-185).
 enum class VertexHook : uint32_t { None = 0, Lit = 1, LitSkin = 2, Outline = 3, ShadowPlain = 4, ShadowFading = 5 };
 struct RuntimeDraw {
+    std::shared_ptr<const NativeGraphicsState> graphics_state;
     struct VertexElement {std::string semantic;uint32_t index=0,format=0,slot=0,offset=0,classification=0,step=0;};
     std::vector<VertexElement> input_elements;
     bool input_layout_known=false;

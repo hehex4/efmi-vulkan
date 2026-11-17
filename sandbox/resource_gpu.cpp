@@ -1564,7 +1564,8 @@ int wmain(int argc,wchar_t** argv){
     }
     if(argc==3 && !wcscmp(argv[1],L"--graphics")){
         try{{Device device;device.init(false,false,true,false,false,false,true,true,true);
-            owned_graphics(device,std::filesystem::absolute(argv[2]));}
+            owned_graphics(device,std::filesystem::absolute(argv[2]));
+            inherited_native_graphics_pixels(device,std::filesystem::absolute(argv[2])/"native-state");}
             printf("graphics resources: %u checks passed; validation errors=%u warnings=%u\n",unsigned(checks),unsigned(errors),unsigned(warnings));
             return errors || warnings?1:0;
         }catch(const std::exception& e){fprintf(stderr,"graphics resources: %s\n",e.what());return 1;}
