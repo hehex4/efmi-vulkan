@@ -90,7 +90,7 @@ SourceGraphicsState source_graphics_normalize(SourceGraphicsState s){
     else if(!stencil_valid(s.depth.FrontFace) || !stencil_valid(s.depth.BackFace))s.depth=defaults.depth;
     return s;
 }
-void GpuShaderRuntime::set_graphics_state(const SourceGraphicsState& state){graphics_=source_graphics_normalize(state);}
+void GpuShaderRuntime::set_graphics_state(const SourceGraphicsState& state){graphics_=source_graphics_normalize(state);graphics_known_=15;pixel_samplers_known_=true;}
 gpu::Sampler GpuShaderRuntime::source_sampler(const D3D11_SAMPLER_DESC& source){
     const uint32_t filter=uint32_t(source.Filter);
     require(!(filter&~0xd5u) && ((filter&0x40u)==0 || (filter&0x55u)==0x55u),"Source sampler reduction/filter needs another adapter");
@@ -141,7 +141,16 @@ bool GpuShaderRuntime::draw_graphics(DrawCommand& command,CommandListState& stat
         else throw std::runtime_error("Source caller requires stream-output or imported indirect/dispatch state");
         if(c->type==DrawCall::DrawInstanced || c->type==DrawCall::DrawIndexedInstanced){draw.instances=c->InstanceCount;draw.first_instance=c->FirstInstance;}break;}
     default:throw std::runtime_error("Source DrawAuto requires a stream-output count adapter");}
-    if(!stages_[0] || (!draw.arguments && (!draw.count || !draw.instances)) || graphics_.topology==D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED)return true;
+    if(!draw.arguments && (!draw.count || !draw.instances))return true;
+    const bool prepared=adapter_ && adapter_->planning_prepared();
+    if(prepared)require(stages_known_&1,"Prepared CustomShader inherits an unknown application graphics vertex stage");
+    if(!stages_[0])return true;
+    if(prepared){
+        require(stages_known_==31,"Prepared CustomShader inherits an unknown application graphics stage");
+        require(graphics_known_==15,"Prepared CustomShader inherits an unknown application graphics state");
+        require(!graphics_.raster.ScissorEnable || scissor_known_,"Prepared CustomShader inherits an unknown application graphics scissor");
+    }
+    if(graphics_.topology==D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED)return true;
     require(!stages_[1] && !stages_[2],"Source tessellation execution needs another graphics adapter");
     const auto& viewport=resources_.viewport();if(viewport.Width==0 || viewport.Height==0)return true;
     require(viewport.Width>0 && viewport.Height>0,"Source viewport dimensions are invalid");

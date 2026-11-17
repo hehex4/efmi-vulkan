@@ -1,5 +1,22 @@
 # EFMI Vulkan - Known issues
 
+## BUG-176: Failed prepared scopes hide their first source refusal (D-336)
+
+The original command model distinguishes skipped source commands from host draw
+refusals and runs tolerant Present/key roots to completion. A prepared GPU failure
+already invalidates its complete speculative scope. contained() marked that scope
+failed without retaining the source reason, so later caller cuts replaced a useful
+unknown-stage/state diagnosis with Cannot cut a failed or ordinary resource scope.
+The production graphics negative fixtures preserve original GPU 7 but initially
+fail their reason assertions (3/4 each). Preserve the first reason for nontolerant
+draw execution and prefer it over later cleanup failures. Do not change original
+Present/key continuation: the first broad change exposed that distinction in the
+prepared registry regression. DX11 reference lifetime/deferred destruction, hazard
+tracking and context order remain explicit Vulkan transaction responsibilities.
+Final resource GPU 395 and five graphics modes 20 pass, with correct original
+negative results and source reasons. CPU 39/interpreter 582 and scoped Core/host
+regressions pass; validation clean. Fixed offline at 3.5.2, no game action.
+
 ## BUG-174: Graphics uses private recording inside prepared execution (D-334)
 
 Original RunCustomShader saves overwritten stages/state and all viewport/output

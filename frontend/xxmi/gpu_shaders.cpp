@@ -104,7 +104,7 @@ void GpuShaderRuntime::set_programs(const std::vector<gpu::HlslProgram>& program
     for(const auto& program:programs){unsigned i=0;while(i<6 && flags[i]!=program.stage)++i;
         require(i<6 && !next[i],"Original source shader stage is invalid or duplicated");next[i]=std::make_shared<gpu::HlslProgram>(program);}
     auto compute=next[5]?commands_.compile(*next[5]):gpu::Compute{};
-    for(unsigned i=0;i<5;++i)stages_[i]=std::move(next[i]);compute_=std::move(compute);compute_known_=true;
+    for(unsigned i=0;i<5;++i)stages_[i]=std::move(next[i]);stages_known_=31;compute_=std::move(compute);compute_known_=true;
 }
 bool GpuShaderRuntime::execute_original(CommandListState& state,std::wstring& why){
     try{require(state.call_info!=nullptr,"Original operation lacks caller data");const auto& call=*state.call_info;
@@ -134,11 +134,18 @@ bool GpuShaderRuntime::run(RunCustomShaderCommand& command,CommandListState& sta
             gpu::Compute& current;gpu::Compute saved;
             bool& known;bool saved_known;
             decltype(stages_)& stages;decltype(stages_) saved_stages;
+            uint8_t& stage_known;uint8_t saved_stage_known;
+            uint8_t& graphics_known;uint8_t saved_graphics_known;
             SourceGraphicsState& state;SourceGraphicsState saved_state;
-            ~Restore(){current=std::move(saved);known=saved_known;stages=std::move(saved_stages);state=std::move(saved_state);resources.restore_outputs(std::move(outputs));}
-        } restore{resources_,resources_.save_outputs(),compute_,compute_,compute_known_,compute_known_,stages_,stages_,graphics_,graphics_};
+            ~Restore(){current=std::move(saved);known=saved_known;stages=std::move(saved_stages);stage_known=saved_stage_known;
+                graphics_known=saved_graphics_known;state=std::move(saved_state);resources.restore_outputs(std::move(outputs));}
+        } restore{resources_,resources_.save_outputs(),compute_,compute_,compute_known_,compute_known_,stages_,stages_,stages_known_,stages_known_,graphics_known_,graphics_known_,graphics_,graphics_};
         if(entry.overrides[5]){compute_=entry.compute;compute_known_=true;}
-        for(unsigned i=0;i<5;++i)if(entry.overrides[i])stages_[i]=entry.stages[i];
+        for(unsigned i=0;i<5;++i)if(entry.overrides[i]){stages_[i]=entry.stages[i];stages_known_|=uint8_t(1u<<i);}
+        if(shader.blend_override==1)graphics_known_|=1;
+        if(shader.depth_stencil_override==1)graphics_known_|=2;
+        if(shader.rs_override==1)graphics_known_|=4;
+        if(shader.topology!=D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED)graphics_known_|=8;
         graphics_=source_graphics_normalize(source_graphics_override(shader,graphics_));
         ++shader_calls_;return adapter_->invoke_shader(shader,state,why);
     }catch(const std::exception& e){why=widen(e.what());return false;}
@@ -146,8 +153,12 @@ bool GpuShaderRuntime::run(RunCustomShaderCommand& command,CommandListState& sta
 void GpuShaderRuntime::set_sampler(wchar_t stage,unsigned slot,const VkSamplerCreateInfo* info){
     require(stage && wcschr(L"vhdgpc",stage) && slot<16,"Source sampler stage/slot is invalid");
     if(info)samplers_[{stage,slot}]=commands_.sampler(*info);else samplers_.erase({stage,slot});
+    known_samplers_.emplace(stage,slot);
 }
 gpu::Sampler GpuShaderRuntime::sampler(wchar_t stage,unsigned slot){
+    if(adapter_ && adapter_->planning_prepared())require(known_samplers_.count({stage,slot}) ||
+        (stage==L'p' && (pixel_samplers_known_ || graphics_.pixel_samplers.at(slot).has_value())),
+        "Prepared CustomShader inherits an unknown application sampler");
     if(stage==L'p' && graphics_.pixel_samplers.at(slot))return source_sampler(*graphics_.pixel_samplers[slot]);
     const auto found=samplers_.find({stage,slot});if(found!=samplers_.end())return found->second;
     if(!default_sampler_){
@@ -165,7 +176,6 @@ bool GpuShaderRuntime::draw(DrawCommand& command,CommandListState& state,std::ws
         const bool indirect=command.type==DrawCommandType::DISPATCH_INDIRECT;
         const bool prepared_plan=adapter_ && adapter_->planning_prepared();
         if(!indirect && command.type!=DrawCommandType::DISPATCH){
-            require(!prepared_plan,"Prepared CustomShader graphics requires stage and pass admission");
             return draw_graphics(command,state);
         }
         require(!prepared_plan || compute_known_,"Prepared CustomShader inherits an unknown application compute stage");

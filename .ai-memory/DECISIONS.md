@@ -13,6 +13,24 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-336: Admit original graphics from explicit source facts (2026-11-17)
+
+Original CustomShader overrides replace selected shaders and replace/merge state;
+the unmodified fields inherit the actual context. Constructor defaults do not prove
+those facts. Track explicit stage knowledge and complete blend/depth/raster/topology
+descriptions, restoring knowledge alongside nested CustomShader state. Full original
+overrides and explicit host snapshots establish facts; unknown inherited shader,
+sampler or scissor state refuses before host admission. Zero draws and explicit
+null vertex stages retain their original no-work behavior. Existing Vulkan retained
+packets, hazards, pass handoff and completion ownership supply DX11 runtime services.
+
+An actual original INI graphics -> sampled image -> compute -> application chain
+now produces GPU 23. Unknown stage/state/sampler cases preserve application 7 and
+explain the missing fact. The first prepared failure belongs to the entire draw,
+but tolerant Present/key lists retain original per-command continuation semantics.
+Current source-code inheritance, extended host state and other compatibility gaps
+remain explicit work, not a completed rewrite or real-game acceptance claim.
+
 ## D-335: Restore proven application graphics state around packets (2026-11-17)
 
 Original RunCustomShader (CommandList.cpp 2840+) restores overridden shader/state

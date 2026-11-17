@@ -45,7 +45,7 @@ public:
     // Stages read from the shader cache (D-126) instead of compiled or translated; before installation.
     void enable_cache(std::shared_ptr<gpu::ShaderCache> cache){cache_=std::move(cache);}
     bool execute_original(CommandListState&,std::wstring&);
-    void set_scissor(const D3D11_RECT& value){scissor_=value;}
+    void set_scissor(const D3D11_RECT& value){scissor_=value;scissor_known_=true;}
     // A logical source layout retains its creation signature across VS changes.
     // Only the intercepted outer draw boundary restores original layout edits.
     void set_input_layout(InputLayout);
@@ -87,12 +87,15 @@ private:
     gpu::Compute compute_;
     bool compute_known_=false; // Null differs from an unimported application stage.
     std::array<std::shared_ptr<gpu::HlslProgram>,5> stages_;
+    uint8_t stages_known_=0,graphics_known_=0; // Explicit source facts, not constructor defaults.
     SourceGraphicsState graphics_=source_graphics_defaults();
     D3D11_RECT scissor_{};
+    bool scissor_known_=false,pixel_samplers_known_=false;
     InputLayout input_layout_,original_layout_;
     std::map<std::vector<uint64_t>,gpu::Graphics> graphics_pipelines_;
     std::map<std::vector<uint64_t>,gpu::Sampler> source_samplers_;
     std::map<std::pair<wchar_t,unsigned>,gpu::Sampler> samplers_;
+    std::set<std::pair<wchar_t,unsigned>> known_samplers_;
     gpu::Sampler default_sampler_;
     uint64_t dispatches_=0,shader_calls_=0,draws_=0;
 };

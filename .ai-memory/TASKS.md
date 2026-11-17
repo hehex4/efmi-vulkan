@@ -7,7 +7,23 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
-Active D-335 follows committed D-334 (4cc4002), root main fast-forwarded. Source
+Active D-336 follows committed D-335 (09315e4), root main fast-forwarded. Source
+3.5.2 replaces blanket prepared-graphics refusal with explicit source stage/state
+facts, including nested restoration and unknown sampler/scissor guards. The new
+production fixture reproduces old 7 instead of 23; CPU 39 passes and matching
+binaries build. Enabled production passes 4 with GPU 23; negative modes preserve
+GPU 7 but initially mask the source reason. The diagnostic fix now records the
+first prepared refusal only for nontolerant draws, preserving tolerant Present
+semantics after the registry regression exposed that distinction. Fresh registry,
+binaries and production/host/Core checks pass: GPU registry 395, five graphics
+modes 20, backend 13, transaction 5, Core 10, tracker 1042, ABI 15 and text 754.
+Fresh final CPU 39/interpreter 582 pass. The sampler fixture required msaa=1;
+without it source texture creation yielded no valid sampled image. Diff reviewed;
+commit/main fast-forward next,
+then continue inherited source graphics, original-only entry, patterned shader
+execution, current Store and capture contracts before the Vulkan-native route.
+
+D-335 follows committed D-334 (4cc4002), root main fast-forwarded. Source
 3.5.1 adds tracked core graphics state, shared descriptor restoration, retained
 effective IA replay and per-packet host state restoration. Tracker 1042 and host
 insertion GPU 95 pass, validation clean. Four DLLs are 3.5.1 / a3f16e583590c2cd;

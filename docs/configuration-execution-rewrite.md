@@ -291,7 +291,10 @@ after the preparing engine retires (234 GPU checks). D-335 restores proven core
 graphics state, descriptor offsets/layouts and effective retained IA bindings around
 host insertion. Classic/dynamic graphics packets and subsequent application pixels
 pass 95 GPU checks, validation clean. Unknown extended state/windows still refuse;
-the original frontend requires inherited source stage/state admission next.
+D-336 admits original graphics with explicit proven source stages and full state
+overrides. A production INI graphics -> texture -> compute -> application chain
+produces GPU 23; unknown stage/state/sampler variants preserve original 7. Five
+modes pass 20 checks. General inherited source facts still need integration.
 
 These are scoped sandbox/GPU results. Compatibility is not complete: patterned
 ShaderRegex patches, original-only entry without native IB conveniences,

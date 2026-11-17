@@ -751,7 +751,11 @@ struct DrawPlanAdapter::Runtime {
     // is one more skipped command); anything else is the command's own, which does nothing and is said once.
     void contained(const CommandListCommand* command,const std::wstring& line,const Refused& refused)
     {
-        if(queries->preparing && queries->preparing())queries->preparation_failed();
+        if(queries->preparing && queries->preparing()){
+            // This failure already invalidates the complete GPU transaction.
+            // Keep its source reason before later cut/flush cleanup can fail.
+            queries->preparation_failed();if(!tolerant)whole(refused.reason);
+        }
         if(refused.draw && !tolerant)whole(refused.reason);
         else skipped(command,line,refused.reason);
     }
@@ -2411,6 +2415,9 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
     } catch (const std::exception& error) {
         reason = L"Frontend raised an exception while planning: "+widen(error.what());
     }
+    // A later cut/flush can reject a GPU scope already cancelled by the first
+    // source command. Keep that original refusal instead of its cleanup symptom.
+    if(!runtime_->draw_refused.empty())reason=runtime_->draw_refused;
     runtime_->active = nullptr; runtime_->root = nullptr;
     state.input_layout_overrides = std::move(saved_layout);state.post=saved_post;
     // The state is throwaway, but leave nesting counters usable for diagnostics.

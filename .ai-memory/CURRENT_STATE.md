@@ -10,7 +10,34 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
-Active D-335: D-334 committed as 4cc4002 and main fast-forwarded. Source 3.5.1
+Active D-336: D-335 committed as 09315e4 and main fast-forwarded. Source 3.5.2
+admits original graphics only with proven shader stages and blend/depth/raster/
+topology state; explicit full CustomShader overrides establish facts, nested calls
+restore them, unknown inherited state/samplers/scissors refuse. Constructor defaults
+are not source facts. configuration-graphics-before.out reproduces GPU output 7
+instead of 23 through the previous blanket graphics guard. The new production
+fixture draws an original private image, samples it with original compute, and
+feeds the application call; missing-stage/state variants must preserve original 7.
+The old status hid the first shader refusal with a later failed-scope cut exception;
+draw_plan now preserves its original first refusal. Fresh CPU 39 and interpreter
+582 pass. First matching binaries build at ABI a3f16e583590c2cd. Production enabled
+mode passes 4, output 23. Negative modes correctly preserve GPU 7 but still report
+the cut symptom (3/4 each): contained source failures had not stored a whole-draw
+reason. Recording it there fixes the source path, but the first attempt also made
+tolerant Present return false in prepared_registry_cases. Restrict the whole-draw
+reason to nontolerant draw execution, preserving original Present/key continuation.
+Fresh registry GPU 395, matching binaries and production/host/Core regressions
+pass in configuration-graphics-resource-reviewed/reviewed-build/regression.out:
+graphics modes 12, backend 13, transaction 5, Core 10, tracker 1042, ABI 15 and
+text 754. Additional explicit/unknown sampler modes pass 8. Their first fixture
+omitted msaa=1 and produced 0; explicit valid texture creation fixes it. A temporary
+string-join syntax error was also corrected. Fresh final CPU 39/interpreter 582
+pass. Diff reviewed; commit/main fast-forward next, then continue remaining
+original-only entry and inherited source/graphics contracts without ending here.
+Broader inherited graphics/source and extended host states remain; do not claim
+complete compatibility or game acceptance. Continue after this verification.
+
+D-335 checkpoint: D-334 committed as 4cc4002 and main fast-forwarded. Source 3.5.1
 tracks complete core viewport/scissor arrays, scalar and two-face stencil dynamic
 values, and graphics descriptor completeness. Shared descriptor restoration now
 serves compute and graphics. Graphics preflight retains effective native IA

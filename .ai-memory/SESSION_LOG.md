@@ -4123,3 +4123,28 @@ include extended dynamic state, extended IA windows and unknown effective bindin
 Diff reviewed and memory synchronized; commit/main fast-forward follow. Continue
 original INI graphics admission, inherited source proof, original-only/patterned/
 Store/capture work, then native I-01/I-04/I-05. No game, deployment or cleanup.
+
+## 2026-11-17 - D-336 original prepared graphics admission
+
+Continued after 09315e4/main fast-forward. Read original stage and state override
+semantics; explicit full descriptions are source facts, constructor defaults are
+not. Added nested stage/state knowledge, sampler/scissor guards and replaced the
+blanket prepared-graphics refusal with those proofs. The original INI production
+fixture reproduces 7 instead of 23 before the change. Enabled graphics now writes
+a private image, original compute reads it and the application receives 23.
+
+Negative stage/state cases preserve GPU 7 but first report failed-scope cut errors.
+BUG-176 stores the first prepared source failure and preserves it through cleanup.
+The first broad change breaks the prepared registry's tolerant Present semantics;
+limiting whole-draw refusal to nontolerant execution fixes that regression. Fresh
+GPU registry 395 and production positive/negative modes 12 pass cleanly. Additional
+explicit/unknown sampler cases pass 8 after fixing a fixture string join and its
+missing msaa=1 texture creation fact (the incomplete texture previously yielded 0).
+
+Four DLLs/tracker are 3.5.2 / unchanged ABI a3f16e583590c2cd. Scoped regression
+passes backend 13, transaction 5, Core constant/rolling 10, tracker 1042, ABI 15 and
+text 754. Fresh final CPU 39/interpreter 582 pass. All GPU validation is clean.
+Diff reviewed and memory synchronized; commit/main fast-forward follow. Continue
+original-only command entry, inherited source graphics, patterned patch execution,
+current Store and capture contracts before the native I-01/I-04/I-05 work. This is
+explicit-state graphics admission, not general inherited-state or game completion.
