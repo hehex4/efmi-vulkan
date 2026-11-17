@@ -7,6 +7,11 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
+## D-327 private image insertion verified
+
+- Native packet preflight now accepts retained private image layout chains and verifies full allocation disjointness using actual tracked future outputs. Tracker 1011 and GPU 61 pass cleanly; eight pass modes prove clear/copy order, attachment preservation and completion lifetime. Four development DLLs build at 3.4.3 in prepared-private-images-dll-build.out. Scoped regression passes configuration 13, tracker 1011, GPU insertion 61, recipes 410/cache 81/snapshots 52/variants 63, ABI 9 and text 737 in prepared-private-images-regression.out.
+- Continue explicit application image layout handoff, complete host source mapping and per-call admission before production original Core insertion. Then resume native I-01/I-04/I-05 and capture work. No game authorization.
+
 ## D-326 pass insertion verified
 
 - Added work-only native pass boundaries, whole-sequence preflight, allocation alias guards, compute replay and command-buffer retention. Tracker 1011 and eight-mode GPU 31 pass with zero validation errors/warnings after correcting fixture setup/UNORM assumptions. Four development DLLs are 3.4.2 / ABI fd2102f32b81fd00. Scoped regression passes production registry 13, tracker 1011, GPU pass insertion 31, recipes 410/cache 81/snapshots 52/variants 63, classic attachments 173, classic outputs 73, depth-only 76, stencil 61, MRT 39, absent outputs 27, dynamic targets 30, ABI 9 and text 737 in prepared-pass-regression.out.

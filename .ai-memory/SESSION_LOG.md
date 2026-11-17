@@ -3851,3 +3851,25 @@ Continue image layout handoff, complete application source mapping and per-call
 host admission/recording before production original Core insertion. Native queue,
 access/readiness and remaining capture work remain. No game, deployment, candidate
 refresh, installed/system mutation, historical artifact deletion or remote action.
+
+## 2026-11-17: D-327 private image pass insertion
+
+Read original CopyResourceToResource allocation-pool and current-context execution
+(CommandList.cpp 12452-12568). Native preflight now accepts private image packets
+with a continuous GENERAL boundary contract and complete allocation disjointness;
+future output proof resolves actual tracked image/view memory. Application image
+imports remain refused until their explicit layout handoff. DX11's reference-counted
+lifetime/deferred destruction, hazard tracking and context order remain explicit
+Vulkan obligations, independent of the original shared configuration model.
+
+The first build session was interrupted before producing new executables; resumed
+build succeeds in prepared-private-images-resumed-build.out. Tracker 1011 and GPU
+61 pass with zero validation errors/warnings. Eight pass modes prove clear37/later
+copy order, actual draw/attachment preservation, alias refusal and image retirement
+only after legal command-buffer reset. Evidence: prepared-private-images-tracker.out
+and prepared-private-images-gpu.out. Four development DLLs build at 3.4.3 in prepared-private-images-dll-build.out. Scoped regression passes configuration 13, tracker 1011, GPU insertion 61, recipes 410/cache 81/snapshots 52/variants 63, ABI 9 and text 737 in prepared-private-images-regression.out.
+
+Continue final/per-call host bindings, complete source mapping and application
+image handoff before production original Core insertion. Native I-01/I-04/I-05 and
+capture work follow the completed rewrite. No game, deployment, candidate refresh,
+installed/system mutation, historical artifact deletion or remote action.

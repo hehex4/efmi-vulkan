@@ -245,3 +245,9 @@ packets through legal completion/reset. Eight classic/dynamic GPU modes pass 31
 checks with zero validation errors/warnings, and tracker checks pass 1011. Image
 layout handoff, complete host source mapping and per-call admission still gate
 production Core insertion. This remains sandbox evidence, not game acceptance.
+
+D-327 extends the pass insertion path to private images with continuous GENERAL
+boundaries and complete allocation disjointness. Actual GPU clear/copy ordering,
+attachment preservation and completion lifetime pass 61 checks across eight pass
+modes, with zero validation diagnostics; tracker checks remain 1011. Application
+image handoff and production host source mapping/per-call admission remain open.

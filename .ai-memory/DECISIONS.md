@@ -13,6 +13,16 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-327: Admit private image packets with explicit layout and allocation proof (2026-11-17)
+
+Private image packets may execute between render passes when their immutable state
+chain returns to GENERAL at every host-call boundary and their full memory spans
+are disjoint from all retained output allocations. Resolve future output identity
+through the current tracked view/image, not cached NativeResource memory fields.
+Retain the packets on the executable command buffer and release them only after
+legal completion/reset. Borrowed application images still need current layout and
+pass-transition handoff; do not infer that from private image support.
+
 ## D-326: Preserve outputs when inserting prepared work (2026-11-16)
 
 A work marker creates an End/work/LOAD Begin boundary without assigning a fake

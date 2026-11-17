@@ -1,5 +1,12 @@
 # EFMI Vulkan - Architecture
 
+D-327 (3.4.3) admits retained private image work with a continuous layout chain
+returning to GENERAL at every packet boundary. Full allocation spans are checked
+against all retained output roles, including future outputs resolved through actual
+tracked image/view identities. Packets retain private images through legal recording
+reset. Application imports still require explicit layout handoff; production host
+source mapping and per-call admission remain open.
+
 D-326 (3.4.2) extends NativeTargetPlan with work-only pass boundaries. A complete
 contiguous buffer packet sequence is preflighted against its device/family and
 retained output allocations. Before recording, compute restoration and compatible

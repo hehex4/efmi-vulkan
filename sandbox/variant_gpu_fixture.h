@@ -29,6 +29,7 @@ static void vkcheck(VkResult r, const char* name)
 
 #define INSTANCE_FUNCS(X) \
     X(DestroyInstance) X(EnumeratePhysicalDevices) X(GetPhysicalDeviceProperties) X(GetPhysicalDeviceQueueFamilyProperties) \
+    X(GetPhysicalDeviceImageFormatProperties) X(GetPhysicalDeviceFormatProperties) \
     X(GetPhysicalDeviceMemoryProperties) X(GetPhysicalDeviceFeatures) X(GetPhysicalDeviceFeatures2) X(CreateDevice) X(GetDeviceProcAddr)
 #define DEVICE_FUNCS(X) \
     EFVK_VARIANT_FUNCS(X) \

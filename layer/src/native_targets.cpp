@@ -251,6 +251,7 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
     if(!resource_lock_held)lock.lock();
     std::shared_ptr<NativeComputeRestore> compute_restore;
     const void* sequence=nullptr;size_t segment=0;
+    std::map<const efmi::gpu::ImageResource*,VkImageLayout> private_layouts;
     for(const auto& item:plan.items)if(item.operation==Operation::PreparedWork){
         const auto& work=item.prepared_work;
         if(!work || !work->size() || !work->sequence() || work->device()!=device->handle || work->queue_family()!=device->material_family)
@@ -258,8 +259,19 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
         if(!sequence)sequence=work->sequence();
         if(sequence!=work->sequence() || work->segment()!=segment++)
             return refuse("Prepared pass work must preserve one contiguous ordered sequence");
-        if(!work->image_accesses().empty() || !work->image_states().empty())
-            return refuse("Prepared image work needs explicit render-pass layout handoff");
+        for(const auto& state:work->image_states()){
+            const auto& image=state.image;
+            if(!image || image->is_external())return refuse("Prepared application images need explicit render-pass layout handoff");
+            if(state.final!=VK_IMAGE_LAYOUT_GENERAL || (state.initial!=VK_IMAGE_LAYOUT_UNDEFINED && state.initial!=VK_IMAGE_LAYOUT_GENERAL))
+                return refuse("Prepared private image work must preserve GENERAL between host calls");
+            const auto previous=private_layouts.find(image.get());
+            if(previous!=private_layouts.end() && previous->second!=state.initial)
+                return refuse("Prepared private image sequence has a discontinuous layout");
+            private_layouts[image.get()]=state.final;
+        }
+        for(const auto& access:work->image_accesses())
+            if(!access.image || access.image->is_external() || !private_layouts.count(access.image.get()))
+                return refuse("Prepared image access lacks its retained private layout contract");
         if(work->changes_compute_state() && !compute_restore){
             compute_restore=std::make_shared<NativeComputeRestore>();
             if(!prepare_native_compute_restore(device,cb,*compute_restore,why,true))return false;
@@ -335,18 +347,32 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
                 for(const auto& swapchain:device->swapchains)for(auto handle:swapchain.second.images)if(handle==image)return true;
                 return refuse("Prepared pass work needs proven attachment allocation identity");
             };
-            for(const auto& access:item.prepared_work->buffer_accesses()){
-                const auto& buffer=access.buffer;
-                if(!buffer || !buffer->memory() || !buffer->memory_size())return refuse("Prepared pass buffer allocation is incomplete");
-                NativeMemoryRange input{uint64_t(buffer->memory()),buffer->memory_offset(),buffer->memory_size(),true};
+            auto disjoint=[&](const NativeMemoryRange& input){
+                if(!input.memory || !input.size)return refuse("Prepared pass allocation is incomplete");
                 for(const auto& view:targets.views)if(view.known && !image_safe(view.view.image,view.image,input))return false;
                 for(const auto& color:next.state->colors)if(!image_safe(color.original_image,color.original_storage,input))return false;
                 if(!image_safe(next.state->depth.original_image,next.state->depth.original_storage,input))return false;
                 for(const auto& saved:next.state->restore)if(!image_safe(saved.second.view.view.image,saved.second.view.image,input))return false;
                 for(const auto& future:plan.items)if(future.operation==Operation::NativeBind && native_output_binding(future.native_target) &&
-                    future.native_resource && future.native_resource->bound &&
-                    native_memory_overlap(input,native_memory(*future.native_resource),device->physical_properties.limits.bufferImageGranularity))
-                    return refuse("Prepared pass work aliases a future output allocation");
+                    future.native_resource && future.native_resource->bound){
+                    const auto& resource=*future.native_resource;
+                    const auto view=device->image_views.find(VkImageView(resource.image_view));
+                    if(view==device->image_views.end() || view->second.id!=resource.image_view_id)
+                        return refuse("Prepared pass future output view is unavailable");
+                    const auto image=device->images.find(view->second.image);
+                    if(image==device->images.end() || image->second.id!=view->second.image_id)
+                        return refuse("Prepared pass future output image is unavailable");
+                    if(!image_safe(view->second.image,image->second,input))return false;
+                }
+                return true;
+            };
+            for(const auto& access:item.prepared_work->buffer_accesses()){
+                const auto& buffer=access.buffer;
+                if(!buffer || !disjoint({uint64_t(buffer->memory()),buffer->memory_offset(),buffer->memory_size(),true}))return false;
+            }
+            for(const auto& access:item.prepared_work->image_accesses()){
+                const auto& image=access.image;
+                if(!image || !disjoint({uint64_t(image->memory()),image->memory_offset(),image->memory_size(),false}))return false;
             }
             auto event=std::make_shared<NativeTargetPlan::Event>();event->change=true;event->work=item.prepared_work;
             if(event->work->changes_compute_state())event->compute=compute_restore;

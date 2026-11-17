@@ -27,6 +27,7 @@ static void run(bool classic,unsigned mode,const efmi::gpu::HlslProgram& vertex,
     if(stencil)stencils=g.buffer(64*64,VK_BUFFER_USAGE_TRANSFER_DST_BIT);
     constexpr auto buffer_usage=VK_BUFFER_USAGE_TRANSFER_DST_BIT|VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     const auto output=g.buffer(256,buffer_usage);
+    const auto image_output=g.buffer(4,VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
     // All host metadata describes these actual Vulkan objects and their allocation spans.
     Device device;device.handle=g.device;device.physical_properties=g.properties;
@@ -110,6 +111,7 @@ static void run(bool classic,unsigned mode,const efmi::gpu::HlslProgram& vertex,
 
     efmi::gpu::ResourceDevice resource;resource.device=g.device;resource.memory=g.memory;resource.queue_family=g.family;
     resource.physical=g.physical;resource.queue_flags=g.queue_flags;resource.api_version=VK_API_VERSION_1_3;
+    resource.GetImageFormatProperties=vkGetPhysicalDeviceImageFormatProperties;resource.GetFormatProperties=vkGetPhysicalDeviceFormatProperties;
 #define X(name) resource.dispatch.name=reinterpret_cast<PFN_vk##name>(vkGetDeviceProcAddr(g.device,"vk" #name));
     EFMI_RESOURCE_COMMAND_FUNCS(X)
 #undef X
@@ -119,14 +121,34 @@ static void run(bool classic,unsigned mode,const efmi::gpu::HlslProgram& vertex,
     auto shaders=std::make_unique<efmi::gpu::ShaderCommands>(*commands,host);auto compute_pipeline=shaders->compile(compute);
     commands->begin_prepared();VkMemoryRequirements req{};vkGetBufferMemoryRequirements(g.device,output.handle,&req);
     auto imported=commands->import_buffer(output.handle,output.size,buffer_usage,output.memory,0,req.size,gpu);
-    commands->fill(imported,0,4,7);auto first=commands->cut_prepared();
+    commands->fill(imported,0,4,7);
+    efmi::gpu::ImageDescription image_desc;image_desc.format=VK_FORMAT_R32_UINT;
+    image_desc.usage=VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    auto private_image=commands->create_image(image_desc);std::weak_ptr<efmi::gpu::ImageResource> image_lifetime=private_image;
+    VkClearColorValue image_value{};image_value.uint32[0]=37;commands->clear(private_image,private_image->full_range(),image_value);
+    auto first=commands->cut_prepared();
+    vkGetBufferMemoryRequirements(g.device,image_output.handle,&req);
+    auto image_destination=commands->import_buffer(image_output.handle,image_output.size,VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        image_output.memory,0,req.size,gpu);
+    VkBufferImageCopy image_copy{};image_copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};image_copy.imageExtent={1,1,1};
+    commands->copy(private_image,image_destination,image_copy);
     efmi::gpu::ShaderDescriptor binding;binding.binding=compute.bindings.at(0).binding;binding.buffer=imported;binding.size=4;
     shaders->dispatch(compute_pipeline,{binding},{1,1,1});auto second=commands->finish_prepared();
     efmi::assets::FilePlan plan;plan.items.resize(2);
     for(auto& item:plan.items)item.operation=efmi::assets::FileOperation::PreparedWork;
     plan.items[0].prepared_work=first;plan.items[1].prepared_work=second;
     NativeTargetCache cache;NativeTargetPlan prepared;std::string why;
-    if(!prepare_native_targets(&device,&cb,draw,plan,prepared,why,&cache))throw std::runtime_error(why);
+    auto prepare=[&]{prepared={};return prepare_native_targets(&device,&cb,draw,plan,prepared,why,&cache);};
+    if(attached){
+        auto aliased=targets;
+        auto alias=[&](TargetView& v){v.image.mem=private_image->memory();v.image.mem_off=private_image->memory_offset();v.image.mem_size=private_image->memory_size();};
+        if(classic){auto fb=std::make_shared<FramebufferInfo>(*targets.framebuffer);alias(fb->views[0]);aliased.framebuffer=fb;}
+        else {alias(aliased.views[0]);if(stencil)alias(aliased.views[2]);}
+        cb.target_contexts[0]=aliased;
+        check(!prepare() && why.find("attachment memory")!=std::string::npos,"private image work refuses physical attachment alias before recording");
+        cb.target_contexts[0]=targets;
+    }
+    if(!prepare())throw std::runtime_error(why);
     commands->accept_prepared();
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};VK(vkBeginCommandBuffer(cb.handle,&begin));
     if(classic){VkRenderPassBeginInfo info{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};info.renderPass=g.pass;info.framebuffer=g.framebuffer;
@@ -164,8 +186,10 @@ static void run(bool classic,unsigned mode,const efmi::gpu::HlslProgram& vertex,
     vkCmdPipelineBarrier(cb.handle,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_HOST_BIT,0,1,&visible,0,nullptr,0,nullptr);
     VK(vkEndCommandBuffer(cb.handle));check(prepared.owner->seal(),"GPU recording seals its retained work owner");
     // Destroy preparation before submission; only the executable recording retains its packets.
-    prepared={};plan={};first.reset();second.reset();imported.reset();binding={};compute_pipeline.reset();shaders.reset();commands.reset();
+    prepared={};plan={};first.reset();second.reset();imported.reset();image_destination.reset();private_image.reset();binding={};compute_pipeline.reset();shaders.reset();commands.reset();
+    check(!image_lifetime.expired(),"executable recording retains private images after registry preparation retires");
     VK(g.submit(cb.handle));VK(vkQueueWaitIdle(g.queue));
+    check(*static_cast<const uint32_t*>(image_output.mapped)==37,"GPU image clear and later copy keep the private GENERAL layout chain");
     check(*static_cast<const uint32_t*>(output.mapped)==13,"GPU buffer result proves ordered fill and compute insertion");
     if(attached){
         bool untouched=true,drawn=true,stencil_ok=true;
@@ -176,7 +200,7 @@ static void run(bool classic,unsigned mode,const efmi::gpu::HlslProgram& vertex,
                 (changed?drawn:untouched)&=std::abs(actual-(changed?0.125f:0.75f))<0.00001f;
             }else{const auto* actual=static_cast<const uint8_t*>(pixels.mapped)+4*index;
                 (changed?drawn:untouched)&=changed?(actual[0]==255 && !actual[1] && !actual[2] && actual[3]==255):
-                    (actual[0]==64 && (actual[1]==127 || actual[1]==128) && actual[2]==191 && actual[3]==255);}
+                    ((actual[0]==63 || actual[0]==64) && (actual[1]==127 || actual[1]==128) && (actual[2]==191 || actual[2]==192) && actual[3]==255);}
             if(stencil)stencil_ok&=static_cast<const uint8_t*>(stencils.mapped)[index]==(changed?9:23);
         }
         if(!untouched && !depth){const auto* p=static_cast<const uint8_t*>(pixels.mapped);
@@ -186,6 +210,7 @@ static void run(bool classic,unsigned mode,const efmi::gpu::HlslProgram& vertex,
         if(stencil)check(stencil_ok,"GPU stencil clear and both replacement regions survive pass splits");
     }
     VK(vkResetCommandPool(g.device,g.pool,0));for(auto& owner:cb.owners)owner->reset_after_completion();
+    check(image_lifetime.expired(),"legal recording reset retires private image allocations");
     printf("pass insertion: %s mode=%u complete\n",classic?"classic":"dynamic",mode);
 }
 
