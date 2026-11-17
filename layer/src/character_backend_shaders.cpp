@@ -6,6 +6,7 @@
 #include "native_execution.h"
 #include "native_targets.h"
 #include "native_configuration.h"
+#include "texture_identity.h"
 #include "../../frontend/xxmi/shader_assembly.h"
 
 namespace efvk {
@@ -682,6 +683,26 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
                         }
                         request.source_codes[i]=found->second;
                         if(found->second)request.source_models[i]=found->second->model();
+                    }
+                    if(i==0 && geometry->inputs && pipeline->second.recipe && pipeline->second.recipe->geometry_complete && !r.vertex_input){
+                        auto found=geometry->profiles.find(stage.shader);
+                        if(found==geometry->profiles.end() && geometry->profiles.size()<4096){
+                            NativeGeometryContext::Profile entry;auto profile=std::make_shared<efmi::frontend::VertexProfile>();
+                            if(geometry->inputs->lookup(stage.shader->code,*profile,entry.reason))entry.value=std::move(profile);
+                            found=geometry->profiles.emplace(stage.shader,std::move(entry)).first;
+                        }
+                        if(found!=geometry->profiles.end() && found->second.value){
+                            const auto& vertex=pipeline->second.recipe->vertex;request.input_layout_known=true;
+                            for(const auto& attribute:vertex.attributes){
+                                const auto* semantic=found->second.value->semantic(attribute.location);
+                                const auto binding=std::find_if(vertex.bindings.begin(),vertex.bindings.end(),[&](const auto& value){return value.binding==attribute.binding;});
+                                const auto format=dxgi_format(attribute.format);
+                                if(!semantic || binding==vertex.bindings.end() || !format){request.input_layout_known=false;break;}
+                                const bool instance=binding->inputRate==VK_VERTEX_INPUT_RATE_INSTANCE;
+                                request.input_elements.push_back({semantic->name,semantic->index,format,attribute.binding,attribute.offset,uint32_t(instance),uint32_t(instance)});
+                            }
+                            if(!request.input_layout_known)request.input_elements.clear();
+                        }
                     }
                 }
             }

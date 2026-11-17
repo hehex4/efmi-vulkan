@@ -13,6 +13,28 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-344: Exact inherited graphics stages and input semantics (2026-11-17)
+
+Original CommandList.cpp 2872-2897 changes only explicitly overridden stages;
+nested calls restore those stages. DX11 supplies reference-counted deferred
+lifetime, hazard tracking and one context's order. Vulkan retains exact paired
+DXBC programs, input descriptions and prepared packets through existing owners.
+Only an active graphics pipeline proves absent graphics stages; a compute call
+does not. Reset stage/layout/sampler facts on each application call. Translate
+inherited graphics lazily in a bounded cache, and reconstruct static input layout
+semantics from the exact ShaderInputIndex and current native attributes. Missing
+source/layout evidence remains an explicit refusal. Graphics state inheritance
+and dynamic vertex input are not established by this change.
+
+The production fixture uses an owned application attachment, an original-shaped
+VB and inherited VS/IA, then copies and samples the result on the main scene.
+Readback files must be removed before launch and captured while the test notice
+is visible; earlier iterations used stale images and are not valid GPU evidence.
+The initial old-DLL failure was at swapchain import, not shader inheritance.
+Cross-call reference of an imported image loses native view provenance in the
+prepared bridge; reproduce and fix next rather than treating the copy fixture
+as proof of retained-reference compatibility.
+
 ## D-343: Retained indirect arguments for patched compute (2026-11-17)
 
 Original CommandList.cpp 1565-1593 forwards the buffer and offset then releases

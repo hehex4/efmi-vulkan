@@ -71,6 +71,8 @@ private:
     bool draw(DrawCommand&,CommandListState&,std::wstring&);
     bool draw_graphics(DrawCommand&,CommandListState&);
     void inherit_compute();
+    void inherit_graphics();
+    std::shared_ptr<gpu::HlslProgram> inherited_graphics_program(const std::shared_ptr<const SourceShaderCode>&,unsigned);
     std::vector<gpu::ShaderDescriptor> descriptors(const std::vector<const gpu::HlslProgram*>&);
     gpu::Sampler sampler(wchar_t,unsigned);
     gpu::Sampler source_sampler(const D3D11_SAMPLER_DESC&);
@@ -98,6 +100,12 @@ private:
     std::map<std::shared_ptr<const SourceShaderCode>,InheritedCompute,std::owner_less<std::shared_ptr<const SourceShaderCode>>> inherited_compute_;
     size_t inherited_compute_bytes_=0;
     std::array<std::shared_ptr<gpu::HlslProgram>,5> stages_;
+    std::array<std::shared_ptr<const SourceShaderCode>,5> source_graphics_;
+    std::vector<RuntimeDraw::VertexElement> source_input_elements_;
+    bool source_input_known_=false;
+    struct InheritedGraphics {std::shared_ptr<gpu::HlslProgram> program;size_t bytes=0;};
+    std::map<std::shared_ptr<const SourceShaderCode>,InheritedGraphics,std::owner_less<std::shared_ptr<const SourceShaderCode>>> inherited_graphics_;
+    size_t inherited_graphics_bytes_=0;
     uint8_t stages_known_=0,graphics_known_=0; // Explicit source facts, not constructor defaults.
     SourceGraphicsState graphics_=source_graphics_defaults();
     D3D11_RECT scissor_{};

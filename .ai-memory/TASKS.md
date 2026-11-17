@@ -7,7 +7,15 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
-Active D-343 follows 6398e40/main fast-forward. Complete patched indirect compute
+Active D-344 follows 9188a52/main fast-forward. Verify inherited graphics stages
+and exact input semantics in production, then import current graphics state and
+viewport/samplers, connect graphics regex, and finish remaining compatibility.
+Inherited graphics 20, affected production/owned/prepared/CPU regressions pass
+at 3.5.9 / ABI 1b6562d4f3a7bcc0. Commit and fast-forward. Next repair cross-call
+imported image view provenance (retained ref o0 cannot yet be sampled), then
+continue state inheritance, graphics regex and remaining compatibility.
+
+D-343 follows 6398e40/main fast-forward. Complete patched indirect compute
 with retained same-handle argument buffers; reproduce old refusal, build matching
 3.5.8 binaries, verify actual GPU output and affected prepared/Core checks. Then
 continue graphics inheritance and the remaining compatibility contracts.

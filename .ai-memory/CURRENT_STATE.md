@@ -10,7 +10,27 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
-Active D-343: D-342 committed as 6398e40 and main fast-forwarded. Source 3.5.8
+Active D-344: D-343 committed as 9188a52 and main fast-forwarded. Source 3.5.9
+adds per-call graphics source reset, known absent stages of the active graphics
+pipeline, lazy bounded exact DXBC graphics translation, and an original input
+layout built from exact ShaderInputIndex semantic mappings and static native
+vertex attributes. Explicit overrides/nested restoration remain original; compute
+calls do not prove graphics state. Actual blend/depth/raster/viewport inheritance
+is not implemented yet; fixtures use complete state overrides and set_viewport.
+New sandbox/native_inherited_graphics_test.py renders inherited VS/IA with an
+explicit pixel override, plus missing-source/missing-layout/nested cases: 20/20
+checks pass with fresh completed pixels. The initial old-DLL failure was at
+swapchain import and is not inheritance evidence. Matching 3.5.9 binaries use
+ABI 1b6562d4f3a7bcc0. Affected production regression passes graphics 20, inherited
+compute 12, indirect regex 16, transaction 5, Core 22, tracker 1042, ABI 16.
+Owned graphics 234, prepared 155, CPU 57/interpreter 602 and text 759 pass;
+validation clean. Logs: inherited-graphics-{production,regression,owned,prepared,
+cpu,interpreter}.out. Review/commit/fast-forward, then continue without stopping:
+first fix retained imported image view provenance (ref o0 in one call, sample in
+another currently refuses as a private GENERAL image), then state inheritance.
+No process remains active; no game action or compatibility-completion claim.
+
+D-343: D-342 committed as 6398e40 and main fast-forwarded. Source 3.5.8
 adds retained native indirect arguments to the per-call snapshot. Patched compute
 imports the same buffer/offset, records dispatch_indirect with existing access/
 lifetime machinery, and never reads GPU parameters on CPU. Original CommandList.cpp

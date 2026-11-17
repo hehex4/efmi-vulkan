@@ -143,6 +143,7 @@ bool GpuShaderRuntime::draw_graphics(DrawCommand& command,CommandListState& stat
     default:throw std::runtime_error("Source DrawAuto requires a stream-output count adapter");}
     if(!draw.arguments && (!draw.count || !draw.instances))return true;
     const bool prepared=adapter_ && adapter_->planning_prepared();
+    if(prepared){inherit_graphics();apply_input_layout(state);}
     if(prepared)require(stages_known_&1,"Prepared CustomShader inherits an unknown application graphics vertex stage");
     if(!stages_[0])return true;
     if(prepared){

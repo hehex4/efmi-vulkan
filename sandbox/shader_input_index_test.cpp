@@ -27,10 +27,11 @@ int wmain(int argc,wchar_t** argv){
                 static_cast<unsigned long long>(code->hash(SourceShaderHash::Embedded)),
                 static_cast<unsigned long long>(code->hash(SourceShaderHash::Bytecode)));return 0;
         }
-        if(argc==4 && std::wstring(argv[1])==L"--dxbc"){
+        if((argc==4 || argc==5) && std::wstring(argv[1])==L"--dxbc"){
             std::ifstream input(argv[2],std::ios::binary);std::string text((std::istreambuf_iterator<char>(input)),{});
             ID3DBlob* code=nullptr;ID3DBlob* errors=nullptr;
-            const auto hr=D3DCompile(text.data(),text.size(),nullptr,nullptr,nullptr,"main","cs_5_0",D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&code,&errors);
+            const std::wstring wide_model=argc==5?argv[4]:L"cs_5_0";const std::string model(wide_model.begin(),wide_model.end());
+            const auto hr=D3DCompile(text.data(),text.size(),nullptr,nullptr,nullptr,"main",model.c_str(),D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&code,&errors);
             if(errors){fprintf(stderr,"%s",static_cast<const char*>(errors->GetBufferPointer()));errors->Release();}
             if(FAILED(hr) || !code)throw std::runtime_error("Fixture DXBC compilation failed");
             std::ofstream output(argv[3],std::ios::binary);output.write(static_cast<const char*>(code->GetBufferPointer()),code->GetBufferSize());code->Release();

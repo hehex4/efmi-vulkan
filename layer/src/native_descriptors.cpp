@@ -310,8 +310,12 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
                 const auto& limits=device->physical_properties.limits;
                 const auto alignment=constant?limits.minUniformBufferOffsetAlignment:limits.minStorageBufferOffsetAlignment;
                 const auto maximum=constant?limits.maxUniformBufferRange:limits.maxStorageBufferRange;
-                if(!resource.buffer || !(resource.usage&usage) || !resource.range || resource.range>maximum || (alignment && resource.offset%alignment))
-                    return refuse("Native buffer reference violates descriptor usage, range or alignment");
+                if(!resource.buffer || !(resource.usage&usage) || !resource.range || resource.range>maximum || (alignment && resource.offset%alignment)){
+                    why="Native buffer reference violates descriptor usage, range or alignment (set="+std::to_string(target.set)+
+                        ", binding="+std::to_string(target.binding)+", buffer="+std::to_string(resource.buffer)+
+                        ", usage="+std::to_string(resource.usage)+", offset="+std::to_string(resource.offset)+", range="+std::to_string(resource.range)+")";
+                    return false;
+                }
                 value.buffer=VkBuffer(resource.buffer);value.buffer_id=uint32_t(resource.identity>>2);value.offset=resource.offset;value.range=resource.range;
             }else if(sampled || type==VK_DESCRIPTOR_TYPE_STORAGE_IMAGE){
                 if(!resource.image_view)return refuse("Native image reference has no retained image view");

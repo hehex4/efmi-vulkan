@@ -4332,3 +4332,20 @@ at ABI 066579482492ab7d. Direct/indirect patch/skip/prepost/unmatched variants p
 32, transaction 5, tracker 1042, ABI 16, text 758 clean. Prepared GPU 155 and fresh
 CPU 57/full interpreter 602 pass. Diff reviewed; commit/main fast-forward, then
 continue graphics inheritance. No game action.
+
+## 2026-11-17: D-344 graphics shader/input inheritance in progress
+
+D-343 committed as 9188a52 and main fast-forwarded. Original CommandList.cpp
+2872-2897 replaces only explicitly overridden stages; other stages and the input
+layout are inherited. DX11 supplies reference/deferred lifetime, hazards and context
+order; retain translated programs and original layout descriptions with existing
+immutable prepared packets. Source 3.5.9 resets per-call facts, derives absent
+graphics stages only from an active graphics pipeline, lazily translates exact
+source stages under a 64-entry/64-MiB cache, and builds input layouts from the
+whole-corpus exact semantic index plus actual static vertex attributes. Unknown
+source/layout stays unknown. State inheritance remains future work, not guessed.
+Added production inherited VS/IA fixture with explicit state and pixel override,
+missing source/layout and nested variants. Old-DLL reproduction builds helper
+and frontend in inherited-graphics-before.out; latest C++ unverified. No game.
+
+D-344 verified: matching 3.5.9 / ABI 1b6562d4f3a7bcc0. Inherited graphics 20, production graphics 20, compute inheritance 12, indirect regex 16, transaction 5, Core 22, tracker 1042, ABI 16; owned graphics 234/prepared 155/CPU 57/interpreter 602/text 759 pass, validation clean. Initial old-DLL result was swapchain import, not an inheritance reproduction. Fresh pixel files and a visible readback notice replace invalid stale-file iterations. Diff reviewed. Commit/main fast-forward, then continue cross-call imported image view provenance and graphics state; no game action.

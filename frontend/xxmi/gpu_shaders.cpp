@@ -112,8 +112,45 @@ void GpuShaderRuntime::set_programs(const std::vector<gpu::HlslProgram>& program
 void GpuShaderRuntime::application_compute(const RuntimeDraw& draw){
     compute_.reset();source_compute_.reset();compute_known_=false;patched_compute_=false;
     indirect_arguments_=draw.indirect_arguments;
+    stages_.fill(nullptr);source_graphics_.fill(nullptr);stages_known_=0;graphics_known_=0;
+    scissor_known_=pixel_samplers_known_=false;known_samplers_.clear();samplers_.clear();
+    input_layout_.reset();original_layout_.reset();source_input_elements_=draw.input_elements;source_input_known_=draw.input_layout_known;
+    if(!draw.compute && (draw.shader_stages&1))for(unsigned i=0;i<5;++i){
+        if(draw.shader_stages&(1u<<i))source_graphics_[i]=draw.source_codes[i];
+        else stages_known_|=uint8_t(1u<<i);
+    }
     if(!draw.compute || !(draw.shader_stages&32))return;
     source_compute_=draw.source_codes[5];
+}
+std::shared_ptr<gpu::HlslProgram> GpuShaderRuntime::inherited_graphics_program(const std::shared_ptr<const SourceShaderCode>& code,unsigned stage){
+    require(code && stage<5 && code->model()[0]=="vhdgp"[stage],"Inherited graphics bytecode conflicts with its stage");
+    const auto found=inherited_graphics_.find(code);if(found!=inherited_graphics_.end())return found->second.program;
+    require(cached_compiler_!=nullptr,"Inherited graphics needs bytecode translation");
+    auto program=std::make_shared<gpu::HlslProgram>();std::string why;
+    const auto key=cache_?cache_->bytecode_key(code->bytes(),"vhdgp"[stage],uint32_t(cached_mode_)|0x10000u):std::string();
+    if(!key.empty() && cache_->load(key,*program))++shader_stats_.cached;
+    else{
+        const auto began=std::chrono::steady_clock::now();
+        if(!cached_compiler_->compile(code->bytes(),"vhdgp"[stage],*program,why,cached_mode_))throw std::runtime_error("Inherited graphics translation failed: "+why);
+        gpu::dxbc_storage_reads(*program);++shader_stats_.translated;shader_stats_.translate_us+=elapsed_us(began);
+        if(!key.empty())cache_->store(key,*program);
+    }
+    const size_t bytes=code->bytes().size()+program->dxbc.size()+program->spirv.size()*4;
+    require(bytes<=(64u<<20),"Inherited graphics exceeds its cache budget");
+    while(!inherited_graphics_.empty() && (inherited_graphics_bytes_+bytes>(64u<<20) || inherited_graphics_.size()>=64)){
+        const auto old=inherited_graphics_.begin();inherited_graphics_bytes_-=old->second.bytes;inherited_graphics_.erase(old);
+    }
+    inherited_graphics_.emplace(code,InheritedGraphics{program,bytes});inherited_graphics_bytes_+=bytes;return program;
+}
+void GpuShaderRuntime::inherit_graphics(){
+    for(unsigned i=0;i<5;++i)if(!(stages_known_&(1u<<i)) && source_graphics_[i]){
+        stages_[i]=inherited_graphics_program(source_graphics_[i],i);stages_known_|=uint8_t(1u<<i);
+    }
+    if(!input_layout_ && source_input_known_ && source_graphics_[0]){
+        std::vector<SourceVertexElement> elements;
+        for(const auto& v:source_input_elements_)elements.push_back({v.semantic,v.index,DXGI_FORMAT(v.format),v.slot,v.offset,D3D11_INPUT_CLASSIFICATION(v.classification),v.step});
+        input_layout_=std::make_shared<SourceInputLayout>(std::move(elements),inherited_graphics_program(source_graphics_[0],0)->input_signature);
+    }
 }
 void GpuShaderRuntime::source_patch(unsigned stage,std::shared_ptr<const SourceShaderCode> code){
     require(stage==5 && code && adapter_ && adapter_->planning_prepared(),"Source graphics patch requires inherited graphics execution");
