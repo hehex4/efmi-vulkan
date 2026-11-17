@@ -10,7 +10,25 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
-Active D-337: D-336 committed as 54f8c27 and main fast-forwarded. Source 3.5.3
+Active D-338: D-337 committed as c80f677 and main fast-forwarded. Source remains
+3.5.3. Work in progress adds exact original DXBC evidence to the whole-asset
+model collector, a compressed deduplicated archive, and a lazy ShaderSourceIndex.
+The first uncompressed collection exceeds its 256 MiB budget. Use Windows
+buffer-mode XPRESS_HUFF (cabinet API) and decode one bounded source on lookup;
+ambiguous/unpaired native identities remain excluded. The first compressed
+collection exited without a report; a rerun adds source progress and exit status
+and completes successfully across 232 assets. It admits 18,589 exact native
+identities, excludes 126 conflicting counterparts, and writes 89,231,878 bytes
+to build/shader-source-index/shader-sources.bin. Exact original evidence totals
+286,948,172 bytes before compression. Fresh reader tests pass 22 checks in
+shader-source-index-test.out; the complete archive audit verifies every retained
+compressed blob and original DXBC model in shader-source-index-audit.out.
+This archive is not
+connected to production source queries or patterned execution yet. Next: finish
+corpus/reader validation, connect proven original source facts and executable
+patch handling, with inherited graphics/Store/capture gaps still pending.
+
+D-337 checkpoint: D-336 committed as 54f8c27 and main fast-forwarded. Source 3.5.3
 removes native automatic IB command-list entry even without ShaderRegex groups.
 Original HackerContext BeforeDraw enters stage ShaderOverrides; only executed
 CheckTextureOverride commands enter matching IB lists. The added CPU regression

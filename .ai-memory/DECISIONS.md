@@ -13,6 +13,23 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-338: Exact original bytecode evidence (in progress, 2026-11-17)
+
+Original HackerDevice.cpp 2520+ hashes actual DXBC according to configured
+FNV/embedded/bytecode policy; ByteCodeReader derives declarations from bounded
+tokenized instructions. A native model alone cannot prove these source facts.
+Collect counterparts from every paired occurrence and exclude ambiguous or
+unpaired identities. Keep exact bytes; never infer the original hash from SPIR-V.
+The first raw collector exceeded 256 MiB. Deduplicate and compress each original
+with Windows buffer-mode XPRESS_HUFF, retaining a bounded archive and decoding
+only a requested exact identity. Each decoded blob checks its original SHA-256,
+model/stage and original declaration parser before publishing an immutable owner.
+Archive framing failures preserve the previous index; malformed lazy payloads
+refuse lookup. No production integration or completed corpus result is claimed
+yet. DX11 lifetime/deferred destruction, hazards and context ordering remain
+explicit Vulkan responsibilities when this evidence becomes executable work.
+API reference: https://learn.microsoft.com/en-us/windows/win32/cmpapi/using-the-compression-api-in-buffer-mode
+
 ## D-337: Original-only production command entry (2026-11-17)
 
 Original HackerContext.cpp 1031-1070 enters per-stage ShaderOverride lists in

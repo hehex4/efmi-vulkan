@@ -4174,3 +4174,24 @@ Diff reviewed and memory synchronized; commit/main fast-forward follows. Continu
 paired original shader evidence, inherited graphics, patterned execution, current
 Store and capture migration before the native queue/access/readiness route. No
 game, deployment or compatibility-completion claim.
+
+## 2026-11-17: D-338 source archive work in progress
+
+D-337 committed as c80f677 and root main fast-forwarded. Added optional exact
+DXBC counterpart collection, deduplicated compressed archive and lazy source
+reader. Raw collection exceeded 256 MiB; Windows buffer-mode XPRESS_HUFF keeps
+the archive compressed and source decoding bounded to 4 MiB per request. The
+first compressed run ended without a report; the rerun records source progress
+and exit status in shader-source-index-build.out. Reader malformed-cache,
+retained-owner and lazy payload checks are compiling in shader-source-index-test.out.
+Changes remain uncommitted and are not wired to production execution. Complete
+verification, then integrate source facts/patterned execution and inherited
+graphics; do not present this intermediate archive as compatibility completion.
+
+D-338 verification: the rerun completes all 232 sources, admits 18,589 native
+identities and excludes 126 conflicting counterparts. Archive size 89,231,878
+bytes versus 286,948,172 bytes of original evidence. The native reader passes
+22 malformed/identity/lifetime/lazy-payload checks. The full archive audit checks
+all compressed source hashes and original DXBC framing/models. The prior status
+that compilation was pending is superseded by these results. Production source
+query/patch integration remains next; no game or deployment.

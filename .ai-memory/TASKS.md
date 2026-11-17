@@ -7,7 +7,14 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
-Active D-337 follows committed D-336 (54f8c27), root main fast-forwarded. Source
+Active D-338 follows c80f677/main fast-forward. Finish compressed exact DXBC
+archive generation and lazy reader checks, then connect original source facts
+and patterned execution. No production source archive integration exists yet.
+The first raw collector exceeded 256 MiB. The compressed rerun admits 18,589
+identities and excludes 126 conflicts; reader 22 checks and full blob audit pass.
+Commit the verified evidence adapter, then continue production integration.
+
+D-337 follows committed D-336 (54f8c27), root main fast-forwarded. Source
 3.5.3 removes implicit native IB list execution; only original explicit stage
 commands enter matching TextureOverrides. CPU regression reproduces old behavior;
 fixtures are migrated to explicit original entry. Fresh CPU 47/interpreter 590,

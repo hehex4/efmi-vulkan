@@ -30,6 +30,7 @@ STEPS = [
     ("shader VFS metadata", [os.path.join(HERE, "shader_vfs_test.py")]),
     ("shader input index", [os.path.join(ROOT, "scripts", "check_shader_inputs.py")]),
     ("shader model index", [os.path.join(ROOT, "scripts", "check_shader_models.py")]),
+    ("shader source index", [os.path.join(ROOT, "scripts", "check_shader_sources.py")]),
     ("native shader input semantics", [os.path.join(HERE, "native_vertex_semantics_test.py")]),
     ("unit tests", [os.path.join(HERE, "unit_test.py")]),
     ("original frontend host", [os.path.join(ROOT, "scripts", "probe_xxmi_host.py"), "--reuse"]),

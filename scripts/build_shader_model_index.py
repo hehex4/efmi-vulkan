@@ -16,6 +16,7 @@ from unity_shader_metadata import Smolv, program, require, shader_tree, span, u3
 ROOT = Path(__file__).resolve().parents[1]
 MAGIC = b'EFVSM001'
 MAX_BYTES = 8 * 1024 * 1024
+MAX_SOURCE_BYTES = 256 * 1024 * 1024
 
 
 def model_name(token):
@@ -95,6 +96,32 @@ def encode(records):
     return MAGIC+struct.pack('<2I',len(records),len(payload))+hashlib.sha256(payload).digest()+payload
 
 
+def encode_sources(records):
+    """Exact original bytes, deduplicated independently of native module identity."""
+    from shader_source_compression import pack
+    require(len(records)<=65536, 'Too many shader source entries')
+    table, blobs, seen, payload = bytearray(), {}, set(), bytearray()
+    for digest,size,code in sorted(records):
+        require(len(digest)==32 and digest not in seen and 20<=size<=16*1024*1024 and size%4==0,
+                'Invalid or duplicate shader source identity')
+        if isinstance(code,bytes):
+            require(32<=len(code)<=4*1024*1024, 'Source shader bytecode budget exceeded')
+            dxbc_model(code)
+            code=(len(code),hashlib.sha256(code).digest(),pack(code))
+        raw_size,source_digest,packed=code
+        require(32<=raw_size<=4*1024*1024 and len(source_digest)==32 and 0<len(packed)<=4*1024*1024+65536,
+                'Invalid compressed source shader')
+        seen.add(digest)
+        if source_digest not in blobs:
+            blobs[source_digest]=len(blobs)
+            payload+=struct.pack('<2I',raw_size,len(packed))+source_digest+packed
+        table+=digest+struct.pack('<2I',size,blobs[source_digest])
+        require(len(table)+len(payload)<=MAX_SOURCE_BYTES-56, 'Shader source cache budget exceeded')
+    payload=table+payload
+    return (b'EFVSB001'+struct.pack('<4I',len(records),len(blobs),len(payload),4)+
+            hashlib.sha256(payload).digest()+payload)
+
+
 def build(args):
     sys.path.insert(0,str(args.packages.resolve()))
     import UnityPy
@@ -106,8 +133,13 @@ def build(args):
     decoder = Smolv(args.decoder.resolve())
     sources = json.loads(args.sources.read_text())['sources']
     models, sizes, unpaired, stats = defaultdict(set), {}, set(), Counter()
+    originals, bytecodes = defaultdict(set), {}
+    retained_bytes=0;source_bytes=0
+    if args.source_bytecode:
+        from shader_source_compression import pack
     representatives = set()
-    for source in sources:
+    for source_number,source in enumerate(sources,1):
+        print('Source %d/%d; compressed evidence %d bytes' % (source_number,len(sources),retained_bytes),flush=True)
         path = Path(source['path'])
         fingerprint = lambda: hashlib.sha256(path.read_bytes()).hexdigest()
         require(fingerprint()==source['sha256'], 'Source evidence changed')
@@ -144,7 +176,7 @@ def build(args):
                                     (output/(stage+'-representative.spv')).write_bytes(module)
                                     representatives.add(stage)
                             else:
-                                token=dxbc_model(payload);stage=model_name(token)[0];value=token
+                                token=dxbc_model(payload);stage=model_name(token)[0];value=(token,payload)
                             require(stage not in result, 'Multiple programs for the same stage')
                             result[stage]=value
                         cached[key]=result
@@ -165,7 +197,15 @@ def build(args):
                                 require(set(dx)==set(current), 'Paired APIs have different shader stages')
                                 for stage,(digest,size) in current.items():
                                     require(digest not in sizes or sizes[digest]==size,'Shader digest has inconsistent length')
-                                    sizes[digest]=size;models[digest].add(dx[stage]);stats[stage+'_pairs']+=1
+                                    token,source_code=dx[stage]
+                                    sizes[digest]=size;models[digest].add(token);stats[stage+'_pairs']+=1
+                                    if args.source_bytecode:
+                                        source_digest=hashlib.sha256(source_code).digest()
+                                        originals[digest].add(source_digest)
+                                        if source_digest not in bytecodes:
+                                            packed=pack(source_code);retained_bytes+=len(packed);source_bytes+=len(source_code)
+                                            require(retained_bytes<=MAX_SOURCE_BYTES, 'Paired source evidence budget exceeded')
+                                            bytecodes[source_digest]=(len(source_code),source_digest,packed)
         require(fingerprint()==source['sha256'], 'Source changed during inspection')
     records=[(bytes.fromhex(digest),sizes[digest],next(iter(values))) for digest,values in models.items()
              if len(values)==1 and digest not in unpaired]
@@ -173,9 +213,22 @@ def build(args):
     (output/'shader-models.bin').write_bytes(cache)
     stats.update(unique_modules=len(models),accepted=len(records),unpaired_modules=len(unpaired),
                  conflicting_models=sum(len(x)>1 for x in models.values()),bytes=len(cache))
+    if args.source_bytecode:
+        source_records=[(bytes.fromhex(d),sizes[d],bytecodes[next(iter(values))])
+                        for d,values in originals.items() if len(values)==1 and d not in unpaired]
+        archive=encode_sources(source_records)
+        (output/'shader-sources.bin').write_bytes(archive)
+        stats.update(source_accepted=len(source_records),source_conflicts=sum(len(x)>1 for x in originals.values()),
+                     source_unique=len(bytecodes),source_evidence_bytes=source_bytes,
+                     source_retained_compressed_bytes=retained_bytes,source_archive_bytes=len(archive))
     report=dict(scope='Exact paired source model evidence; no inferred DXBC hash, code or game acceptance.',counts=dict(stats),
                 sources=sources,entries={d:dict(bytes=sizes[d],models=[model_name(v) for v in sorted(values)],
-                                              admitted=len(values)==1 and d not in unpaired) for d,values in sorted(models.items())})
+                                              admitted=len(values)==1 and d not in unpaired,
+                                              source_candidates=len(originals[d]) if args.source_bytecode else None,
+                                              source_admitted=len(originals[d])==1 and d not in unpaired if args.source_bytecode else False)
+                                      for d,values in sorted(models.items())})
+    if args.source_bytecode:
+        report['scope']='Exact paired model and original DXBC evidence; ambiguous or unpaired identities excluded; no game acceptance.'
     (output/'report.json').write_text(json.dumps(report,indent=2,ensure_ascii=True)+'\n',encoding='ascii')
     print(json.dumps(dict(stats),indent=2))
 
@@ -184,6 +237,7 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--sources',type=Path,required=True)
     parser.add_argument('--output',type=Path,required=True)
+    parser.add_argument('--source-bytecode',action='store_true',help='Also retain only unambiguous exact original DXBC counterparts')
     parser.add_argument('--packages',type=Path,default=Path('F:/vulkan/unity-analysis/packages'))
     parser.add_argument('--decoder',type=Path,default=ROOT/'build/shader-survey-decoder/smolv_bridge.dll')
     build(parser.parse_args())

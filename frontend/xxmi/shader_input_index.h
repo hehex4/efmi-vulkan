@@ -4,6 +4,7 @@
 #include <filesystem>
 
 namespace efmi::frontend {
+class SourceShaderCode;
 // Whole-corpus generated metadata. It owns no Vulkan objects or character data.
 // Read once while loading a generation; lookup does no IO or GPU work. A caller
 // retains the returned profile with its recorded variants through completion.
@@ -29,5 +30,19 @@ public:
 private:
     struct Entry {uint32_t bytes;std::string model;};
     std::map<std::array<uint8_t,32>,Entry> entries_;
+};
+// Stronger than a model match: every paired occurrence has the same original
+// bytecode. Ambiguous and unpaired modules have no entry. Owners outlive reload.
+class ShaderSourceIndex {
+public:
+    bool load(const std::filesystem::path&,std::string& reason);
+    bool decode(const std::vector<uint8_t>&,std::string& reason);
+    bool lookup(const std::vector<uint32_t>&,std::shared_ptr<const SourceShaderCode>&,std::string& reason) const;
+    size_t size() const {return entries_.size();}
+private:
+    struct Blob {uint32_t bytes,packed,offset;std::array<uint8_t,32> digest;};
+    struct Entry {uint32_t bytes;Blob blob;};
+    std::map<std::array<uint8_t,32>,Entry> entries_;
+    std::shared_ptr<const std::vector<uint8_t>> archive_;
 };
 }

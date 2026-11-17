@@ -1,4 +1,5 @@
 #include "../frontend/xxmi/shader_input_index.h"
+#include "../frontend/xxmi/shader_assembly.h"
 #include "material_fixture.h"
 #include <cstdio>
 #include <fstream>
@@ -19,6 +20,24 @@ int wmain(int argc,wchar_t** argv){
             file.write(reinterpret_cast<const char*>(code.data()),code.size()*4);return file?0:1;
         }
         int passed=0;auto check=[&](bool ok,const char* label){if(!ok)throw std::runtime_error(label);++passed;};
+        if(argc==3 && std::wstring(argv[1])==L"--sources"){
+            const fs::path root=argv[2];const auto code=code_at(root/L"fixture.spv");std::string reason;
+            ShaderSourceIndex index;std::shared_ptr<const SourceShaderCode> source;
+            check(index.load(root/L"good.bin",reason) && index.size()==1,"Source archive loads");
+            check(index.lookup(code,source,reason) && source->model()=="vs_5_0","Exact original bytecode decodes");
+            const auto retained=source;
+            auto changed=code;changed[2]^=1;
+            check(!index.lookup(changed,source,reason) && !source && !reason.empty(),"Changed executable has no original facts");
+            for(const auto& file:fs::directory_iterator(root))if(file.path().filename().wstring().find(L"bad-")==0){
+                check(!index.load(file.path(),reason),"Malformed source archive refuses");
+                check(index.lookup(code,source,reason) && source->bytes()==retained->bytes(),"Failed archive preserves earlier exact bytes");
+            }
+            check(index.load(root/L"empty.bin",reason) && !index.size(),"Empty archive replaces the lookup index");
+            check(retained->model()=="vs_5_0" && !retained->bytes().empty(),"Original bytecode owner survives index replacement");
+            check(index.load(root/L"corrupt.bin",reason) && !index.lookup(code,source,reason) && !source,
+                  "Corrupt compressed payload cannot publish shader facts");
+            printf("Shader source index: %d checks passed\n",passed);return 0;
+        }
         if(argc==3 && std::wstring(argv[1])==L"--models"){
             const fs::path root=argv[2];const auto code=code_at(root/L"fixture.spv");std::string reason,model;
             ShaderModelIndex index;
