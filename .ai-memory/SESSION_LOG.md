@@ -4278,5 +4278,40 @@ clean (original-hash-entry-source.out). Existing inherited 12, graphics 20,
 transaction 5, Core cases, tracker 1042, ABI 16 and text 758 pass. Broader native
 and configuration regression passes in original-hash-entry-regression.out:
 CPU 57, registry GPU 395, backend 13, geometry 128, IA 34, prepared GPU 155,
-native shader replacement and text 758. Diff reviewed; commit/main fast-forward
+native shader replacement (133) and text 758. Diff reviewed; commit/main fast-forward
 then continue executable patterned ShaderRegex. No game action.
+
+## 2026-11-17: D-342 executable regex reproduction
+
+D-341 committed as 04054ba and main fast-forwarded. Added an uncommitted production
+compute regex fixture with exact original code, no native override entry, and
+l(1) -> l(9) replacement. Expected output 16, original output 8; old binaries
+reproduce refusal in original-regex-compute-before.out. The fixture is not in
+run_all until implemented. Original ShaderRegex.cpp 763-804 links matched groups
+and filter values as it patches; retain original semantics with executable
+admission before publishing. Prepared caller insertion is in draw_plan.cpp
+application_draw (~971); it needs an owned patched-compute callback rather than
+the current unconditional Caller packet. Existing retained packets must continue
+to supply deferred lifetime, hazard tracking and single-command order. No game.
+
+User again explicitly requires continuing until compatibility is complete; do not
+end at a checkpoint. Implementing 3.5.7 executable compute patches: retained
+patched DXBC, executable admission callback before regex links, original-hash
+stage linkage, GPU extension forwarding and a prepared caller callback that
+records patched dispatch at the original pre/post boundary. CPU compilation/test
+is running in original-regex-compute-cpu.out; all latest C++ changes are unverified.
+Indirect caller and graphics adapters remain pending. No game authorization.
+
+CPU 57/full interpreter 600 pass; matching 3.5.7 DLLs build at ABI
+87a7dce8d09a8974. The first production run remains 8 without refusal: actual DXBC
+assembly uses vector l(1, 0, 0, 0), not the fixture's scalar pattern. Added an
+assembly inspection mode, corrected the pattern/replacement to vector values,
+and now patched/skip/prepost/unmatched cases pass 16. Hash entry 20, inherited
+compute 12, transaction 5, Core 22, tracker 1042, ABI 16 and text 758 pass with
+clean validation. Added a CPU assertion that throwing executable admission
+publishes neither patched code nor command/filter links. Prepared regression is
+building/running in original-regex-compute-prepared.out; full interpreter must
+be rebuilt after it to exercise the added assertion. No game.
+Prepared GPU 155 passes clean; fresh CPU 57/full interpreter 602 pass, including
+failed executable admission preserving original links/filter/storage. Diff
+reviewed. Commit/main fast-forward, then continue indirect and graphics paths.

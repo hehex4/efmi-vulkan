@@ -7,7 +7,18 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
-Active D-341 follows 27e3416/main fast-forward. Implement original shader hash
+Active D-342 follows 04054ba/main fast-forward. Complete executable compute
+ShaderRegex through exact DXBC, original links and the prepared caller boundary.
+New exact_inherit_source_regex fixture reproduces the unsupported patch path in
+original-regex-compute-before.out; it expects 16 instead of original 8. Do not
+publish patched links before executable admission. Direct compute patch execution
+now passes four production variants (16 checks), affected hash/inheritance/Core/
+host checks also pass. Finish prepared regression and the new executable-admission
+failure CPU check, review/commit/fast-forward, then indirect callers and graphics inheritance,
+current Store and remaining compatibility work. No game authorization.
+Prepared GPU 155 and fresh CPU 57/full interpreter 602 now pass; diff reviewed.
+
+D-341 follows 27e3416/main fast-forward. Implement original shader hash
 modes, separate explicit native identity from original hash values, and connect
 original ShaderOverride entry/filter queries. The current 32-bit value heuristic
 cannot distinguish original BYTECODE hashes from native CRC32C. Exact source

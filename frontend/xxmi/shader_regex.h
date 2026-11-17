@@ -30,14 +30,16 @@ public:
     using Preparation=std::unique_ptr<Prepared>;
     void initialize(DrawPlanAdapter&);
     Preparation prepare(const SourceShaderState&,unsigned stage_mask,bool require_known,bool analyse_patches=false) const;
-    void apply(Preparation,DrawPlanAdapter&);
+    using Executable=std::function<void(unsigned,std::shared_ptr<const SourceShaderCode>)>;
+    void apply(Preparation,DrawPlanAdapter&,Executable={});
+    std::shared_ptr<const SourceShaderCode> patched(uint64_t hash) const;
     unsigned stages() const {return relevant_stages_;}
     // Patternless groups need a proven source model, but no invented DXBC hash.
     // Original linking runs in an isolated temporary map; live native hashes
     // and source-hash query identities are never replaced by that internal key.
     ShaderOverride* model_commands(const std::string&,DrawPlanAdapter&);
 private:
-    struct Identity {std::string model;std::shared_ptr<const SourceShaderCode> code;};
+    struct Identity {std::string model;std::shared_ptr<const SourceShaderCode> code,patched;};
     std::map<uint64_t,Identity> linked_;
     std::map<std::string,std::shared_ptr<ShaderOverride>> model_links_;
     size_t retained_bytes_=0;

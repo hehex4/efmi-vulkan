@@ -91,6 +91,7 @@ SourceShaderRegex::Preparation SourceShaderRegex::prepare(const SourceShaderStat
             if(patched){phase="signature-aware assembly";result->requires_translation=true;patch.bytecode=source_shader_assembly(patch.assembly,patch.notices);
                 require_regex(source_shader_model(patch.bytecode.data(),patch.bytecode.size())==model,"Original regex patch changed its shader model");
                 patch_bytes+=patch.assembly.size()+patch.bytecode.size();require_regex(patch_bytes<=max_source_bytes,"Original regex patch preparation exceeds budget");
+                entry->identity.patched=SourceShaderCode::create(patch.bytecode.data(),patch.bytecode.size());
                 result->patches.push_back(std::move(patch));}
         }
         phase="link result retention";const auto found=G->mShaderOverrideMap.find(shader.hash);entry->matched=found!=G->mShaderOverrideMap.end();
@@ -101,8 +102,18 @@ SourceShaderRegex::Preparation SourceShaderRegex::prepare(const SourceShaderStat
     return result;
     }catch(const std::exception& e){throw std::runtime_error(std::string("ShaderRegex ")+phase+": "+e.what());}
 }
-void SourceShaderRegex::apply(Preparation prepared,DrawPlanAdapter& adapter){
-    require_regex(prepared && prepared->owner==this && !prepared->requires_translation,"Original regex patch has no executable translation or belongs to another generation");
+std::shared_ptr<const SourceShaderCode> SourceShaderRegex::patched(uint64_t hash) const {
+    const auto found=linked_.find(hash);return found==linked_.end()?nullptr:found->second.patched;
+}
+void SourceShaderRegex::apply(Preparation prepared,DrawPlanAdapter& adapter,Executable executable){
+    require_regex(prepared && prepared->owner==this && (!prepared->requires_translation || bool(executable)),"Original regex patch has no executable translation or belongs to another generation");
+    size_t added=0;
+    for(const auto& entry:prepared->entries){if(entry->identity.code)added+=entry->identity.code->bytes().size();
+        if(entry->identity.patched)added+=entry->identity.patched->bytes().size();}
+    require_regex(added<=max_source_bytes-retained_bytes_,"Original regex executable retention exceeds budget");
+    // Admit every executable before publishing any command link.
+    for(const auto& entry:prepared->entries)if(entry->identity.patched)
+        executable(unsigned(std::string("vhdgpc").find(entry->identity.model[0])),entry->identity.patched);
     for(const auto& entry:prepared->entries)require_regex(!linked_.count(entry->hash),"Original regex preparation was already published");
     for(auto& entry:prepared->entries){
         if(entry->matched){auto& target=G->mShaderOverrideMap[entry->hash];auto& source=entry->links;
@@ -114,6 +125,7 @@ void SourceShaderRegex::apply(Preparation prepared,DrawPlanAdapter& adapter){
             adapter.adapt(target.command_list);adapter.adapt(target.post_command_list);
         }
         if(entry->identity.code)retained_bytes_+=entry->identity.code->bytes().size();
+        if(entry->identity.patched)retained_bytes_+=entry->identity.patched->bytes().size();
         linked_.emplace(entry->hash,std::move(entry->identity));
     }
 }

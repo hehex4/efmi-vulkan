@@ -13,6 +13,19 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-342: Execute original compute regex at the caller boundary (2026-11-17)
+
+Original ShaderRegex.cpp 763-804 links command lists and filters for matched
+groups, including match-only groups. Retain patched source code and translate
+before publishing executable patch links. Translation refusal publishes neither
+patch nor links. Prepared application_draw calls the owned patched compute at
+the original pre/post boundary; skip and no-match retain original semantics.
+Nested explicit CustomShaders restore the patched inherited CS. Existing immutable
+packets/access recording supply DX11's deferred lifetime, hazards and context order.
+No application module or descriptor layout is mutated. Direct compute is verified;
+indirect callers and graphics need their own adapters. Production patch/skip/
+prepost/no-match 16, prepared 155 and full interpreter 602 pass. No game acceptance.
+
 ## D-341: Separate original and native shader identities (2026-11-17)
 
 HackerDevice.cpp 2488-2555 and util.h 112 define source hash modes: zero-seeded

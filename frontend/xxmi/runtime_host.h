@@ -25,6 +25,7 @@ public:
     virtual bool prepare(DrawPlanAdapter&, CommandListState&, std::wstring&) { return true; }
     virtual bool validate_overrides(std::wstring&) { return true; }
     virtual bool before_draw(const RuntimeDraw&, CommandListState&, std::wstring&) { return true; }
+    virtual void source_patch(unsigned,std::shared_ptr<const SourceShaderCode>){throw std::runtime_error("Source shader patch needs an executable adapter");}
     // After before_draw: the hook lists of this draw, adapted lists the extension registered at install.
     virtual void draw_hooks(const RuntimeDraw&, DrawHooks&) {}
     // After all matched pre/post lists, on either success or failure. Present

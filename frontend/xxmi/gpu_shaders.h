@@ -30,6 +30,7 @@ public:
     // Only the intercepted compute pipeline proves its active source stage.
     // A graphics call does not prove that the application's CS is unbound.
     void application_compute(const RuntimeDraw&);
+    void source_patch(unsigned,std::shared_ptr<const SourceShaderCode>) override;
     // Opt in before installation. The original CustomShader::compile loads a cache
     // <file>.<model>.<flags>.bin in place of compiling when its last-write time equals the
     // HLSL's exactly; such a cache runs through the exact bytecode translation. Without this
@@ -90,6 +91,7 @@ private:
     std::map<CustomShader*,Entry> shaders_;
     gpu::Compute compute_;
     bool compute_known_=false; // Null differs from an unimported application stage.
+    bool patched_compute_=false;
     std::shared_ptr<const SourceShaderCode> source_compute_;
     struct InheritedCompute {gpu::Compute pipeline;size_t bytes=0;};
     std::map<std::shared_ptr<const SourceShaderCode>,InheritedCompute,std::owner_less<std::shared_ptr<const SourceShaderCode>>> inherited_compute_;

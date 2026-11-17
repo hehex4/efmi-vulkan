@@ -862,14 +862,30 @@ bool IniRuntime::run_draw(const RuntimeDraw& input, assets::FilePlan& output, st
         // The ShaderOverride entries of the draw's modules (docs/vulkan-native-mods.md), by stage: vs, hs, ds, gs, ps.
         ShaderOverride* shaders[6] = {};ShaderOverride* native_shaders[6]={};
         bool shader_lists = false;
+        const bool regex_entry=input.native_calls && p.source_regex.stages()!=0;
+        if(regex_entry && !input.hunting_skip){
+            SourceShaderState facts;unsigned mask=0;
+            for(unsigned i=input.compute?5:0;i<(input.compute?6:5);++i){
+                const auto& code=input.source_codes[i];if(!code || !(input.shader_stages&(1u<<i)))continue;
+                auto& stage=facts.stages[i];stage.known=stage.bound=stage.hash_known=true;
+                stage.hash=code->hash(p.source_hash_mode);stage.model=code->model();stage.code=code;mask|=1u<<i;
+            }
+            auto admit=[&](unsigned stage,std::shared_ptr<const SourceShaderCode> code){
+                if(!p.extension)throw std::runtime_error("Original shader patch requires an executable extension");
+                p.extension->source_patch(stage,std::move(code));
+            };
+            p.source_regex.apply(p.source_regex.prepare(facts,mask,false,true),p.adapter,admit);
+            for(unsigned i=0;i<6;++i)if(mask&(1u<<i))
+                if(auto code=p.source_regex.patched(facts.stages[i].hash))admit(i,std::move(code));
+        }
         for(unsigned i=input.compute?5:0;i<(input.compute?6:5);++i){
             shaders[i]=p.source_override(input,i);shader_lists|=shaders[i]!=nullptr;
             if(shaders[i] && (shaders[i]->model[0] || (shaders[i]->depth_filter!=DepthBufferFilter::NONE && shaders[i]->depth_filter!=DepthBufferFilter::INVALID)))
                 throw std::runtime_error("Original shader depth/model substitution requires a source replacement adapter");
         }
-        const bool regex_entry=input.native_calls && p.source_regex.stages()!=0;
         if(regex_entry && !input.hunting_skip)for(unsigned i=input.compute?5:0;i<(input.compute?6:5);++i){
             if(!(p.source_regex.stages() & input.shader_stages & (1u<<i)))continue;
+            if(input.source_codes[i])continue; // Exact source links already live in the original map.
             const auto& model=input.source_models[i];
             if(model.empty() || model[0]!="vhdgpc"[i])throw std::runtime_error("Original ShaderRegex requires a verified source shader model");
             p.model_links[i]=p.source_regex.model_commands(model,p.adapter);shader_lists|=p.model_links[i]!=nullptr;

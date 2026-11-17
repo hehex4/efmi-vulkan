@@ -203,7 +203,13 @@ $b = $b + 1
                 original.command_list.commands==commands && original.filter_index==42,"Offline native analysis preserves live map nodes, local storage, commands and filters");
             check(patches.size()==(mode==2?0:1),"Native groups preserve ordered patches and genuine nonmatches");
             if(mode!=2){bool refused=false;try{analysis.apply(std::move(prepared),adapter);}catch(const std::exception&){refused=true;}
-                check(refused && original.command_list.commands==commands,"Patched source cannot publish linked commands without executable translation");}
+                check(refused && original.command_list.commands==commands,"Patched source cannot publish linked commands without executable translation");
+                bool attempted=false;refused=false;
+                try{analysis.apply(analysis.prepare(facts,32,true,true),adapter,[&](unsigned,std::shared_ptr<const SourceShaderCode>){
+                    attempted=true;throw std::runtime_error("Synthetic translation failure");});}
+                catch(const std::exception&){refused=true;}
+                check(attempted && refused && !analysis.patched(0x22) && original.command_list.commands==commands &&
+                    original.filter_index==42,"Failed executable admission publishes neither patch nor command/filter links");}
         };
         std::string why;auto runtime=IniRuntime::load(config,extension,why);if(!runtime)throw std::runtime_error(why);
         if(mode!=2){check(patches[0].notices.empty(),"Original regex replacement assembles without native parse notices");

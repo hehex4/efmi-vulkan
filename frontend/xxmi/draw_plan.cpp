@@ -973,6 +973,11 @@ struct DrawPlanAdapter::Runtime {
         if(active->skip_original && !keep_original)return;
         if(planning_prepared()){
             if(!state.call_info)return;
+            if(prepared_original_gate && prepared_original_gate()){
+                std::wstring why;
+                if(!prepared_original_call(state,why))refuse(why.empty()?L"Patched original call refused":why);
+                cut_plan();active->skip_original=true;keep_original=false;return;
+            }
             PlanItem call;call.operation=PlanOperation::Caller;indexed(call,state);
             active->skip_original=true;keep_original=false;return;
         }
@@ -992,6 +997,8 @@ struct DrawPlanAdapter::Runtime {
     bool owned() const {return !owned_gate || owned_gate();}
     size_t shader_depth=0;
     std::function<bool()> prepared_plan_gate;
+    std::function<bool()> prepared_original_gate;
+    DrawPlanAdapter::OriginalCall prepared_original_call;
     std::function<std::shared_ptr<const gpu::PreparedResourceCommands>()> prepared_cut;
     std::function<std::shared_ptr<const PreparedDrawState>()> prepared_capture;
     bool planning_prepared() const {return prepared_plan_gate && prepared_plan_gate();}
@@ -2105,6 +2112,11 @@ void DrawPlanAdapter::prepared_plan(std::function<bool()> gate,
     runtime_->prepared_plan_gate=std::move(gate);runtime_->prepared_cut=std::move(cut);runtime_->prepared_capture=std::move(capture);
 }
 bool DrawPlanAdapter::planning_prepared() const {return runtime_->planning_prepared();}
+void DrawPlanAdapter::prepared_original(std::function<bool()> gate,OriginalCall call){
+    if(runtime_->active || !runtime_->adapted.empty() || runtime_->prepared_original_gate || !gate || !call)
+        refuse(L"Install one prepared original call provider before adaptation");
+    runtime_->prepared_original_gate=std::move(gate);runtime_->prepared_original_call=std::move(call);
+}
 void DrawPlanAdapter::prepared_scope(std::function<bool()> gate,std::function<void()> failure,
     std::function<void(CustomResourcePool*)> pool,std::function<void(PoolCopyOperation&)> pool_copy,
     std::function<void(ResetPerFrameLimitsCommand&)> limits){

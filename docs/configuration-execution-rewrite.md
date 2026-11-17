@@ -307,8 +307,13 @@ omits cs, including nested overrides. Raw/structured source reads can use native
 storage-only buffers without changing application usage. Scoped bytecode GPU 130
 and production inherited/unknown/nested 12 pass with clean validation.
 
-These are scoped sandbox/GPU results. Compatibility is not complete: original
-shader hash entry, patterned
-ShaderRegex patches, general inherited graphics CustomShaders, current GPU Store boundaries, broader queue/source
+D-341 connects original shader hash entry independently from explicit vk_hash.
+D-342 executes direct compute ShaderRegex patches at the prepared caller boundary,
+preserving skip, no-match and pre/post behavior (16 production checks). Translation
+failure leaves original links/filter state unchanged. Indirect compute and graphics
+patch execution remain pending.
+
+These are scoped sandbox/GPU results. Compatibility is not complete: indirect and
+graphics ShaderRegex patches, general inherited graphics CustomShaders, current GPU Store boundaries, broader queue/source
 contracts and obsolete capture fixture migration remain. No game acceptance is
 implied and native-route work follows completion of this compatibility rewrite.

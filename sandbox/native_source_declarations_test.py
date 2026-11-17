@@ -16,9 +16,11 @@ def main():
     case = sys.argv[1] if len(sys.argv) > 1 else "known"
     if case not in ("known", "missing", "words", "exact", "exact_unknown", "exact_slot",
                     "exact_inherit", "exact_inherit_unknown", "exact_inherit_nested",
-                    "exact_inherit_source_fnv", "exact_inherit_source_embedded", "exact_inherit_source_bytecode", "exact_inherit_source_unknown", "exact_inherit_source_slots"):
+                    "exact_inherit_source_fnv", "exact_inherit_source_embedded", "exact_inherit_source_bytecode", "exact_inherit_source_unknown", "exact_inherit_source_slots", "exact_inherit_source_regex",
+                    "exact_inherit_source_regex_skip", "exact_inherit_source_regex_prepost", "exact_inherit_source_regex_nomatch"):
         raise ValueError("Unknown declaration fixture case")
     checks = Checks("native source declarations")
+    regex_case='_regex' in case
     root = Path(ROOT) / "build/native-source-declarations"
     mods = root / "Mods"
     mods.mkdir(parents=True, exist_ok=True)
@@ -29,6 +31,8 @@ def main():
                            "[[vk::binding(2,0)]] cbuffer Input { uint4 inputValue; };\n"
                            "[numthreads(1,1,1)] void main() { output[0] += inputValue + asuint(source[0]); }\n",
                            encoding="ascii")
+    if regex_case:
+        application.write_text(application.read_text().replace('asuint(source[0]);','asuint(source[0]) + uint4(1,0,0,0);'),encoding='ascii')
     shader = compile_shader(application, root / "compiled", "12345678", "cs")
     (mods / "query.hlsl").write_text("RWStructuredBuffer<uint4> output : register(u0);\n"
                                      "Texture1D<float4> IniParams : register(t120);\n"
@@ -59,6 +63,8 @@ def main():
                             '[numthreads(1,1,1)] void main() { output[0] += inputValue + asuint(source[0]); }\n',encoding='ascii')
         if source_entry:
             original.write_text(original.read_text().replace('register(t5)','register(t1)' if case.endswith('_slots') else 'register(t0)').replace('register(b3)','register(b2)' if case.endswith('_slots') else 'register(b0)'),encoding='ascii')
+        if regex_case:
+            original.write_text(original.read_text().replace('asuint(source[0]);','asuint(source[0]) + uint4(1,0,0,0);'),encoding='ascii')
         subprocess.run([str(helper),'--dxbc',str(original),str(bytecode)],check=True)
         metadata=root/'shader-sources.bin';code=shader.read_bytes()
         identity=hashlib.sha256(code+b'changed' if case.endswith('_unknown') else code).digest()
@@ -84,6 +90,15 @@ def main():
                 text=text.replace('vk_binding = cs-cb3, 0, 2\nvk_binding = cs-t5, 0, 1\n','').replace('cs-cb3 =','cs-cb2 =' if case.endswith('_slots') else 'cs-cb0 =')
                 text=text.replace('run = CustomShaderInherited\n','run = CustomShaderInherited\nendif\n')
                 ini.write_text(text,encoding='ascii')
+            if regex_case:
+                commands='handling = skip\n' if case.endswith('_skip') else ''
+                tail=''
+                if case.endswith('_prepost'):
+                    commands='cs-cb0 = ResourceInput\npost run = CustomShaderPost\n'
+                    tail='[ResourceInput]\ntype = Buffer\nbind_flags = constant_buffer\nstride = 16\ndata = R32_UINT 23 0 0 0\n[CustomShaderPost]\ncs = post.hlsl\ndispatch = 1,1,1\n'
+                    (mods/'post.hlsl').write_text('RWStructuredBuffer<uint4> output:register(u0);[numthreads(1,1,1)] void main(){output[0]+=uint4(10,0,0,0);}',encoding='ascii')
+                pattern='UNMATCHED_OPCODE' if case.endswith('_nomatch') else 'l\\(1, 0, 0, 0\\)'
+                ini.write_text('[ShaderRegexCompute]\nshader_model = cs_5_0\n'+commands+'[ShaderRegexCompute.Pattern]\n'+pattern+'\n[ShaderRegexCompute.Pattern.Replace]\nl(9, 0, 0, 0)\n'+tail,encoding='ascii')
     with Sandbox(threads=0, seconds=4, validation=True, env_extra=env,
                  extra_args=["--compute-shader", str(shader), "--compute-output", str(result),
                              "--compute-constant-buffer", "--compute-capture"]) as sb:
@@ -97,6 +112,7 @@ def main():
     data = read_compute_result(result)
     words = struct.unpack_from("<4I", data) if len(data) == 16 else None
     expected = (23, 0, 0, 0) if case in ('exact_inherit','exact_inherit_nested') or (source_entry and not case.endswith(('_unknown','_slots'))) else (1, 0, 4, 2) if case == "exact" else (1, 0, 16, 2) if case == "known" else (7, 0, 0, 0)
+    if regex_case:expected=(0 if case.endswith('_skip') else 42 if case.endswith('_prepost') else 8 if case.endswith('_nomatch') else 16,0,0,0)
     checks.equal(words, expected, "verified aliases drive replacement; missing and ambiguous declarations preserve the caller")
     hooks = status.get("shader_overrides", {})
     if case=='exact_inherit_unknown':

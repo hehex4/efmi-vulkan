@@ -38,6 +38,7 @@ public:
         NativePhase phase(native_phase_);return native_->prepare(adapter,state,why) && gpu_->prepare(adapter,state,why);
     }
     bool validate_overrides(std::wstring& why) override {return native_->validate_overrides(why) && gpu_->validate_overrides(why);}
+    void source_patch(unsigned stage,std::shared_ptr<const SourceShaderCode> code) override {gpu_->source_patch(stage,std::move(code));}
     bool before_draw(const RuntimeDraw& draw,CommandListState& state,std::wstring& why) override {
         return native_->before_draw(draw,state,why) && gpu_->before_draw(draw,state,why);
     }

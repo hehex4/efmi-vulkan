@@ -15,6 +15,11 @@ static std::vector<uint32_t> code_at(const fs::path& path){
 }
 int wmain(int argc,wchar_t** argv){
     try {
+        if(argc==3 && std::wstring(argv[1])==L"--assembly"){
+            std::ifstream input(argv[2],std::ios::binary);std::vector<char> bytes((std::istreambuf_iterator<char>(input)),{});
+            const auto code=SourceShaderCode::create(bytes.data(),bytes.size());
+            const auto assembly=source_shader_disassembly(*code,false,false);printf("%s",assembly.c_str());return 0;
+        }
         if(argc==3 && std::wstring(argv[1])==L"--hashes"){
             std::ifstream input(argv[2],std::ios::binary);std::vector<char> bytes((std::istreambuf_iterator<char>(input)),{});
             const auto code=SourceShaderCode::create(bytes.data(),bytes.size());

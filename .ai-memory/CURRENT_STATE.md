@@ -10,7 +10,34 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
-Active D-341: D-340 committed as 27e3416 and main fast-forwarded. Original shader
+Active D-342: D-341 committed as 04054ba and main fast-forwarded. Matching 3.5.6
+binaries remain deployed only in project dist. A new production compute regex
+fixture replaces l(1) with l(9) in exact paired DXBC; expected GPU 16 versus
+original 8. Reproduction is in original-regex-compute-before.out. It is intentionally
+not yet in run_all: executable patch admission and application-call replacement
+were not implemented in the reproduction. Original ShaderRegex.cpp 763-804 links command lists/filter
+values on pattern match, even without a patch. Preserve that and only publish
+patched links after executable translation. DrawPlanAdapter::Runtime::application_draw
+(draw_plan.cpp ~971) currently always emits a Caller in prepared mode; this is
+the insertion boundary to adapt for patched compute while preserving pre/post
+order, retained resources and GPU hazards. Implementation in progress at 3.5.7:
+SourceShaderRegex retains patched code and admits translations before publishing
+links; exact-source stages link through original hashes. OwnedGeneration forwards
+patch admission to the GPU adapter; prepared application_draw can issue an owned
+patched compute dispatch at the original boundary. Current CPU build/test is
+complete: CPU 57/full interpreter 600 passed. Matching DLLs build at 3.5.7 /
+87a7dce8d09a8974 in original-regex-compute-binaries.out. Production initially
+remains 8 because the fixture matches scalar l(1), while actual original assembly
+uses l(1, 0, 0, 0). Added an assembly inspection helper and corrected the fixture
+to match the actual vector. Patched/skip/prepost/unmatched cases pass 16; hash entry
+20, inherited compute 12, transaction 5, Core 22, tracker 1042, ABI 16 and text 758
+pass in original-regex-compute-regression.out, validation clean. A publication
+failure CPU assertion passes. Prepared GPU regression passes 155 with clean
+validation; fresh CPU 57/full interpreter 602 pass. Diff reviewed; commit/main
+fast-forward follows, then continue indirect callers and graphics. Indirect patched callers and graphics patches
+still require their own explicit execution paths. No game action.
+
+D-341: D-340 committed as 27e3416 and main fast-forwarded. Original shader
 identity work starts with immutable source hashes matching HackerDevice.cpp:
 zero-seeded multiply/XOR FNV, big-endian embedded hash, and ordered CRC32C of the
 original whitelist with zero fallback. Metadata-only/chunk-order checks pass 16.

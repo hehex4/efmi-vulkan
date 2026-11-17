@@ -277,6 +277,7 @@ public:
         std::function<std::shared_ptr<const gpu::PreparedResourceCommands>()>,
         std::function<std::shared_ptr<const PreparedDrawState>()>);
     bool planning_prepared() const;
+    void prepared_original(std::function<bool()>,OriginalCall);
     // Checkpoint original pool and per-frame limit mutations before speculative
     // execution. Scalar variable assignments keep their original behavior.
     void prepared_scope(std::function<bool()>,std::function<void()> failure,
