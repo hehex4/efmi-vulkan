@@ -1,5 +1,20 @@
 # EFMI Vulkan - Architecture
 
+D-329 (3.4.5 / ABI 3462dd23d7bf741b) connects the original prepared registry to
+production interception. Retained application sources become original resource
+bindings; immutable call/final snapshots become native assignments after complete
+host preflight. Explicit INI-owned virtual slots persist when the current pipeline
+does not address them. Whole application image layouts are handed off around
+supported pass breaks, with exact attachment identity and alias checks.
+
+Lazy CPU-origin resources retain independent initialization packets. A private
+upload queue signals timeline publication; consumer queues wait once, and actual
+completion fences govern retirement. A single-queue fallback remains available.
+Imported old-generation buffers retain that producer dependency. GPU mutations
+invalidate initial-content/index proofs and cancelled preparation restores them.
+Pending target owners stay attached through descriptor/geometry preflight. No
+package discovery, loading, activation or per-character runtime dependency returns.
+
 D-328 (3.4.4) carries prepared_final_state from original planning through FilePlan.
 It is captured after post commands and the last packet, including skipped draws
 that only assign resources. Assignment-only trailing library groups replace it

@@ -180,11 +180,18 @@ void destroy_retired(Device* dev, bool all)
         std::lock_guard<std::mutex> lock(dev->retired_mx);
         auto& list = dev->retired_semaphores;
         for (auto it = list.begin(); it != list.end();) {
-            if (all || dev->frame_no >= it->frame + kRetiredSemaphoreFrames) { due.push_back(*it); it = list.erase(it); }
+            bool ready=all;
+            if(!ready && !it->completions.empty())ready=it->status && std::all_of(it->completions.begin(),it->completions.end(),
+                [&](VkFence fence){return it->status(dev->handle,fence)==VK_SUCCESS;});
+            if(!ready && it->completions.empty())ready=dev->frame_no>=it->frame+kRetiredSemaphoreFrames;
+            if (ready) { due.push_back(std::move(*it)); it = list.erase(it); }
             else ++it;
         }
     }
-    for (const auto& entry : due) entry.destroy(dev->handle, entry.semaphore, nullptr);
+    for (const auto& entry : due){
+        for(auto fence:entry.completions)if(entry.destroy_fence)entry.destroy_fence(dev->handle,fence,nullptr);
+        entry.destroy(dev->handle, entry.semaphore, nullptr);
+    }
 }
 
 static void watchdog()

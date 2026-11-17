@@ -5,6 +5,7 @@
 #include "../../frontend/gpu/native_shader.h"
 #include "../../frontend/gpu/source_registers.h"
 #include "../../frontend/gpu/image_formats.h"
+#include "../../frontend/gpu/resource_commands.h"
 
 namespace efvk {
 using ImageResource = efmi::frontend::NativeResource;
@@ -192,19 +193,25 @@ bool native_image_binding(Device* device, CmdBuf* cb, const DrawRec& draw, const
     const auto& image = *resource;
     const bool compute = draw.kind == DK_DISPATCH || draw.kind == DK_DISPATCH_INDIRECT;
     const bool storage = target.kind == efmi::frontend::NativeBinding::Access;
+    const bool prepared_private=image.prepared_source && image.prepared_admission && (image.identity&3)==3;
     if(phase_layout!=VK_IMAGE_LAYOUT_UNDEFINED && (compute || storage || phase_layout!=VK_IMAGE_LAYOUT_GENERAL))
         return refuse("Native image phase layout requires a proven detached sampled target");
-    if (device->application_queue_count != 1 || device->material_queues.size() != 1)
+    const bool independent=image.initialization && image.initial_contents && image.initialization->across_queues() &&
+        device->application_queue_count && device->material_queues.size()==device->application_queue_count;
+    if (!independent && (device->application_queue_count != 1 || device->material_queues.size() != 1))
         return refuse("Native application images require one application graphics queue");
-    if (device->synchronization2_enabled && !(image.uploaded_mutable && draw.kind == DK_DISPATCH))
+    if (device->synchronization2_enabled && !independent && !(image.uploaded_mutable && draw.kind == DK_DISPATCH))
         return refuse("Native application image accesses require a synchronization2 signal-scope adapter");
     if(storage && !compute)return refuse("Native graphics storage images require in-pass hazard tracking");
     const uint32_t usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | (compute?VK_IMAGE_USAGE_STORAGE_BIT:0);
     VkImageSubresourceRange range;
     const bool cube=image.view_type==VK_IMAGE_VIEW_TYPE_CUBE || image.view_type==VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
-    const bool array=image.view_type==VK_IMAGE_VIEW_TYPE_2D_ARRAY || image.view_type==VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
-    const bool shape=image.view_type==VK_IMAGE_VIEW_TYPE_2D || image.view_type==VK_IMAGE_VIEW_TYPE_2D_ARRAY || (!storage && cube);
+    const bool array=image.view_type==VK_IMAGE_VIEW_TYPE_1D_ARRAY || image.view_type==VK_IMAGE_VIEW_TYPE_2D_ARRAY || image.view_type==VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
+    const bool shape=image.view_type==VK_IMAGE_VIEW_TYPE_2D || image.view_type==VK_IMAGE_VIEW_TYPE_2D_ARRAY || (!storage && cube) ||
+        (prepared_private && (image.view_type==VK_IMAGE_VIEW_TYPE_1D || image.view_type==VK_IMAGE_VIEW_TYPE_1D_ARRAY || image.view_type==VK_IMAGE_VIEW_TYPE_3D));
+    const uint32_t dimension=cube?3u:image.view_type==VK_IMAGE_VIEW_TYPE_3D?2u:
+        (image.view_type==VK_IMAGE_VIEW_TYPE_1D || image.view_type==VK_IMAGE_VIEW_TYPE_1D_ARRAY)?0u:1u;
     if (!image.image || !image.image_view || !image.keep || !image.image_safe ||
         !(image.usage & (storage?VK_IMAGE_USAGE_STORAGE_BIT:VK_IMAGE_USAGE_SAMPLED_BIT)) ||
         (image.usage & ~usage) || image.samples != 1 || !shape ||
@@ -217,7 +224,7 @@ bool native_image_binding(Device* device, CmdBuf* cb, const DrawRec& draw, const
     bool used = false;
     for (const auto& use : access->images) if (use.resource.set == target.set && use.resource.binding == target.binding) {
         const auto& r = use.resource; used = true;
-        if (r.sampled == storage || r.dim != (cube?3u:1u) || r.depth == 1 || use.depth_reference ||
+        if (r.sampled == storage || r.dim != dimension || r.depth == 1 || use.depth_reference ||
             r.arrayed != array || r.multisampled || r.scalar_type!=format.scalar_type)
             return refuse("Native application image shape differs from its non-depth typed consumer or numeric class");
         if(storage){
@@ -229,6 +236,12 @@ bool native_image_binding(Device* device, CmdBuf* cb, const DrawRec& draw, const
     // Private file allocations never enter application layout tracking. Every native alias
     // uses GENERAL, complete upload ownership is retained, and persistent compute bindings
     // receive call-boundary memory dependencies even without another override plan.
+    if(prepared_private){
+        if(image.image_layout!=VK_IMAGE_LAYOUT_GENERAL || !image.keep)
+            return refuse("Prepared private image has no retained GENERAL layout contract");
+        if(!compute && !native_attachment_memory(device,cb,image,why))return false;
+        layout=VK_IMAGE_LAYOUT_GENERAL;return true;
+    }
     if(image.uploaded_mutable){
         if(!compute || image.image_layout!=VK_IMAGE_LAYOUT_GENERAL)
             return refuse("Mutable native file images require compute scope and GENERAL publication");

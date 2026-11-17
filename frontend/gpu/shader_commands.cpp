@@ -574,7 +574,7 @@ void ShaderCommands::record(const Compute& pipeline,const std::vector<ShaderDesc
     for(const auto& value:descriptors)if(value.image)commands.transition(value.image->owner(),VK_IMAGE_LAYOUT_GENERAL);
     commands.barrier(VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT|(arguments?VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT:0),
         VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT|VK_ACCESS_UNIFORM_READ_BIT|(arguments?VK_ACCESS_INDIRECT_COMMAND_READ_BIT:0));
-    if(commands.preparing_){
+    {
         for(const auto& value:descriptors)if(value.buffer || value.image){
             const auto& bindings=pipeline->impl_->bindings;
             const auto found=std::find_if(bindings.begin(),bindings.end(),[&](const auto& b){return b.binding==value.binding;});

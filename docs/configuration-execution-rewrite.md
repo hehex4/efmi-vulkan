@@ -41,6 +41,21 @@ combining or renaming character packages does not implement this contract.
 
 ## Evidence and status
 
+D-329 connects production source projection, original registry transactions,
+per-call/final binding application and whole application-image layout handoff.
+First-use CPU allocations retain independent producers across discarded recordings
+and configuration generations. Dedicated upload publication supports readonly use
+on multiple application queues of the supported family. Explicit INI virtual slots
+and IniParams survive application pipelines that have no corresponding descriptor.
+
+The production chain now copies application input, dispatches an original CustomShader,
+binds its result for the caller and restores the original source for the post caller:
+7 -> 12 -> 7 produces 19 on the actual GPU. A separate original CustomShader generates
+replacement vertices that reach actual pixels. These are sandbox integration results,
+not real-game Core acceptance. Prepared graphics CustomShaders, current-value Store,
+broader application source/queue contracts and capture migration remain open. Do not
+describe the rewrite as complete or restore the removed package renderer.
+
 D-303: the root-configuration fixture passes 10 checks for root includes,
 cross-directory references, namespace sharing, inactive initializers, unused missing
 resources and independent generation lifetime. The ordinary GPU adapter passes 40

@@ -3,6 +3,7 @@
 #include "native_targets.h"
 #include "native_resources.h"
 #include "../../frontend/gpu/source_registers.h"
+#include "../../frontend/gpu/resource_commands.h"
 
 namespace efvk {
 namespace {
@@ -105,6 +106,10 @@ struct NativeDescriptorOwner:CommandOwner {
     bool seal()override{if(!used || sealed)return false;sealed=true;return true;}
     VkResult before_submit(VkQueue queue)override{
         std::lock_guard<std::mutex> lock(submit_mutex);
+        for(const auto& set:sets)for(const auto& value:set->contents.values)if(value.second.native){
+            const auto& resource=*std::static_pointer_cast<const efmi::frontend::NativeResource>(value.second.native);
+            if(resource.initialization){const auto status=resource.initialization->before_submit(queue);if(status!=VK_SUCCESS)return status;}
+        }
         if(sets.empty() || publications.empty())return VK_SUCCESS;
         auto& prior=waited[queue];std::vector<VkSemaphore> semaphores;std::vector<uint64_t> values;
         for(const auto& p:publications)if(prior[p.first]<p.second){semaphores.push_back(p.first);values.push_back(p.second);}
@@ -172,7 +177,8 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
     if(device->application_queue_count!=1){
         for(const auto& item:plan.items)if(item.operation==efmi::assets::FileOperation::NativeBind && !native_output_binding(item.native_target) &&
             item.native_resource && item.native_resource->bound){
-            const bool published=item.native_resource->uploaded_readonly && device->application_queue_count &&
+            const auto& resource=*item.native_resource;
+            const bool published=(resource.uploaded_readonly || (resource.initialization && resource.initial_contents && resource.initialization->across_queues())) && device->application_queue_count &&
                                  device->material_queues.size()==device->application_queue_count;
             if(!published)return refuse("Native application references require one application queue until cross-queue hazards are tracked");
         }
@@ -260,7 +266,8 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
             if(!resource.keep)return refuse("Native resource has no complete retained ownership");
             // The scoped compute adapter relies on existing dependencies for unchanged application
             // descriptors. A new application reference can introduce accesses from other stages.
-            if(device->synchronization2_enabled && !resource.uploaded_readonly && !resource.uploaded_mutable)
+            if(device->synchronization2_enabled && !resource.uploaded_readonly && !resource.uploaded_mutable &&
+               !(resource.initialization && resource.initial_contents && resource.initialization->across_queues()))
                 return refuse("Native application references require a synchronization2 resource-stage adapter");
             if(device->synchronization2_enabled && resource.uploaded_mutable && draw.kind != DK_DISPATCH)
                 return refuse("Mutable native files under synchronization2 require direct compute scope");
@@ -287,11 +294,14 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
                     }
                 }
             }
-            if(resource.buffer && !resource.uploaded_readonly && draw.kind!=DK_DISPATCH && draw.kind!=DK_DISPATCH_INDIRECT &&
+            const bool prepared=bool(resource.prepared_admission) && bool(plan.prepared_final_state);
+            const bool packet_before=targets && std::any_of(targets->events.begin(),targets->events.begin()+std::min(i,targets->events.size()),
+                [](const auto& event){return event && event->work;});
+            if(resource.buffer && !resource.uploaded_readonly && !prepared && draw.kind!=DK_DISPATCH && draw.kind!=DK_DISPATCH_INDIRECT &&
                (resource.usage&(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT)))
                 return refuse("Native graphics references to writable buffers need in-pass hazard tracking");
-            if(resource.buffer && !resource.uploaded_readonly && draw.kind!=DK_DISPATCH && draw.kind!=DK_DISPATCH_INDIRECT &&
-               (cb->inherited_rp || !cb->native_graphics_ordered))
+            if(resource.buffer && !resource.uploaded_readonly && !(resource.initialization && resource.initial_contents) && draw.kind!=DK_DISPATCH && draw.kind!=DK_DISPATCH_INDIRECT &&
+               (cb->inherited_rp || (!cb->native_graphics_ordered && !(prepared && packet_before))))
                 return refuse("Native graphics buffer references need a recorded dependency before this pass; inherited secondaries need parent proof");
             if(resource.buffer && draw.kind!=DK_DISPATCH && draw.kind!=DK_DISPATCH_INDIRECT &&
                !native_attachment_memory(device,cb,resource,why))return false;
@@ -306,7 +316,15 @@ bool prepare_native_descriptors(Device* device,CmdBuf* cb,const DrawRec& draw,co
             }else if(sampled || type==VK_DESCRIPTOR_TYPE_STORAGE_IMAGE){
                 if(!resource.image_view)return refuse("Native image reference has no retained image view");
                 VkImageLayout image_layout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                if(resource.uploaded_readonly){
+                if(prepared && !resource.image_view_id){
+                    if(resource.image_layout!=VK_IMAGE_LAYOUT_GENERAL || !resource.image_safe ||
+                       !(resource.usage&(sampled?VK_IMAGE_USAGE_SAMPLED_BIT:VK_IMAGE_USAGE_STORAGE_BIT)) ||
+                       (draw.kind!=DK_DISPATCH && draw.kind!=DK_DISPATCH_INDIRECT && !cb->native_graphics_ordered && !packet_before &&
+                        !(resource.initialization && resource.initial_contents)) ||
+                       !native_attachment_memory(device,cb,resource,why))
+                        return refuse("Prepared private image needs an ordered GENERAL-layout producer and disjoint outputs");
+                    if(!native_image_binding(device,cb,draw,target,replacement,next.images,image_layout,why))return false;
+                }else if(resource.uploaded_readonly){
                     if(!sampled || !(resource.usage&VK_IMAGE_USAGE_SAMPLED_BIT) || resource.image_layout!=image_layout)
                         return refuse("Native file image is not published for sampling");
                 }else{
@@ -342,8 +360,8 @@ void record_native_descriptor(Device* device,CmdBuf* cb,const DrawRec& draw,cons
     for(const auto& value:set->contents.values)if(value.second.native_request)cb->native_images=true;
     for(const auto& value:set->contents.values)if(value.second.native){
         const auto& resource=*std::static_pointer_cast<const Resource>(value.second.native);
-        cb->native_mutable|=resource.uploaded_mutable;
-        cb->native_uniforms|=!compute && resource.bound && resource.buffer && !resource.uploaded_readonly &&
+        cb->native_mutable|=resource.uploaded_mutable || (resource.prepared_admission && !resource.initial_contents);
+        cb->native_uniforms|=!compute && resource.bound && resource.buffer && !resource.uploaded_readonly && !resource.initial_contents &&
                              (resource.usage&VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
         if(resource.publication_semaphore && resource.publication_value){
             auto& serial=owner->publications[VkSemaphore(resource.publication_semaphore)];serial=std::max(serial,resource.publication_value);
@@ -398,7 +416,7 @@ bool refresh_native_images(Device* device,CmdBuf* cb,const DrawRec& draw,std::st
                 bool accepted=false;
                 if(request->buffer){
                     const bool compute=draw.kind==DK_DISPATCH || draw.kind==DK_DISPATCH_INDIRECT;
-                    if(!compute && (cb->inherited_rp || !cb->native_graphics_ordered))reason="Native buffer reference lost its graphics dependency proof";
+                    if(!compute && !(request->initialization && request->initial_contents) && (cb->inherited_rp || !cb->native_graphics_ordered))reason="Native buffer reference lost its graphics dependency proof";
                     else accepted=compute || native_attachment_memory(device,cb,*request,reason);
                     if(accepted){
                         replacement.native=request;replacement.retained.reset();

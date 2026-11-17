@@ -39,8 +39,8 @@ static bool create_compute_scene()
         !make_buffer(c.arguments, 12, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | (c.capture_usage ? VK_BUFFER_USAGE_TRANSFER_SRC_BIT : 0), true, true)) return false;
     memset(c.data.map, 0, 16);
     if(c.binding_scene){
-        if(!make_buffer(c.alternate,16,VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|(c.constant_input && c.capture_usage?VK_BUFFER_USAGE_TRANSFER_SRC_BIT:0),true,true) ||
-           !make_buffer(c.input,16,(c.constant_input?VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT:VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)|(c.constant_input && c.capture_usage?VK_BUFFER_USAGE_TRANSFER_SRC_BIT:0),true,true))return false;
+        if(!make_buffer(c.alternate,16,VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|(c.capture_usage?VK_BUFFER_USAGE_TRANSFER_SRC_BIT:0),true,true) ||
+           !make_buffer(c.input,16,(c.constant_input?VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT:VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)|(c.capture_usage?VK_BUFFER_USAGE_TRANSFER_SRC_BIT:0),true,true))return false;
         memset(c.alternate.map,0,16);memset(c.input.map,0,16);
         *static_cast<uint32_t*>(c.input.map)=7;
     }

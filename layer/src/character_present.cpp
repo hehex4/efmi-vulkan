@@ -132,6 +132,14 @@ std::shared_ptr<efmi::frontend::OwnedRuntime> OwnedPresenter::runtime(Device* de
         resource.GetFormatProperties = device->material_format_properties;
         resource.format_features2 = device->format_properties2 && (api >= VK_API_VERSION_1_3 || enabled(device, VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME));
         resource.GetFormatProperties2 = device->format_properties2;
+        if(device->upload_queue && device->timeline_semaphores){
+            resource.initialization_queue=device->upload_queue;resource.initialization_family=device->upload_family;
+            resource.initialization_flags=device->upload_flags;resource.initialization_mutex=&device->upload_mx;
+            resource.retire_initialization_semaphore=[device,destroy=resource.dispatch.DestroySemaphore,status=resource.dispatch.GetFenceStatus,
+                destroy_fence=resource.dispatch.DestroyFence](VkSemaphore semaphore,std::vector<VkFence> fences){
+                retire_semaphore(device,semaphore,destroy,std::move(fences),status,destroy_fence);
+            };
+        }
         gpu::ShaderHost host;
         host.get_device_proc = device->next_gdpa; host.properties = device->physical_properties; host.validator = validator;
         host.float_controls = device->float_controls; host.float_properties = device->float_properties;
@@ -147,7 +155,10 @@ std::shared_ptr<efmi::frontend::OwnedRuntime> OwnedPresenter::runtime(Device* de
         // Beside the settings and the variant pipeline cache (D-126).
         if (g_cfg.shader_cache)
             owned.cache = (g_cfg.m2_settings.empty() ? tools / L"settings" : std::filesystem::absolute(std::filesystem::u8path(g_cfg.m2_settings))) / L"shader-cache";
-        return std::make_shared<efmi::frontend::OwnedRuntime>(resource, host, owned, working);
+        auto runtime=std::make_shared<efmi::frontend::OwnedRuntime>(resource, host, owned, working);
+        runtime->commands().independent_initialization(device->application_queue_count && device->material_queues.size()==device->application_queue_count &&
+            (device->application_queue_count==1 || bool(resource.initialization_queue)));
+        return runtime;
     } catch (const std::exception& e) { reason = std::string("owned GPU runtime: ") + e.what(); return {}; }
 }
 

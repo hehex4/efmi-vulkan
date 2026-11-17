@@ -7,6 +7,22 @@
 namespace efmi::frontend {
 class RuntimeExtension;
 struct ApplicationResourceState;
+// Source register addresses resolved by the native host from the current
+// pipeline. Unknown source descriptions stay unknown, never become null slots.
+struct NativeApplicationBinding {
+    NativeBinding address;
+    NativeResource resource;
+    bool source_known=false;
+    uint32_t structure_stride=0;
+    bool raw=false;
+    std::function<bool(uint32_t,uint32_t,uint32_t&)> region_hash;
+    gpu::ApplicationImage image;
+};
+struct NativeApplicationState {
+    std::vector<NativeApplicationBinding> bindings;
+    bool independent_initialization=false;
+    std::function<bool(uint64_t,const gpu::Image&,gpu::ApplicationImage&,std::string&)> observe_image;
+};
 // Retains the original registry until its speculative changes are admitted or
 // cancelled. The caller serializes this entire lifetime with Present/reload and
 // other commands of the same configuration. Destruction cancels an unadmitted
@@ -49,6 +65,8 @@ public:
     // No command is recorded/submitted here and no first-use work is waited.
     std::unique_ptr<PreparedConfigurationDraw> prepare_draw(std::shared_ptr<IniRuntime>,
         const RuntimeDraw&,const ApplicationResourceState&,bool shader_only,std::string& reason);
+    std::unique_ptr<PreparedConfigurationDraw> prepare_native_draw(std::shared_ptr<IniRuntime>,
+        const RuntimeDraw&,const NativeApplicationState&,bool shader_only,std::string& reason);
     // Scopes: one on the presenting queue, or a deferred one while a generation loads in the
     // background, suspended after loading and submitted with the first scope's finish().
     void begin(VkQueue);

@@ -56,11 +56,11 @@ def buffers(checks, case):
         checks.equal(sb.proc.returncode, 0, case + ": normal exit")
         (root / "layer.log").write_bytes(Path(sb.log_path).read_bytes())
     data = read_compute_result(output)
-    expected = 0 if case == "null" else 14 if case in ("write_refusal", "bad_stride", "empty_swap") else 46 if case == "reload" else 34
+    # Original explicit bind flags can leave a null UAV. A non-structured Buffer
+    # does not acquire structured-stride validation from its out-of-band stride.
+    expected = 0 if case in ("null", "write_refusal") else 14 if case == "empty_swap" else 46 if case == "reload" else 34
     checks.equal(struct.unpack_from("<I", data)[0] if data else None, expected, case + ": expected GPU bytes")
-    if case in ("write_refusal", "bad_stride"):
-        checks.check(bool(status.get("shader_overrides", {}).get("last_reason")), case + ": unsupported file contract is reported")
-    elif case != "empty_swap": checks.check(status.get("shader_overrides", {}).get("executed", 0) > 0, case + ": native file plan executes")
+    if case != "empty_swap": checks.check(status.get("shader_overrides", {}).get("executed", 0) > 0, case + ": original resource execution reaches the caller")
     checks.check("Validation Error" not in sb.output() and "VUID-" not in sb.output(), case + ": Vulkan validation clean")
     (root / "status.json").write_text(json.dumps(status, indent=2), encoding="ascii")
     print("artifacts:", root)

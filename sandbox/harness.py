@@ -33,7 +33,7 @@ def configuration_root(mods: Path) -> str:
         raise ValueError("Configuration fixture must stay inside the project build directory")
     ini = root / "d3dx.ini"
     if not ini.exists():
-        ini.write_text("[Include]\ninclude_recursive = " + mods.name +
+        ini.write_text("[Rendering]\ntrack_region_hashes = 1\n[Include]\ninclude_recursive = " + mods.name +
                        "\n[Hunting]\nhunting = 2\nreload_config = F10\n", encoding="ascii")
     return str(root)
 
@@ -128,7 +128,7 @@ class Sandbox:
     def __init__(self, threads: int = 2, seconds: int = 60, with_layer: bool = True, mode: str | None = "probe",
                  env_extra: dict | None = None, entry: str = "layer", inject_dll: str | None = None,
                  descriptors: str = "ordinary", draws: int = 5, extra_args: list[str] | None = None,
-                 validation: bool = False, exe: str | None = None):
+                 validation: bool = False, exe: str | None = None, validation_dir: str | None = None):
         """``entry``: ``layer`` (the Vulkan loader loads the layer), ``inject`` (the sandbox loads
         the DLL before it touches Vulkan), ``inject-late`` (after its device exists) or
         ``inject-late-exports`` (late, and the device functions are then resolved again through
@@ -147,6 +147,7 @@ class Sandbox:
         self.draws = draws
         self.extra_args = extra_args or []
         self.validation = validation
+        self.validation_dir = validation_dir
         self.dir = test_dir("sandbox-")
         self.expected_path = os.path.join(self.dir, "expected.json")
         self.trigger_path = os.path.join(self.dir, "rewrite.trigger")
@@ -172,7 +173,7 @@ class Sandbox:
             env = inject_env(self.log_path, self.mode, self.env_extra)
             args += ["--" + self.entry, self.inject_dll]
         if self.validation:
-            validation_dir = os.environ.get("EFMI_VK_VALIDATION_DIR", "F:/vulkan/validation-1.4.321.0/bin")
+            validation_dir = self.validation_dir or os.environ.get("EFMI_VK_VALIDATION_DIR", "F:/vulkan/validation-1.4.321.0/bin")
             if not os.path.isfile(os.path.join(validation_dir, "VkLayer_khronos_validation.json")):
                 raise RuntimeError("validation layer missing; run scripts/build_validation.py")
             env["VK_LAYER_PATH"] = os.pathsep.join([DIST, validation_dir])

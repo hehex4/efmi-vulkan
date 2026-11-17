@@ -17,7 +17,7 @@ def main():
     first.mkdir(parents=True); second.mkdir(parents=True)
     settings = root / "settings"; settings.mkdir()
     (root / "d3dx.ini").write_text(
-        "[Include]\ninclude_recursive = Mods\n[Hunting]\nhunting = 2\nreload_config = F10\n", encoding="ascii")
+        "[Rendering]\ntrack_region_hashes = 1\n[Include]\ninclude_recursive = Mods\n[Hunting]\nhunting = 2\nreload_config = F10\n", encoding="ascii")
     hashed = crc32c(struct.pack("<3I", 14, 15, 16))
     (first / "first.ini").write_text(
         "namespace = shared\n[Constants]\nglobal $first = 0\nglobal $second = 0\nglobal $initializer = 0\n"

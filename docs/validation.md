@@ -26,6 +26,29 @@ All sandbox child cache/temp paths now point into their `build/tests/sandbox-*/`
 
 ## Evidence and fixes
 
+### Ordinary immutable samplers and null views (2026-11-17)
+
+The D-329 original-resource fixture reached a null SRV through explicit
+`bind_flags = render_target`. The unchanged immutable-sampler scene triggered
+VUID-09506 in the pinned VVL. This is an upstream validation defect, not evidence
+that the original resource command must be refused: [the current Vulkan rule](https://docs.vulkan.org/refpages/latest/refpages/source/VkWriteDescriptorSet.html)
+requires a non-null view only for immutable samplers with YCbCr conversion.
+[Pinned VVL](https://github.com/KhronosGroup/Vulkan-ValidationLayers/blob/vulkan-sdk-1.4.321.0/layers/core_checks/cc_descriptor.cpp#L1901)
+tests only IsImmutableSampler; [upstream's corrected code](https://github.com/KhronosGroup/Vulkan-ValidationLayers/blob/main/layers/core_checks/cc_descriptor.cpp)
+also checks the retained sampler's conversion.
+
+`scripts/build_validation.py --immutable-null-fix` backports exactly that
+condition, adapting the old field spelling `samplerConversion`, and installs a
+separate DLL at `F:/vulkan/validation-1.4.321.0-immutable-null/bin/`. It requires
+clean pinned source, verifies the unique patch context and restores the original
+source bytes even after build failure. The original install remains unchanged.
+The no-SRV fixture selects this version only for its child process; it retains
+the real immutable sampler and counts every core/synchronization diagnostic.
+No VUID is filtered. Build evidence is `build/validation-immutable-null-build.out`;
+the corrected DLL SHA-256 is
+`eea84950f3caa7a63ea4c1e382647abc8ce73c0dcd7e57415b2b3e19df14e5a9`.
+Fresh fixture verification is recorded with the D-329 checks.
+
 On 2026-10-11, **76 checks passed**: 24 positive configurations covering no EFMI, loader entry
 and inject entry; ordinary/template/push/push-template descriptors; primary/two-thread secondary
 recording. Every run rewrites index/material data. Both EFMI entries also capture under validation.

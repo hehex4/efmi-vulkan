@@ -174,7 +174,8 @@ void note_presented();
 // A semaphore an owned presenter is done with, destroyed by destroy_retired once later
 // presentations passed (`all`: every one, at device destruction). The first is inline: the
 // replacement module calls it without a host function.
-inline void retire_semaphore(Device* dev, VkSemaphore semaphore, PFN_vkDestroySemaphore destroy);
+inline void retire_semaphore(Device* dev, VkSemaphore semaphore, PFN_vkDestroySemaphore destroy,
+    std::vector<VkFence> completions={},PFN_vkGetFenceStatus status=nullptr,PFN_vkDestroyFence destroy_fence=nullptr);
 void destroy_retired(Device*, bool all);
 
 // Remembers a function name the application asked vkGetDeviceProcAddr for.
@@ -719,7 +720,8 @@ struct Device {
     // Semaphores owned presenters are done with (D-098): a presentation queued with one as its wait
     // may still be pending when the presenter stops, so they are destroyed on the presenting thread
     // a few presentations later.
-    struct RetiredSemaphore { VkSemaphore semaphore; PFN_vkDestroySemaphore destroy; uint64_t frame; };
+    struct RetiredSemaphore { VkSemaphore semaphore; PFN_vkDestroySemaphore destroy; uint64_t frame;
+        std::vector<VkFence> completions;PFN_vkGetFenceStatus status=nullptr;PFN_vkDestroyFence destroy_fence=nullptr; };
     std::mutex retired_mx;
     std::vector<RetiredSemaphore> retired_semaphores;
 
@@ -810,11 +812,12 @@ struct Device {
     uint64_t cap_seq = 0;
     HANDLE cap_event = nullptr;
 };
-inline void retire_semaphore(Device* dev, VkSemaphore semaphore, PFN_vkDestroySemaphore destroy)
+inline void retire_semaphore(Device* dev, VkSemaphore semaphore, PFN_vkDestroySemaphore destroy,
+    std::vector<VkFence> completions,PFN_vkGetFenceStatus status,PFN_vkDestroyFence destroy_fence)
 {
     if (!semaphore || !destroy) return;
     std::lock_guard<std::mutex> lock(dev->retired_mx);
-    dev->retired_semaphores.push_back({semaphore, destroy, dev->frame_no});
+    dev->retired_semaphores.push_back({semaphore, destroy, dev->frame_no,std::move(completions),status,destroy_fence});
 }
 
 // Device registry.

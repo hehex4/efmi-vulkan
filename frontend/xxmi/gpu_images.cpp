@@ -163,7 +163,7 @@ WicSource read_wic(const CustomResource& resource) {
 }
 }
 
-gpu::Image GpuResourceRuntime::allocate_image(ImageSourceDescription& source) {
+gpu::Image GpuResourceRuntime::allocate_image(ImageSourceDescription& source,gpu::ResourceCommands* uploader) {
     auto& d=source.texture;
     require(d.Usage==D3D11_USAGE_DEFAULT && !d.CPUAccessFlags,"Owned image usage requires an explicit staging adapter");
     require(!(d.MiscFlags&~(D3D11_RESOURCE_MISC_TEXTURECUBE|D3D11_RESOURCE_MISC_GENERATE_MIPS)),"Image misc flags require another source adapter");
@@ -190,10 +190,11 @@ gpu::Image GpuResourceRuntime::allocate_image(ImageSourceDescription& source) {
     desc.samples=VkSampleCountFlagBits(d.SampleDesc.Count);desc.usage=image_usage(d.BindFlags);
     if(typeless && format.aspects==VK_IMAGE_ASPECT_COLOR_BIT)desc.flags|=VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
     if(d.MiscFlags&D3D11_RESOURCE_MISC_TEXTURECUBE){require(d.ArraySize%6==0,"Original cube image array must contain full cubes");desc.flags|=VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;}
-    return commands_.create_image(desc);
+    return (uploader?*uploader:commands_).create_image(desc);
 }
 GpuResourceBinding GpuResourceRuntime::load_image(CustomResource& resource) {
     GpuResourceBinding out;auto& source=out.image_description;auto& d=source.texture;
+    auto initialization=commands_.initialization_commands();auto& upload=initialization?*initialization:commands_;
     if(resource.filename.empty()){
         source.dimension=resource.override_type==CustomResourceType::TEXTURE1D?D3D11_RESOURCE_DIMENSION_TEXTURE1D:
             resource.override_type==CustomResourceType::TEXTURE3D?D3D11_RESOURCE_DIMENSION_TEXTURE3D:D3D11_RESOURCE_DIMENSION_TEXTURE2D;
@@ -201,19 +202,19 @@ GpuResourceBinding GpuResourceRuntime::load_image(CustomResource& resource) {
         d.BindFlags=resource.bind_flags;d.MiscFlags=resource.misc_flags;d.Usage=D3D11_USAGE_DEFAULT;
         // SubstantiateTexture: a description D3D11 does not create leaves the resource null, with the
         // original's notice, and the list goes on (D-150).
-        try{apply_overrides(resource,source);out.image=allocate_image(source);}
+        try{apply_overrides(resource,source);out.image=allocate_image(source,&upload);}
         catch(const std::exception& e){return unloaded(resource,L"texture",e.what());}
     }else if(_wcsicmp(std::filesystem::path(resource.filename).extension().c_str(),L".dds")){
         // As LoadFromFile: a file the loader makes no texture of leaves the resource null (D-139).
         WicSource file;
         try{file=read_wic(resource);}catch(const std::exception& e){return unloaded(resource,L"texture",e.what());}
-        source=file.description;out.image=allocate_image(source);
+        source=file.description;out.image=allocate_image(source,&upload);
         VkBufferImageCopy copy{};copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};copy.imageExtent=out.image->extent(0);
-        commands_.write(out.image,copy,file.pixels.bytes.data(),file.pixels.bytes.size());
+        upload.write(out.image,copy,file.pixels.bytes.data(),file.pixels.bytes.size());
     }else{
         DdsSource file;
         try{file=read_dds(resource);}catch(const std::exception& e){return unloaded(resource,L"texture",e.what());}
-        source=file.description;out.image=allocate_image(source);
+        source=file.description;out.image=allocate_image(source,&upload);
         const auto& vk=out.image->description();const auto aspects=gpu::image_formats[unsigned(vk.format)].aspects;
         for(const auto& level:file.levels){VkBufferImageCopy copy{};copy.imageSubresource={aspects,level.mip,level.layer,1};copy.imageExtent=out.image->extent(level.mip);
             const auto* data=file.bytes.data()+level.offset;
@@ -222,11 +223,12 @@ GpuResourceBinding GpuResourceRuntime::load_image(CustomResource& resource) {
                 require(level.bytes%stride==0,"DDS packed depth/stencil payload is misaligned");const auto count=level.bytes/stride;
                 std::vector<uint8_t> depth(count*4),stencil(count);
                 for(size_t i=0;i<count;++i){memcpy(depth.data()+i*4,data+i*stride,4);stencil[i]=data[i*stride+(stride==8?4:3)];}
-                copy.imageSubresource.aspectMask=VK_IMAGE_ASPECT_DEPTH_BIT;commands_.write(out.image,copy,depth.data(),depth.size());
-                copy.imageSubresource.aspectMask=VK_IMAGE_ASPECT_STENCIL_BIT;commands_.write(out.image,copy,stencil.data(),stencil.size());
-            }else commands_.write(out.image,copy,data,level.bytes);
+                copy.imageSubresource.aspectMask=VK_IMAGE_ASPECT_DEPTH_BIT;upload.write(out.image,copy,depth.data(),depth.size());
+                copy.imageSubresource.aspectMask=VK_IMAGE_ASPECT_STENCIL_BIT;upload.write(out.image,copy,stencil.data(),stencil.size());
+            }else upload.write(out.image,copy,data,level.bytes);
         }
     }
+    if(initialization){upload.initial_layout(out.image);out.initialization=gpu::ResourceCommands::finish_initialization(std::move(initialization));}
     // SubstantiateTexture and LoadFromFile leave out-of-band format/stride at
     // their original values; declaration property overrides are queried separately.
     out.format=resource.format;out.stride=resource.stride;out.offset=resource.offset;out.visible_size=resource.buf_size;out.source_stride=resource.source_stride;

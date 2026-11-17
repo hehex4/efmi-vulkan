@@ -31,18 +31,27 @@ bool GpuResourceRuntime::initialize_parameters(CommandListState&,std::wstring& w
             active();
             gpu::ImageDescription desc;desc.type=VK_IMAGE_TYPE_1D;desc.format=VK_FORMAT_R32G32B32A32_SFLOAT;
             desc.extent={UINT(count),1,1};desc.usage=VK_IMAGE_USAGE_SAMPLED_BIT;
-            parameters_.image=commands_.create_image(desc);
+            auto initialization=commands_.initialization_commands();auto& upload=initialization?*initialization:commands_;
+            parameters_.image=upload.create_image(desc);
             auto& source=parameters_.image_description;source.dimension=D3D11_RESOURCE_DIMENSION_TEXTURE1D;
             source.texture={UINT(count),1,1,1,DXGI_FORMAT_R32G32B32A32_FLOAT,{1,0},D3D11_USAGE_DYNAMIC,
                 D3D11_BIND_SHADER_RESOURCE,D3D11_CPU_ACCESS_WRITE,0};
             parameters_.format=DXGI_FORMAT_R32G32B32A32_FLOAT;
             image_view(parameters_,GpuResourceBinding::View::ShaderResource,true);
-            publish_parameters();
+            if(initialization){
+                VkBufferImageCopy region{};region.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};region.imageExtent={UINT(count),1,1};
+                upload.write(parameters_.image,region,G->iniParams.data(),count*16);
+                parameters_.initialization=gpu::ResourceCommands::finish_initialization(std::move(initialization));
+                ++parameter_uploads_;parameter_republish_=false;
+            }else publish_parameters();
             // Logical initial stage bindings only. Explicit INI assignments can
             // replace/unbind these; later publication must not restore them.
             if(G->IniParamsReg>=0){
                 require(G->IniParamsReg<D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT,"GPU parameter register invalid");
-                for(auto stage:std::wstring(L"vhdgpc"))slots_[{stage,ResourceCopyTargetType::SHADER_RESOURCE,unsigned(G->IniParamsReg)}]=parameters_;
+                for(auto stage:std::wstring(L"vhdgpc")){
+                    const Slot key{stage,ResourceCopyTargetType::SHADER_RESOURCE,unsigned(G->IniParamsReg)};
+                    slots_[key]=parameters_;ini_slots_.insert(key);
+                }
             }
         }
         parameters_initialized_=true;return true;

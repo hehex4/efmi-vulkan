@@ -2408,8 +2408,8 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
         phase("exec output");
     } catch (const Refused& error) {
         reason = error.reason;
-    } catch (const std::exception&) {
-        reason = L"Frontend raised an exception while planning";
+    } catch (const std::exception& error) {
+        reason = L"Frontend raised an exception while planning: "+widen(error.what());
     }
     runtime_->active = nullptr; runtime_->root = nullptr;
     state.input_layout_overrides = std::move(saved_layout);state.post=saved_post;

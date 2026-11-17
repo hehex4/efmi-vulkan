@@ -2,12 +2,14 @@
 #include <cstdint>
 #include <memory>
 
+namespace efmi::gpu {class ResourceInitialization;}
 namespace efmi::frontend {
+struct GpuResourceBinding;
 // Descriptor aliases are explicit; output source slots follow the active Vulkan attachment mapping.
 struct NativeBinding {
     enum Kind : uint8_t { Resource, Constant, Access, ColorTarget, DepthTarget, Vertex, Index };
     uint32_t hash = 0;
-    uint8_t stage = 0; // v, h, d, g, p, c
+    uint8_t stage = 0; // 0..5: v, h, d, g, p, c
     Kind kind = Resource;
     uint32_t slot = 0, set = 0, binding = 0, element = 0;
 };
@@ -34,5 +36,11 @@ struct NativeResource {
     bool index_bounds = false; // Immutable upload snapshot, never inferred from later GPU contents.
     uint64_t publication_semaphore = 0, publication_value = 0; // Completed upload, retained by keep.
     std::shared_ptr<const void> keep; // Complete view/resource/allocation chain, or absent when unretainable.
+    // Mutable registry resource, usable only after the complete host plan admits
+    // its producers. This is distinct from independently published file uploads.
+    std::shared_ptr<const bool> prepared_admission;
+    std::shared_ptr<const GpuResourceBinding> prepared_source;
+    std::shared_ptr<gpu::ResourceInitialization> initialization;
+    bool initial_contents=false;
 };
 }

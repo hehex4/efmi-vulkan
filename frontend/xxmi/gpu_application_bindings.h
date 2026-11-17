@@ -3,7 +3,7 @@
 namespace efmi::frontend {
 void GpuResourceRuntime::begin_prepared(const ApplicationResourceState& application){
     auto require=[](bool ok,const char* why){if(!ok)throw std::runtime_error(why);};
-    require(application.omitted_slots_unbound,"Application imports require complete proven source bindings");
+    require(application.omitted_slots_unbound || application.allow_unknown_slots,"Application imports require complete proven source bindings");
     require(application.buffers.size()+application.images.size()<=1024 && application.observations.size()<=1024,
         "Application binding snapshot exceeds its budget");
     begin_prepared();
@@ -33,6 +33,12 @@ void GpuResourceRuntime::begin_prepared(const ApplicationResourceState& applicat
             require(!slots.count(key),"Application snapshot contains a duplicate source slot");
             const auto& r=input.resource;
             GpuResourceBinding value;
+            if(input.retained && input.retained->buffer && commands_.owns(input.retained->buffer)){
+                value=*input.retained;
+                require(input.source_known && r.bound && r.buffer==uint64_t(value.buffer->buffer()) &&
+                    r.size==value.buffer->size(),"Retained original binding changed allocation identity");
+                identify(r.identity,input.identity,value.buffer);slots.emplace(key,std::move(value));continue;
+            }
             if(r.bound){
                 const auto& desc=input.description;
                 require(input.source_known && r.dimension==D3D11_RESOURCE_DIMENSION_BUFFER && r.identity &&
@@ -74,10 +80,11 @@ void GpuResourceRuntime::begin_prepared(const ApplicationResourceState& applicat
                     require(handle==imported_handles_.end() || handle->second.second.expired(),
                         "A retained application handle cannot acquire a different resource identity");
                     value.buffer=commands_.import_buffer(reinterpret_cast<VkBuffer>(r.buffer),r.size,r.usage,
-                        reinterpret_cast<VkDeviceMemory>(r.memory),r.memory_offset,r.memory_size,r.keep);
+                        reinterpret_cast<VkDeviceMemory>(r.memory),r.memory_offset,r.memory_size,r.keep,input.retained?input.retained->buffer:gpu::Buffer{});
                     imported_buffers_[r.identity]={value.buffer,desc};
                     imported_handles_[r.buffer]={r.identity,value.buffer};
                 }
+                if(input.retained)value.initialization=input.retained->initialization;
                 value.description=desc;value.format=input.format;value.stride=input.stride;
                 value.offset=UINT(r.offset);value.visible_size=UINT(r.range);
                 if(type==T::SHADER_RESOURCE || type==T::UNORDERED_ACCESS_VIEW){
@@ -123,6 +130,13 @@ void GpuResourceRuntime::begin_prepared(const ApplicationResourceState& applicat
         auto pixel_uav=[](const auto& key){return std::get<0>(key)==L'p' && std::get<1>(key)==ResourceCopyTargetType::UNORDERED_ACCESS_VIEW;};
         auto register_conflict=[&](const auto& a,const auto& b){return pixel_uav(a) &&
             std::get<1>(b)==ResourceCopyTargetType::RENDER_TARGET && std::get<2>(a)<=std::get<2>(b);};
+        auto owned_slots=ini_slots_;
+        if(application.preserve_unmapped_ini_slots){
+            for(auto it=owned_slots.begin();it!=owned_slots.end();){
+                if(application.mapped_slots.count(*it)){it=owned_slots.erase(it);continue;}
+                const auto saved=slots_.find(*it);slots.emplace(*it,saved==slots_.end()?GpuResourceBinding{}:saved->second);++it;
+            }
+        }else owned_slots.clear();
         // Snapshot existing original API state; do not silently null conflicting
         // inputs/outputs or accept a partial incompatible attachment set.
         for(auto a=slots.begin();a!=slots.end();++a)if(a->second)
@@ -145,6 +159,10 @@ void GpuResourceRuntime::begin_prepared(const ApplicationResourceState& applicat
         for(const auto& identity:identities)source_identities_.erase(identity.first);
         source_identities_.merge(identities);
         prepared_state_->slots=std::move(baseline);slots_=std::move(slots);
+        prepared_state_->ini_slots=owned_slots;ini_slots_=std::move(owned_slots);
+        prepared_state_->unknown_slots=unknown_application_slots_=!application.omitted_slots_unbound;
+        application_image_observer_=application.observe_image;
+        commands_.independent_initialization(application.independent_initialization);
     }catch(...){discard();throw;}
 }
 }

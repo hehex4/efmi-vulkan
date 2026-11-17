@@ -21,6 +21,7 @@ namespace efmi::gpu {
     X(CmdCopyImage) X(CmdCopyBufferToImage) X(CmdCopyImageToBuffer) \
     X(CmdClearColorImage) X(CmdClearDepthStencilImage) X(CmdResolveImage) \
     X(CreateFence) X(DestroyFence) X(QueueSubmit) X(GetFenceStatus) X(WaitForFences) \
+    X(CreateSemaphore) X(DestroySemaphore) \
     X(ResetCommandPool) X(ResetFences)
 struct ResourceDispatch {
     VkResult (VKAPI_PTR *SetDeviceLoaderData)(VkDevice, void*) = nullptr;
@@ -46,6 +47,14 @@ struct ResourceDevice {
     // Core1.3 or enabled KHR_format_feature_flags2 with its physical query.
     bool format_features2=false;
     PFN_vkGetPhysicalDeviceFormatProperties2 GetFormatProperties2=nullptr;
+    // Optional independent upload queue. It never waits on application work.
+    // The host enabled timeline semaphores and owns this queue's synchronization.
+    VkQueue initialization_queue=VK_NULL_HANDLE;
+    uint32_t initialization_family=UINT32_MAX;
+    VkQueueFlags initialization_flags=0;
+    std::mutex* initialization_mutex=nullptr;
+    std::function<void(VkSemaphore,std::vector<VkFence>)> retire_initialization_semaphore;
+    uint32_t concurrent_family=UINT32_MAX;
 };
 struct ResourceBudgets {
     std::shared_ptr<assets::AllocationBudget> resident=std::make_shared<assets::AllocationBudget>(512ull<<20);
@@ -53,10 +62,14 @@ struct ResourceBudgets {
 };
 class ResourceCommands;
 class ShaderCommands;
+class ResourceInitialization;
 // Device lifetime and host serialization are the caller's responsibility.
 // These are mutable resources; an owner preserves allocation, not old contents.
 class BufferResource {
 public:
+    struct IndexBounds {bool valid16=false,valid32=false;uint32_t min16=0,max16=0,min32=0,max32=0;};
+    IndexBounds index_bounds() const {return indices_;}
+    bool initial_contents() const {return initial_contents_;}
     BufferResource()=default;
     BufferResource(const BufferResource&)=delete;
     BufferResource& operator=(const BufferResource&)=delete;
@@ -81,6 +94,10 @@ private:
     VkDeviceSize size_=0,allocation_=0,idle_=0;
     VkBufferUsageFlags usage_=0;
     bool coherent_=false;
+    IndexBounds indices_;
+    std::weak_ptr<ResourceInitialization> initialization_;
+    bool initial_contents_=false;
+    std::shared_ptr<const uint8_t> creator_;
 };
 using Buffer=std::shared_ptr<BufferResource>;
 struct ImageDescription {
@@ -111,6 +128,7 @@ public:
     ~ImageResource();
     VkImage image() const {return image_;}
     bool is_external() const {return external_;}
+    bool initial_contents() const {return initial_contents_;}
     bool retained_external() const {return bool(external_owner_);}
     VkDeviceMemory memory() const {return memory_;}
     VkDeviceSize memory_offset() const {return memory_offset_;}
@@ -138,6 +156,9 @@ private:
     // submission that uses it, and never destroyed here.
     VkImageLayout external_layout_=VK_IMAGE_LAYOUT_UNDEFINED;
     bool external_=false;
+    std::weak_ptr<ResourceInitialization> initialization_;
+    bool initial_contents_=false;
+    std::shared_ptr<const uint8_t> creator_;
 };
 using Image=std::shared_ptr<ImageResource>;
 class ImageViewResource {
@@ -189,6 +210,7 @@ public:
 private:
     friend class ResourceCommands;
     friend class ShaderCommands;
+    friend class PreparedResourceCommands;
     ResourceDevice device_;
     std::shared_ptr<SubmissionRecycler> recycler_;
     VkCommandPool pool_=VK_NULL_HANDLE;
@@ -200,6 +222,7 @@ private:
     // Descriptor sets, pipelines, views and their owners share fence lifetime.
     std::vector<std::shared_ptr<void>> shader_owners_;
     std::map<Image,VkImageLayout,std::owner_less<Image>> image_layouts_;
+    std::vector<std::shared_ptr<ResourceInitialization>> initializations_;
 };
 
 // Immutable commands and allocation owners, prepared without emitting a Vulkan
@@ -244,6 +267,7 @@ public:
     const std::vector<PreparedBufferAccess>& buffer_accesses() const {return accesses_;}
     const std::vector<PreparedImageAccess>& image_accesses() const {return image_accesses_;}
     const std::vector<PreparedImageState>& image_states() const {return image_states_;}
+    const std::vector<std::shared_ptr<ResourceInitialization>>& initializations() const {return owners_->initializations_;}
 private:
     friend class ResourceCommands;
     std::vector<std::function<void(VkCommandBuffer)>> commands_;
@@ -256,6 +280,28 @@ private:
     VkDevice device_=VK_NULL_HANDLE;
     uint32_t queue_family_=0;
     bool compute_=false,admitted_=false;
+};
+
+// First-use CPU data only: no application input and no mutable resource writes.
+// Each consumer retains the initializer, so discarding the first recording does
+// not discard the upload. A dedicated queue publishes through a timeline; the
+// fallback submits once on the single serialized consumer queue.
+class ResourceInitialization {
+public:
+    ~ResourceInitialization();
+    VkResult before_submit(VkQueue) noexcept;
+    bool across_queues() const {return semaphore_!=VK_NULL_HANDLE;}
+private:
+    friend class ResourceCommands;
+    std::unique_ptr<ResourceCommands> commands_;
+    std::shared_ptr<const PreparedResourceCommands> packet_;
+    std::shared_ptr<ResourceSubmission> submission_;
+    std::mutex mutex_;
+    VkQueue queue_=VK_NULL_HANDLE;
+    VkSemaphore semaphore_=VK_NULL_HANDLE;
+    std::map<VkQueue,bool> consumers_;
+    std::vector<VkFence> consumer_fences_;
+    void upload();
 };
 
 // The default outside-render-pass execution domain records private primary
@@ -284,8 +330,16 @@ public:
     std::shared_ptr<const PreparedResourceCommands> cut_prepared();
     std::shared_ptr<const PreparedResourceCommands> finish_prepared();
     void accept_prepared();
+    // The host serializes all consuming queues. Multiple consumers additionally
+    // require an independent upload queue and timeline publication.
+    void independent_initialization(bool enabled){independent_initialization_=enabled;}
+    std::unique_ptr<ResourceCommands> initialization_commands();
+    static std::shared_ptr<ResourceInitialization> finish_initialization(std::unique_ptr<ResourceCommands>);
+    void initial_layout(const Image&);
     Buffer import_buffer(VkBuffer,VkDeviceSize,VkBufferUsageFlags,VkDeviceMemory,
-                         VkDeviceSize memory_offset,VkDeviceSize memory_size,std::shared_ptr<const void>);
+                         VkDeviceSize memory_offset,VkDeviceSize memory_size,std::shared_ptr<const void>,const Buffer& producer={});
+    bool owns(const Buffer& resource) const {return resource && resource->domain_==domain_;}
+    bool owns(const Image& resource) const {return resource && resource->domain_==domain_;}
     Buffer create(VkDeviceSize,VkBufferUsageFlags,const void* initial=nullptr,size_t initial_size=0,bool zero=false);
     void copy(const Buffer& source,VkDeviceSize source_offset,const Buffer& destination,VkDeviceSize destination_offset,VkDeviceSize size);
     void fill(const Buffer&,VkDeviceSize offset,VkDeviceSize size,uint32_t word);
@@ -321,6 +375,7 @@ public:
         std::vector<VkSemaphore> waits;
         std::vector<VkPipelineStageFlags> stages;
         std::vector<VkSemaphore> signals;
+        std::vector<uint64_t> signal_values;
     };
     std::shared_ptr<ResourceSubmission> submit(VkQueue,const SubmitSync& sync={});
     // Work recorded and not yet submitted.
@@ -346,6 +401,7 @@ public:
     const Stats& stats() const {return stats_;}
 private:
     friend class ShaderCommands;
+    friend class ResourceInitialization;
     Buffer allocate(VkDeviceSize,VkBufferUsageFlags,bool staging);
     // An upload buffer of at least the size for the pending submission: a recycled one when one fits.
     Buffer stage(VkDeviceSize);
@@ -371,6 +427,7 @@ private:
     ResourceDevice device_;
     ResourceBudgets budgets_;
     std::shared_ptr<const uint8_t> domain_=std::make_shared<const uint8_t>(0);
+    std::shared_ptr<const uint8_t> creator_=std::make_shared<const uint8_t>(0);
     std::shared_ptr<ResourceSubmission> pending_;
     std::vector<std::function<void(VkCommandBuffer)>> prepared_;
     std::vector<PreparedBufferAccess> prepared_accesses_;
@@ -379,6 +436,10 @@ private:
     std::vector<std::shared_ptr<PreparedResourceCommands>> sealed_segments_;
     std::shared_ptr<const uint8_t> prepared_sequence_;
     std::map<Image,VkImageLayout,std::owner_less<Image>> prepared_image_finals_;
+    std::map<Buffer,BufferResource::IndexBounds,std::owner_less<Buffer>> index_undo_;
+    std::map<Buffer,bool,std::owner_less<Buffer>> buffer_initial_undo_;
+    std::map<Image,bool,std::owner_less<Image>> image_initial_undo_;
+    bool independent_initialization_=false;
     size_t sealed_commands_=0,sealed_accesses_=0;
     bool awaiting_admission_=false;
     bool preparing_=false,prepared_compute_=false;

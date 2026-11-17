@@ -5,6 +5,7 @@
 #include "native_resources.h"
 #include "native_execution.h"
 #include "native_targets.h"
+#include "native_configuration.h"
 
 namespace efvk {
 
@@ -646,26 +647,28 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
         request.stage_hash_mask = modules.mask;
         request.targets_known = modules.targets_known; request.render_targets = modules.targets; request.render_pass = modules.render_pass;
         if (!request.targets_known) request.targets_known = native_dynamic_outputs(cb, r.targets, request.render_targets);
-        efmi::assets::FilePlan plan;
         std::string reason;
-        bool ran = false;
-        {
-            // All included lists share one configuration and one interpreter state.
-            std::lock_guard<std::mutex> lock(*hooks->folder->plan_mx);
-            ran = matched_index ? hooks->program->runtime()->draw(request, plan, reason)
-                                : hooks->program->runtime()->shader_draw(request, plan, reason);
-        }
+        // Serialize the entire speculative original context, including host
+        // preflight and admission, against Present, reload and other draws.
+        std::lock_guard<std::mutex> plan_lock(*hooks->folder->plan_mx);
+        efmi::frontend::NativeApplicationState application;
+        std::unique_ptr<efmi::frontend::PreparedConfigurationDraw> prepared;
+        if(native_application_state(b.device,cb,r,application,reason,hooks->program->runtime()->native_bindings()) && hooks->program->gpu())
+            prepared=hooks->program->gpu()->prepare_native_draw(hooks->program->runtime(),request,application,!matched_index,reason);
+        const bool ran=bool(prepared);
         b.shader_draws_run.fetch_add(1, std::memory_order_relaxed);
         if (!ran) {
             // D-162: what the host cannot do leaves the draw to the game, the lists having run to their end.
             b.shader_draws_refused.fetch_add(1, std::memory_order_relaxed);
             std::lock_guard<std::mutex> lock(b.shader_note_mx);
             if (b.shader_note.empty()) { b.shader_note = reason; logf("ShaderOverride at a draw no Mod section matched: %s; the game's draw stays", reason.c_str()); }
-        } else if (!plan.items.empty()) {
+        } else {
+            const auto& plan=prepared->plan();
             bool pending=false;
             // Graphics can retain the caller until a publication is ready. Compute
             // may be a one-shot producer, so it keeps its existing first-use policy.
-            if (native_calls(b.native_calls,b.textures.get(),b.device,cb,r,plan,marked,reason,request.compute,&pending,hooks->folder->geometry.get())) {
+            if (native_calls(b.native_calls,b.textures.get(),b.device,cb,r,plan,marked,reason,request.compute,&pending,hooks->folder->geometry.get(),prepared.get())) {
+                if(plan.skip_original && plan.items.empty())++b.shader_draws_skipped;
                 ++b.shader_draws_executed; return true;
             }
             b.shader_draws_kept.fetch_add(1, std::memory_order_relaxed);
@@ -678,8 +681,6 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
                     notice(NoticeLevel::Warning, "shader override bindings",reason.c_str());
                 }
             }
-        } else if (plan.skip_original) {
-            skip = true;
         }
     }
     if(!skip && cb->native_geometry){

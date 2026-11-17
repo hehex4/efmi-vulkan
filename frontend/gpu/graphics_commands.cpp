@@ -214,6 +214,8 @@ void ShaderCommands::draw(const Graphics& pipeline,const std::vector<ShaderDescr
     framebuffer.attachmentCount=uint32_t(views.size());framebuffer.pAttachments=views.data();framebuffer.width=draw.extent.width;framebuffer.height=draw.extent.height;framebuffer.layers=draw.layers;
     checked(d->CreateFramebuffer(d->resource.device,&framebuffer,nullptr,&invocation->framebuffer),"Create retained graphics framebuffer");
     const auto command=commands.command();commands.pending_->shader_owners_.push_back(invocation);
+    for(const auto& binding:bindings)if(binding.buffer && (binding.buffer->usage()&VK_BUFFER_USAGE_STORAGE_BUFFER_BIT))
+        commands.buffer_access(binding.buffer,binding.offset,binding.size,VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT);
     for(const auto& binding:bindings)if(binding.image)commands.transition(binding.image->owner(),VK_IMAGE_LAYOUT_GENERAL);
     for(const auto& view:outputs)commands.transition(view->owner(),VK_IMAGE_LAYOUT_GENERAL);
     commands.barrier(VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT|(draw.arguments?VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT:0),VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT);

@@ -140,7 +140,14 @@ std::vector<std::wstring> GpuResourceRuntime::install(DrawPlanAdapter& adapter) 
         [this](CustomResourcePool* pool){remember(pool);},[this](PoolCopyOperation& op){remember(op);},
         [this](ResetPerFrameLimitsCommand& command){if(command.shader)remember(*command.shader);if(command.resource)remember(*command.resource);});
     adapter.prepared_plan([this]{return active_ && site_==ExecutionSite::Prepared && prepared_plan_;},[this]{return cut_prepared();},[this]{
-        active();auto snapshot=std::make_shared<PreparedDrawState>();snapshot->bindings=slots_;snapshot->viewport=viewport_;snapshot->admission_=prepared_state_->admission;return snapshot;
+        active();auto snapshot=std::make_shared<PreparedDrawState>();snapshot->bindings=slots_;snapshot->viewport=viewport_;snapshot->admission_=prepared_state_->admission;
+        for(const auto& binding:slots_)if(binding.second.buffer && (binding.second.buffer->usage()&VK_BUFFER_USAGE_INDEX_BUFFER_BIT))
+            snapshot->indices.emplace(binding.second.buffer,binding.second.buffer->index_bounds());
+        for(const auto& binding:slots_){const auto& b=binding.second;
+            if(b.buffer && b.buffer->initial_contents())snapshot->initial_contents.insert(b.buffer.get());
+            if(b.image && b.image->initial_contents())snapshot->initial_contents.insert(b.image.get());
+        }
+        return snapshot;
     });
     return {};
 }
@@ -163,7 +170,7 @@ std::shared_ptr<gpu::ResourceSubmission> GpuResourceRuntime::finish(const gpu::R
 // A failed scope that is suspended drops what it and the scopes pending before it recorded: their work
 // is one batch, and a later scope starts clean.
 void GpuResourceRuntime::suspend(){active();require(site_!=ExecutionSite::Prepared,"Prepared resource execution must finish or discard");active_=false;if(failed_){commands_.discard();failed_=false;}}
-void GpuResourceRuntime::discard(){commands_.discard();rollback_prepared();active_=false;failed_=false;prepared_plan_=false;}
+void GpuResourceRuntime::discard(){commands_.discard();rollback_prepared();active_=false;failed_=false;prepared_plan_=false;application_image_observer_={};}
 void GpuResourceRuntime::active() const {require(active_,"GPU resource operation has no outside-render-pass execution scope");}
 ResourceCopyTarget& GpuResourceRuntime::effective(ResourceCopyTarget& t,CommandListState& state) {
     if(t.type!=Target::THIS_RESOURCE)return t;
@@ -238,7 +245,9 @@ GpuResourceBinding GpuResourceRuntime::load(CustomResource& r,ResourceCopyTarget
     // SubstantiateBuffer: a description D3D11 does not create leaves the resource null (D-150).
     try{validate_desc(b.description);}catch(const std::exception& e){return unloaded(r,L"buffer",e.what());}
     r.OverrideOutOfBandInfo(&b.format,&b.stride);b.source_stride=r.source_stride;
-    b.buffer=commands_.create(b.description.ByteWidth,usage(b.description),bytes.empty()?nullptr:bytes.data(),std::min<size_t>(bytes.size(),b.description.ByteWidth),true);
+    auto initialization=commands_.initialization_commands();auto& upload=initialization?*initialization:commands_;
+    b.buffer=upload.create(b.description.ByteWidth,usage(b.description),bytes.empty()?nullptr:bytes.data(),std::min<size_t>(bytes.size(),b.description.ByteWidth),true);
+    b.initialization=gpu::ResourceCommands::finish_initialization(std::move(initialization));
     r.is_null=false;r.stride=b.stride;r.format=b.format;r.buf_size=b.visible_size;resources_[&r]=b;return b;
 }
 GpuResourceBinding GpuResourceRuntime::unloaded(CustomResource& r,const wchar_t* kind,const std::string& why){
@@ -304,7 +313,7 @@ GpuResourceBinding GpuResourceRuntime::get(ResourceCopyTarget& input,CommandList
         // GetBuffer(0) returns the resource alone: no view and no out-of-band format or size.
         b=backbuffer_;b.drop_view();b.format=DXGI_FORMAT_UNKNOWN;b.stride=b.source_stride=b.offset=b.visible_size=0;
     }
-    else {const auto key=slot(t,state);const auto found=slots_.find(key);if(found!=slots_.end())b=found->second;
+    else {const auto key=slot(t,state);b=binding(std::get<0>(key),std::get<1>(key),std::get<2>(key));
         // XXGetShaderResources/UnorderedAccessViews return resource and view,
         // not the custom declaration's out-of-band stride/offset/size/format.
         b.source_stride=0;
@@ -315,6 +324,13 @@ GpuResourceBinding GpuResourceRuntime::get(ResourceCopyTarget& input,CommandList
         else if(t.type==Target::VERTEX_BUFFER){b.format=DXGI_FORMAT_UNKNOWN;b.visible_size=0;}}
     require(!prepared_state_ || !b.image || !b.image->is_external() || b.image->retained_external(),
         "Prepared application images require retained allocation and layout proofs");
+    if(prepared_state_ && b.image && b.image->is_external() && application_image_observer_){
+        const auto identity=imported_image_handles_.find(b.image->image());
+        require(identity!=imported_image_handles_.end(),"Saved application image has no retained source identity");
+        gpu::ApplicationImage observation;std::string reason;
+        if(!application_image_observer_(identity->second.first,b.image,observation,reason))throw std::runtime_error(reason);
+        require(commands_.import_image(observation)==b.image,"Saved application image observation changed its allocation");
+    }
     if(b && input.evaluation_mode==Mode::RESOURCE_REGION) {
         require(input.member_args[0].expression && input.member_args[1].expression,"GPU region requires offset and size");
         b.offset=uint_value(input.member_args[0].GetValue(&state));b.visible_size=uint_value(input.member_args[1].GetValue(&state));
@@ -744,6 +760,9 @@ bool GpuResourceRuntime::render_target(CommandListState&,bool& bound,float& widt
     }catch(const std::exception& e){reason=widen(e.what());return false;}
 }
 GpuResourceBinding GpuResourceRuntime::binding(wchar_t stage,Target type,unsigned index) const {
-    const auto found=slots_.find({stage,type,index});return found==slots_.end()?GpuResourceBinding{}:found->second;
+    const auto found=slots_.find({stage,type,index});
+    require(found!=slots_.end() || !unknown_application_slots_ || site_!=ExecutionSite::Prepared,
+        "Original command reads a source slot unavailable in the native application context");
+    return found==slots_.end()?GpuResourceBinding{}:found->second;
 }
 }

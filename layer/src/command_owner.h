@@ -17,7 +17,8 @@ struct CommandOwner {
     virtual void reset_after_completion() = 0;
     virtual bool seal() = 0; // true when this call sealed it
     // Called under the application's queue synchronization before its submitted recordings.
-    // Only completed upload publication may be waited here; no host wait or pending producer.
+    // Completed publications may be waited, or retained CPU-only initializers
+    // submitted before this queue's consumers. Never wait for application work.
     virtual VkResult before_submit(VkQueue) { return VK_SUCCESS; }
 };
 
@@ -30,7 +31,9 @@ std::shared_ptr<CommandOwner> owner_for(std::vector<std::shared_ptr<CommandOwner
     std::shared_ptr<CommandOwner> mine;
     for (auto it = owners.begin(); it != owners.end();) {
         if (*it && (*it)->backend == backend) { mine = *it; ++it; }
-        else if (!*it || !(*it)->used) it = owners.erase(it);
+        // Preflight plans retain arenas before the first command marks them
+        // used. Another preflight must not detach those pending recording owners.
+        else if (!*it || (!(*it)->used && it->use_count()==1)) it = owners.erase(it);
         else ++it;
     }
     if (!mine && (mine = make())) owners.push_back(mine);

@@ -1,5 +1,18 @@
 # EFMI Vulkan - Known issues
 
+## BUG-169: Pending preflight ownership could be detached before recording (D-329 fixed)
+
+A target plan retains an unused CommandOwner while descriptor preflight asks for
+another arena. owner_for formerly erased every other unused arena, including the
+target plan's retained arena. Recording then marked that detached owner used, but
+the executable command buffer did not retain it. Its packet buffer was destroyed
+when the local plan returned. native-configuration-gpu.out and
+native-configuration-files.out reproduce destroyed-buffer validation errors.
+Original GetResource/SetResource retains objects through the DX11 context/runtime;
+Vulkan needs explicit executable-recording ownership. Only erase an unused arena
+when the command buffer is its sole shared owner. Production chain/file/uniform
+checks pass after the fix. Fresh tracker 1015 includes both pending-owner and publication-retirement assertions; GPU handoff 73, registry 384 and prepared 155 pass with clean validation.
+
 ## BUG-168: Reused ordinary plans revived prepared final bindings (fixed in D-328)
 
 During D-328 implementation, the reused IniRuntime result cleared its items and

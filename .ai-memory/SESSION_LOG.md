@@ -3898,3 +3898,51 @@ binding admission and application-image layout handoff. Complete those before th
 remaining native queue/access/readiness/capture work. These are development/sandbox
 results only. No game, deployment, candidate refresh, installed/system mutation,
 historical artifact deletion or remote action.
+
+## 2026-11-17 - D-329 production original execution verified
+
+User requested continued work through source mapping, binding application and
+application-image layout handoff, then the native route. Source 3.4.5 now connects
+those transactions without package fallback. Read original lazy Substantiate,
+reference/copy commands, CustomShader save/restore and IniParams initialization.
+DX11 owns reference lifetime/deferred destruction, hazards and context order;
+Vulkan retains executable owners, records ordered packets and restores layouts.
+
+Production integration reproduced premature preflight-owner retirement (BUG-169),
+lost INI virtual registers/IniParams, missing persistent first-use producers and
+multi-queue upload publication. Fixed retained preflight ownership, virtual-slot
+import, independent CPU-only initializers and dedicated timeline publication.
+Initial-content/index proofs journal invalidation and rollback. Replaced configuration
+buffers retain producer dependencies. Consumer completion fences govern publication
+semaphore retirement independently of presentation age.
+
+Completed intermediate evidence: production original chain 5; generated mesh 6;
+geometry indices/restoration 24; prepared GPU 153; registry GPU 384; application
+image handoff 73; retained/layout/graphics application images 15. Expanded file/image
+checks initially failed on two-queue publication and obsolete package-loader
+expectations; corrected original null-UAV, nonstructured stride and reload/format
+semantics. Publication reruns pass files 12 and images 26 with clean validation.
+The production chain now assigns its virtual cs-t7 only on the first draw and still
+produces 19 on later draws. Exact logs remain under build/native-configuration-*.
+
+The no-SRV image exposed a pinned VVL false positive for ordinary immutable samplers,
+not a Vulkan null-descriptor violation. Built the upstream YCbCr condition backport
+in F:/vulkan/validation-1.4.321.0-immutable-null; restored original pinned source;
+kept every diagnostic enabled and selected the install only in that child fixture.
+See docs/validation.md for source links and artifact hash.
+
+Final matching layer/inject/modules/tracker/pass-test build succeeds at 3.4.5 / ABI
+3462dd23d7bf741b in native-configuration-complete-build.out. Scoped run_all passes
+backend 13, pass GPU 73, production chain 5, tracker 1015, ABI 9, native calls 60 and
+text 740. Final geometry (generated vertices, restoration, two queues, exchange,
+reload) passes 33; files 13; images 20; application images 22. Fresh root 27 / GPU
+registry 384 pass in native-configuration-final-registry-fixed.out. The first test
+build called a private command helper; corrected only the test to record/submit a
+real host command buffer and completion fence. Prepared GPU 155 and interpreter
+570 pass; zero Vulkan/synchronization errors or warnings. Diff reviewed before the
+local commit and root fast-forward. Continue immediately with imported buffer hash
+queries: source inspection found RegionHash/SpatialHash still returning UNKNOWN
+for application data, which affects original Core spatial identification. Prepared
+graphics CustomShaders, current Store, broader source/queue contracts and remaining
+capture migration remain engineering work. No real game, deployment, launcher,
+system registration, historical artifact deletion or remote action.

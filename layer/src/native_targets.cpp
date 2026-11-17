@@ -18,6 +18,12 @@ struct TargetOwner:CommandOwner {
     bool sealed=false;
     void reset_after_completion()override{resources.clear();classic.clear();pipelines.clear();work.clear();used=false;sealed=false;}
     bool seal()override{if(!used || sealed)return false;sealed=true;return true;}
+    VkResult before_submit(VkQueue queue)override{
+        for(const auto& event:work)for(const auto& init:event->work->initializations()){
+            const auto status=init->before_submit(queue);if(status!=VK_SUCCESS)return status;
+        }
+        return VK_SUCCESS;
+    }
 };
 std::shared_ptr<TargetOwner> target_owner(CmdBuf* cb){
     // Binding a twin must not discard another package's unused snapshot arena (BUG-089).
@@ -229,6 +235,43 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
     }
     if(!needed){output=std::move(next);return true;}
     auto refuse=[&](const char* reason){why=reason;return false;};
+    if(!cb->in_rp && !cb->inherited_rp && (draw.kind==DK_DISPATCH || draw.kind==DK_DISPATCH_INDIRECT)){
+        if(cb->secondary || !cb->execution_scopes.splittable() || device->application_queue_count!=1 ||
+           device->material_queues.size()!=1 || device->synchronization2_enabled)
+            return refuse("Prepared compute work requires a tracked primary on one legacy-synchronized queue");
+        const void* sequence=nullptr;size_t segment=0;
+        std::map<const efmi::gpu::ImageResource*,VkImageLayout> layouts;
+        std::shared_lock<std::shared_mutex> guard(device->res_mx,std::defer_lock);if(!resource_lock_held)guard.lock();
+        for(size_t i=0;i<plan.items.size();++i){const auto& item=plan.items[i];
+            if(item.operation==Operation::NativeBind && native_output_binding(item.native_target))return refuse("Compute source scope cannot bind rendering outputs");
+            if(item.operation!=Operation::PreparedWork)continue;
+            const auto& work=item.prepared_work;
+            if(!work || !work->size() || !work->sequence() || work->device()!=device->handle || work->queue_family()!=device->material_family)
+                return refuse("Prepared compute packet device or queue family is unavailable");
+            if(!sequence)sequence=work->sequence();
+            if(sequence!=work->sequence() || work->segment()!=segment++)return refuse("Prepared compute sequence is discontinuous");
+            for(const auto& state:work->image_states()){
+                if(!state.image)return refuse("Prepared compute image is unavailable");
+                if(state.image->is_external()){
+                    const auto found=device->images.find(state.image->image());VkImageLayout current;
+                    if(!state.image->retained_external() || found==device->images.end() ||
+                       found->second.mem!=state.image->memory() || found->second.mem_off!=state.image->memory_offset() ||
+                       found->second.mem_size!=state.image->memory_size() || state.initial!=state.final ||
+                       !cb->image_layouts.get(found->second.id,found->second.levels,found->second.layers,state.image->full_range(),current) || current!=state.initial)
+                        return refuse("Prepared compute application image lacks a fresh allocation/layout proof");
+                }else if(state.final!=VK_IMAGE_LAYOUT_GENERAL || (state.initial!=VK_IMAGE_LAYOUT_UNDEFINED && state.initial!=VK_IMAGE_LAYOUT_GENERAL))
+                    return refuse("Prepared compute private images require GENERAL between packets");
+                const auto previous=layouts.find(state.image.get());
+                if(previous!=layouts.end() && previous->second!=state.initial)return refuse("Prepared compute image layout is discontinuous");
+                layouts[state.image.get()]=state.final;
+            }
+            auto event=std::make_shared<NativeTargetPlan::Event>();event->work=work;next.events[i]=std::move(event);
+        }
+        auto owner=target_owner(cb);
+        if(owner->sealed || owner->work.size()+plan.items.size()>4096)return refuse("Prepared compute recording owner budget is exhausted");
+        owner->work.reserve(owner->work.size()+plan.items.size());owner->resources.reserve(owner->resources.size()+plan.items.size());
+        next.owner=owner;output=std::move(next);return true;
+    }
     if(!cb->in_rp || cb->secondary || cb->inherited_rp || !cb->execution_scopes.splittable())
         return refuse("Native output pass splitting requires a primary with no active query or transform feedback");
     if(device->synchronization2_enabled || device->application_queue_count!=1 || device->material_queues.size()!=1)
@@ -261,7 +304,30 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
             return refuse("Prepared pass work must preserve one contiguous ordered sequence");
         for(const auto& state:work->image_states()){
             const auto& image=state.image;
-            if(!image || image->is_external())return refuse("Prepared application images need explicit render-pass layout handoff");
+            if(!image)return refuse("Prepared image has no retained allocation");
+            if(image->is_external()){
+                const auto found=device->images.find(image->image());
+                const auto& desc=image->description();
+                VkImageLayout observed=VK_IMAGE_LAYOUT_UNDEFINED;
+                if(!image->retained_external() || found==device->images.end())
+                    return refuse("Prepared application image identity is unavailable");
+                const auto& actual=found->second;
+                if(!actual.capture_safe || actual.mem!=image->memory() || actual.mem_off!=image->memory_offset() ||
+                   actual.mem_size!=image->memory_size() || actual.type!=desc.type || actual.format!=desc.format ||
+                   actual.extent.width!=desc.extent.width || actual.extent.height!=desc.extent.height ||
+                   actual.extent.depth!=desc.extent.depth || actual.levels!=desc.mips || actual.layers!=desc.layers ||
+                   actual.samples!=desc.samples || actual.usage!=desc.usage || actual.flags!=desc.flags)
+                    return refuse("Prepared application image allocation facts changed");
+                if(state.initial!=state.final || !proof.get(actual.id,actual.levels,actual.layers,image->full_range(),observed) ||
+                   observed!=state.initial)
+                    return refuse("Prepared application image needs a fresh uniform restored layout");
+                // An output assignment can detach/rebind this image between packets.
+                // It needs its own phase proof; a stable attachment is handled below.
+                for(const auto& binding:plan.items)if(binding.operation==Operation::NativeBind &&
+                    native_output_binding(binding.native_target))
+                    return refuse("Prepared application image with output reassignment needs a phase handoff");
+                private_layouts[image.get()]=state.final;continue;
+            }
             if(state.final!=VK_IMAGE_LAYOUT_GENERAL || (state.initial!=VK_IMAGE_LAYOUT_UNDEFINED && state.initial!=VK_IMAGE_LAYOUT_GENERAL))
                 return refuse("Prepared private image work must preserve GENERAL between host calls");
             const auto previous=private_layouts.find(image.get());
@@ -270,15 +336,15 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
             private_layouts[image.get()]=state.final;
         }
         for(const auto& access:work->image_accesses())
-            if(!access.image || access.image->is_external() || !private_layouts.count(access.image.get()))
-                return refuse("Prepared image access lacks its retained private layout contract");
+            if(!access.image || !private_layouts.count(access.image.get()))
+                return refuse("Prepared image access lacks its retained layout contract");
         if(work->changes_compute_state() && !compute_restore){
             compute_restore=std::make_shared<NativeComputeRestore>();
             if(!prepare_native_compute_restore(device,cb,*compute_restore,why,true))return false;
         }
     }
     if(sequence)for(const auto& item:plan.items)
-        if(item.operation==Operation::Dispatch || (item.operation==Operation::NativeBind && item.native_target.stage=='c'))
+        if(item.operation==Operation::Dispatch || (item.operation==Operation::NativeBind && !native_output_binding(item.native_target) && item.native_target.stage==5))
             return refuse("Prepared pass work cannot restore interleaved application compute binding changes");
     const auto pipeline=device->pipes.find(draw.pipeline);
     const auto recipe=pipeline==device->pipes.end()?nullptr:pipeline->second.recipe;
@@ -337,8 +403,12 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
     for(size_t i=0;i<plan.items.size();++i){
         const auto& item=plan.items[i];
         if(item.operation==Operation::PreparedWork){
+            VkImage exact_image=VK_NULL_HANDLE;
             auto image_safe=[&](VkImage image,const ImageInfo& info,const NativeMemoryRange& input){
                 if(!image)return true;
+                // A packet may read/write the attachment itself while rendering is
+                // suspended. Different image handles sharing its memory still refuse.
+                if(image==exact_image)return true;
                 if(info.mem){
                     if(native_memory_overlap(input,native_memory(info),device->physical_properties.limits.bufferImageGranularity))
                         return refuse("Prepared pass work overlaps retained attachment memory");
@@ -372,9 +442,29 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
             }
             for(const auto& access:item.prepared_work->image_accesses()){
                 const auto& image=access.image;
+                exact_image=image && image->is_external()?image->image():VK_NULL_HANDLE;
                 if(!image || !disjoint({uint64_t(image->memory()),image->memory_offset(),image->memory_size(),false}))return false;
             }
             auto event=std::make_shared<NativeTargetPlan::Event>();event->change=true;event->work=item.prepared_work;
+            for(const auto& image_state:event->work->image_states())if(image_state.image->is_external()){
+                const auto& image=image_state.image;
+                auto working=image_state.initial;
+                for(const auto& view:targets.views)if(view.known && view.view.image==image->image()){
+                    const auto& range=view.view.range;const auto full=image->full_range();
+                    if(range.baseMipLevel || range.baseArrayLayer || range.levelCount!=full.levelCount ||
+                       range.layerCount!=full.layerCount || range.aspectMask!=full.aspectMask)
+                        return refuse("Prepared attachment handoff requires a whole-image view");
+                    working=depth_aspects(view.view.format)?VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                }
+                if(working==image_state.initial)continue;
+                VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+                barrier.srcAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
+                barrier.dstAccessMask=barrier.srcAccessMask;
+                barrier.srcQueueFamilyIndex=barrier.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
+                barrier.image=image->image();barrier.subresourceRange=image->full_range();
+                barrier.oldLayout=working;barrier.newLayout=image_state.initial;event->work_before.push_back(barrier);
+                barrier.oldLayout=image_state.final;barrier.newLayout=working;event->work_after.push_back(barrier);
+            }
             if(event->work->changes_compute_state())event->compute=compute_restore;
             continue_targets(targets);event->images=target_images(targets);event->targets=targets;next.events[i]=std::move(event);continue;
         }
@@ -533,6 +623,15 @@ const NativeTargetState::Saved& classic_saved(const NativeTargetState& state,VkI
     for(const auto& original:state.classic_originals)if(handle==original.view.handle)return original;
     return state.restore.at(handle);
 }
+void record_target_work(Device* device,CmdBuf* cb,const NativeTargetPlan::Event& event){
+    if(!event.work)return;
+    auto barriers=[&](const std::vector<VkImageMemoryBarrier>& values){
+        if(!values.empty())device->d.CmdPipelineBarrier(cb->handle,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,0,nullptr,0,nullptr,uint32_t(values.size()),values.data());
+    };
+    barriers(event.work_before);event.work->record(cb->handle);barriers(event.work_after);
+    if(event.compute)event.compute->record(cb->handle);
+}
 void record_classic_target(Device* device,CmdBuf* cb,const NativeTargetPlan& plan,const std::shared_ptr<NativeTargetPlan::Event>& event){
     auto& state=*plan.state;device->d.CmdEndRenderPass(cb->handle);
     VkImageMemoryBarrier barriers[18]{};uint32_t count=0;
@@ -556,7 +655,7 @@ void record_classic_target(Device* device,CmdBuf* cb,const NativeTargetPlan& pla
     }
     VkMemoryBarrier memory{VK_STRUCTURE_TYPE_MEMORY_BARRIER};memory.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;memory.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
     device->d.CmdPipelineBarrier(cb->handle,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,1,&memory,0,nullptr,count,barriers);
-    if(event->work){event->work->record(cb->handle);if(event->compute)event->compute->record(cb->handle);}
+    record_target_work(device,cb,*event);
     cb->target_contexts.push_back(std::move(event->targets));cb->active_targets=uint32_t(cb->target_contexts.size());
     continue_images(cb,event->images);const auto& targets=cb->target_contexts.back();cb->native_graphics_ordered=true;
     state.private_pass=true;cb->pass.render_pass=event->classic->pass;cb->pass.framebuffer=event->classic->framebuffer;
@@ -576,7 +675,8 @@ void record_native_target(Device* device,CmdBuf* cb,const NativeTargetPlan& plan
     if(event->work && !event->work->admitted())throw std::runtime_error("Prepared pass work is not admitted");
     auto owner=std::static_pointer_cast<TargetOwner>(plan.owner);owner->used=true;owner->resources.push_back(event->resource);
     if(event->work)owner->work.push_back(event);
-    cb->native_target_state=plan.state;if(!event->change)return;
+    if(!event->change){record_target_work(device,cb,*event);return;}
+    cb->native_target_state=plan.state;
     if(event->classic){owner->classic.push_back(event->classic);if(event->pipeline)owner->pipelines.push_back(event->pipeline);record_classic_target(device,cb,plan,event);return;}
     const auto end=device->d.CmdEndRendering?device->d.CmdEndRendering:device->d.CmdEndRenderingKHR;
     const auto begin=device->d.CmdBeginRendering?device->d.CmdBeginRendering:device->d.CmdBeginRenderingKHR;
@@ -594,7 +694,7 @@ void record_native_target(Device* device,CmdBuf* cb,const NativeTargetPlan& plan
     }
     VkMemoryBarrier memory{VK_STRUCTURE_TYPE_MEMORY_BARRIER};memory.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;memory.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;
     device->d.CmdPipelineBarrier(cb->handle,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,1,&memory,0,nullptr,barrier_count,barriers);
-    if(event->work){event->work->record(cb->handle);if(event->compute)event->compute->record(cb->handle);}
+    record_target_work(device,cb,*event);
     cb->target_contexts.push_back(std::move(event->targets));cb->active_targets=uint32_t(cb->target_contexts.size());
     continue_images(cb,event->images);const auto& targets=cb->target_contexts.back();
     cb->native_graphics_ordered=true;

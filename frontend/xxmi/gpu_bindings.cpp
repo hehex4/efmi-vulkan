@@ -52,26 +52,26 @@ void GpuResourceRuntime::publish_bindings(Bindings pending){
                 if(targets && !attachment_size(a->second,b->second))return;
             }
         if(targets){
-            for(auto i=slots_.begin();i!=slots_.end();)if(om(i->first))i=slots_.erase(i);else ++i;
+            for(auto i=slots_.begin();i!=slots_.end();)if(om(i->first)){ini_slots_.insert(i->first);i=slots_.erase(i);}else ++i;
         }else if(std::get<0>(first)==L'p'){
             // Unlike CSSetUnorderedAccessViews, the OM API replaces the whole
             // pixel UAV set even when KEEP_RENDER_TARGETS is specified.
             for(auto& item:slots_)if(std::get<1>(item.first)==Target::UNORDERED_ACCESS_VIEW &&
-                std::get<0>(item.first)==L'p')item.second={};
+                std::get<0>(item.first)==L'p'){ini_slots_.insert(item.first);item.second={};}
             // KEEP_RENDER_TARGETS still unbinds RTV registers at/after the
             // first UAV register, even when the incoming UAVs are null.
             for(auto& item:slots_)if(std::get<1>(item.first)==Target::RENDER_TARGET &&
-                std::get<2>(item.first)>=std::get<2>(first))item.second={};
+                std::get<2>(item.first)>=std::get<2>(first)){ini_slots_.insert(item.first);item.second={};}
         }
         for(auto& old:slots_)if(!pending.count(old.first) && old.second)
-            for(const auto& value:pending)if(source_bindings_overlap(old.second,value.second)){old.second={};break;}
+            for(const auto& value:pending)if(source_bindings_overlap(old.second,value.second)){ini_slots_.insert(old.first);old.second={};break;}
     }else{
         // Inputs never remove an already-bound writer. The conflicting input
         // element becomes null, independently for every element in the batch.
         for(auto& value:pending)if(value.second)for(const auto& old:slots_)
             if(output(old.first) && source_bindings_overlap(value.second,old.second)){value.second={};break;}
     }
-    for(const auto& value:pending)slots_.erase(value.first);
+    for(const auto& value:pending){slots_.erase(value.first);ini_slots_.insert(value.first);}
     slots_.merge(pending);
 }
 GpuResourceRuntime::OutputState GpuResourceRuntime::save_outputs() const {

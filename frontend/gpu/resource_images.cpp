@@ -136,8 +136,8 @@ Image ResourceCommands::import_image(const ApplicationImage& input) {
 }
 Image ResourceCommands::create_image(ImageDescription desc) {
     if(!device_.physical || !device_.GetImageFormatProperties || !device_.GetFormatProperties ||
-       !(device_.queue_flags&VK_QUEUE_GRAPHICS_BIT) || device_.api_version<VK_API_VERSION_1_1)
-        throw std::runtime_error("Images require Vulkan 1.1 capabilities and a serialized graphics queue");
+       !(device_.queue_flags&(VK_QUEUE_GRAPHICS_BIT|VK_QUEUE_TRANSFER_BIT)) || device_.api_version<VK_API_VERSION_1_1)
+        throw std::runtime_error("Images require Vulkan 1.1 capabilities and a serialized transfer-capable queue");
     const auto& f=info(desc.format);
     if(desc.type!=VK_IMAGE_TYPE_1D && desc.type!=VK_IMAGE_TYPE_2D && desc.type!=VK_IMAGE_TYPE_3D)
         throw std::runtime_error("Invalid image dimension");
@@ -181,11 +181,15 @@ Image ResourceCommands::create_image(ImageDescription desc) {
         minimum=add(minimum,multiply(multiply(multiply(size,desc.layers),samples),f.bytes));
     }
     if(minimum>budgets_.resident->limit() || minimum>limits.maxResourceSize)throw std::runtime_error("Image allocation exceeds budget or device limit");
-    auto image=std::make_shared<ImageResource>();image->device_=device_;image->domain_=domain_;
+    auto image=std::make_shared<ImageResource>();image->device_=device_;image->domain_=domain_;image->creator_=creator_;
     image->description_=desc;image->budget_=budgets_.resident;
     VkImageCreateInfo ci={VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};ci.flags=desc.flags;ci.imageType=desc.type;ci.format=desc.format;
     ci.extent=desc.extent;ci.mipLevels=desc.mips;ci.arrayLayers=desc.layers;ci.samples=desc.samples;ci.usage=desc.usage;
     ci.tiling=VK_IMAGE_TILING_OPTIMAL;ci.sharingMode=VK_SHARING_MODE_EXCLUSIVE;ci.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;
+    const uint32_t families[]={device_.queue_family,device_.concurrent_family};
+    if(device_.concurrent_family!=UINT32_MAX && device_.concurrent_family!=device_.queue_family){
+        ci.sharingMode=VK_SHARING_MODE_CONCURRENT;ci.queueFamilyIndexCount=2;ci.pQueueFamilyIndices=families;
+    }
     const auto& d=device_.dispatch;check(d.CreateImage(device_.device,&ci,nullptr,&image->image_),"Create resource image");
     VkMemoryDedicatedRequirements dedicated={VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS};
     VkMemoryRequirements2 requirements={VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2};requirements.pNext=&dedicated;
@@ -263,6 +267,10 @@ ImageView ResourceCommands::view(const Image& image,VkImageViewType type,VkForma
 }
 void ResourceCommands::transition(const Image& image,VkImageLayout layout) {
     validate(image);retain_pending();auto found=pending_->image_layouts_.find(image);
+    if(auto init=image->initialization_.lock()){
+        auto& dependencies=pending_->initializations_;
+        if(std::find(dependencies.begin(),dependencies.end(),init)==dependencies.end())dependencies.push_back(std::move(init));
+    }
     const auto earlier=prepared_image_finals_.find(image);
     const auto old=found!=pending_->image_layouts_.end()?found->second:image->external_?image->external_layout_:
         earlier!=prepared_image_finals_.end()?earlier->second:(image->initialized_?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_UNDEFINED);

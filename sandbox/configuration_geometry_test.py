@@ -26,6 +26,7 @@ def scene(checks, case, emitter=None):
     stride = 24 if layout else 16 if case == 'stride' else 8
     raw = b''.join(struct.pack('<6f', 10, 10, x, y, -x, y) if layout else
                    struct.pack('<4f', x, y, 10, 10) if stride == 16 else struct.pack('<2f', x, y) for x, y in vertices)
+    if case == 'gpu': raw = struct.pack('<6f', *([-10.0] * 6))
     (assets / 'vertices.buf').write_bytes(raw)
     wide = case == 'index32'
     indices = (0,) * 6 + (0, 1, 2) if case in ('caller_layout', 'implicit_layout') else (0, 1, 2)
@@ -33,6 +34,15 @@ def scene(checks, case, emitter=None):
     (assets / 'resources.ini').write_text(
         'namespace = shared\n[ResourceVertex]\ntype = Buffer\nstride = %d\nfilename = vertices.buf\n'
         '[ResourceIndex]\ntype = Buffer\nformat = R%d_UINT\nfilename = indices.buf\n' % (stride, 32 if wide else 16), encoding='ascii')
+    if case == 'gpu':
+        path = assets / 'resources.ini'
+        path.write_text(path.read_text(encoding='ascii').replace('[ResourceVertex]\ntype = Buffer',
+                        '[ResourceVertex]\ntype = StructuredBuffer\nbind_flags = vertex_buffer unordered_access'), encoding='ascii')
+        (mods / 'mesh.hlsl').write_text('RWStructuredBuffer<float2> vertices : register(u0);\n'
+                                      'Texture1D<float4> IniParams : register(t120);\n'
+                                      '[numthreads(1,1,1)] void main(uint3 id : SV_DispatchThreadID) {\n'
+                                      'vertices[0] = float2(IniParams.Load(0).x, 0.55);\n'
+                                      'vertices[1] = float2(0.90, 0.55); vertices[2] = float2(0.80, 0.35); }\n', encoding='ascii')
     body = ('vb0 = Resource\\shared\\Vertex\nib = Resource\\shared\\Index\n'
             'drawindexed = 3,0,0\n')
     if case == 'bounds': body = body.replace('3,0,0', '4,0,0')
@@ -48,10 +58,14 @@ def scene(checks, case, emitter=None):
     if case == 'restore':
         body = ('ResourceSavedVertex = ref vb0\nResourceSavedIndex = ref ib\n' + body +
                 'post vb0 = ref ResourceSavedVertex\npost ib = ref ResourceSavedIndex\n')
+    if case == 'gpu':
+        body = 'x0 = 0.70\nrun = CustomShaderMesh\n' + body
     (mods / 'rules.ini').write_text(
         '[TextureOverrideMesh]\nhash = %08x\nmatch_first_index = 6\nmatch_index_count = 3\n' %
         crc32c(struct.pack('<3I', 14, 15, 16)) + ('' if case == 'implicit_layout' else 'handling = skip\n') + body +
-        ('[ResourceSavedVertex]\n[ResourceSavedIndex]\n' if case == 'restore' else ''), encoding='ascii')
+        ('[ResourceSavedVertex]\n[ResourceSavedIndex]\n' if case == 'restore' else '') +
+        ('[CustomShaderMesh]\ncs = mesh.hlsl\ncs-u0 = Resource\\shared\\Vertex\ndispatch = 1,1,1\ncs-u0 = null\n'
+         if case == 'gpu' else ''), encoding='ascii')
     screen, source, trigger = root / 'screen.raw', root / 'source.raw', root / 'readback.trigger'
     keys = root / 'keys.txt'; keys.write_text('1\n', encoding='ascii')
     env = dict(EFMI_VK_CONFIGURATION=configuration_root(mods), EFMI_VK_M2_SETTINGS=str(root / 'settings'),
@@ -125,7 +139,7 @@ def scene(checks, case, emitter=None):
 
 def main():
     checks = Checks('configuration geometry')
-    cases = sys.argv[1:] or ['index16', 'index32', 'bounds', 'post', 'restore', 'two_queues', 'swap', 'reload',
+    cases = sys.argv[1:] or ['index16', 'index32', 'bounds', 'post', 'restore', 'gpu', 'two_queues', 'swap', 'reload',
                             'stride', *LAYOUT_CASES]
     emitter = None
     if any(case in LAYOUT_CASES for case in cases):

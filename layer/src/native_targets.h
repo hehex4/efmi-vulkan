@@ -40,6 +40,8 @@ struct NativeTargetPlan {
         // Work-only breaks retain every output, including depth-only/no-color passes.
         std::shared_ptr<const efmi::gpu::PreparedResourceCommands> work;
         std::shared_ptr<const NativeComputeRestore> compute;
+        // Whole-image handoff around a packet, after End and before LOAD Begin.
+        std::vector<VkImageMemoryBarrier> work_before,work_after;
         bool change=false;
         uint32_t slot=0;
     };

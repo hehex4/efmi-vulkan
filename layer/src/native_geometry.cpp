@@ -1,6 +1,8 @@
 #include "native_geometry.h"
 #include "command_owner.h"
 #include "native_targets.h"
+#include "resource_memory.h"
+#include "../../frontend/gpu/resource_commands.h"
 #include <algorithm>
 #include <set>
 #include <tuple>
@@ -26,6 +28,9 @@ struct GeometryOwner final : CommandOwner {
     bool seal() override { if(!used || sealed)return false; sealed=true; return true; }
     VkResult before_submit(VkQueue queue) override {
         std::lock_guard<std::mutex> lock(mutex);
+        for(const auto& resource:resources)if(resource->initialization){
+            const auto status=resource->initialization->before_submit(queue);if(status!=VK_SUCCESS)return status;
+        }
         auto& prior=waited[queue]; std::vector<VkSemaphore> semaphores; std::vector<uint64_t> values;
         for(const auto& p:publications)if(prior[p.first]<p.second){semaphores.push_back(p.first);values.push_back(p.second);}
         if(semaphores.empty())return VK_SUCCESS;
@@ -95,15 +100,17 @@ bool prepare_native_geometry(Device* device,CmdBuf* cb,const DrawRec& original,c
         if(call.kind!=DK_DRAW && call.kind!=DK_INDEXED)return refuse("Persistent geometry needs direct draw arguments");
         if(!recipe.geometry_complete || call.vertex_input)return refuse("Geometry needs a complete static vertex declaration");
         uint64_t low=call.first,high=uint64_t(call.first)+call.count-1;
+        bool gpu_indices=false;
         if(call.kind==DK_INDEXED){
             if(!state->index_overridden)return refuse("Replacement vertices with application indices need a proven index range");
             const auto& index=state->index;
             if(!index || !index->bound)return refuse("Indexed geometry has a null index binding");
-            if(!index->index_bounds || !index->index_size || index->offset>index->size ||
+            gpu_indices=index->prepared_admission && plan.prepared_final_state && !index->index_bounds && device->enabled_features.robustBufferAccess;
+            if((!index->index_bounds && !gpu_indices) || !index->index_size || index->offset>index->size ||
                uint64_t(call.first)+call.count>(index->size-index->offset)/index->index_size)
                 return refuse("Geometry draw exceeds the uploaded index buffer");
             const int64_t first=int64_t(index->index_min)+call.vertex_offset,last=int64_t(index->index_max)+call.vertex_offset;
-            if(first<0 || last<first)return refuse("Geometry base vertex leaves the vertex domain");
+            if(!gpu_indices && (first<0 || last<first))return refuse("Geometry base vertex leaves the vertex domain");
             low=uint64_t(first);high=uint64_t(last);
         }
         (void)low;
@@ -165,7 +172,7 @@ bool prepare_native_geometry(Device* device,CmdBuf* cb,const DrawRec& original,c
                 size=app_sizes[binding->binding];offset=app.off;
                 if(app.size!=VK_WHOLE_SIZE)size=offset+std::min(app.size,size-offset);
             }
-            const uint64_t element=binding->inputRate==VK_VERTEX_INPUT_RATE_INSTANCE?uint64_t(call.first_instance)+call.instances-1:high;
+            const uint64_t element=binding->inputRate==VK_VERTEX_INPUT_RATE_INSTANCE?uint64_t(call.first_instance)+call.instances-1:gpu_indices?0:high;
             const uint64_t tail=uint64_t(attribute.offset)+width;
             if(offset>size || tail>size-offset || (stride && element>(size-offset-tail)/stride))
                 return refuse("Geometry vertex fetch exceeds its retained buffer");
@@ -214,7 +221,19 @@ bool prepare_native_geometry(Device* device,CmdBuf* cb,const DrawRec& original,c
             if(resource && (!resource->bound || !resource->buffer || !resource->keep ||
                 !(resource->usage&(vertex?VK_BUFFER_USAGE_VERTEX_BUFFER_BIT:VK_BUFFER_USAGE_INDEX_BUFFER_BIT))))
                 return refuse("Geometry binding needs a retained buffer with the correct usage");
-            const bool original_reference=resource && !resource->uploaded_readonly;
+            const bool prepared=resource && resource->prepared_admission && plan.prepared_final_state;
+            if(prepared && !(resource->initialization && resource->initial_contents)){
+                const bool ordered=targets && std::any_of(targets->events.begin(),targets->events.begin()+std::min(i,targets->events.size()),
+                    [](const auto& event){return event && event->work;});
+                if(device->application_queue_count!=1 || cb->inherited_rp || (!ordered && !cb->native_graphics_ordered))
+                    return refuse("Prepared geometry requires an ordered producer in one application queue");
+                std::shared_lock<std::shared_mutex> guard(device->res_mx);
+                if(!native_attachment_memory(device,cb,*resource,why))return false;
+            }
+            const bool restored=prepared && (vertex?
+                (app_valid[item.slot] && resource->identity==(uint64_t(app_ids[item.slot])<<2) && resource->buffer==uint64_t(original.vb[item.slot].buf) && resource->offset==original.vb[item.slot].off):
+                (app_index_id && resource->identity==(uint64_t(app_index_id)<<2) && resource->buffer==uint64_t(original.ib) && resource->offset==original.ib_off));
+            const bool original_reference=resource && !resource->uploaded_readonly && (!prepared || restored);
             if(original_reference){
                 if(resource->uploaded_mutable || cb->m2_extended_bind)return refuse("Original IA reference needs exact binding-window and producer proof");
                 if(vertex){

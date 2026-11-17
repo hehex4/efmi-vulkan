@@ -2,9 +2,11 @@
 #include "native_geometry.h"
 #include "native_descriptors.h"
 #include "native_targets.h"
+#include "native_compute_restore.h"
 #include "texture_residency.h"
 #include "texture_identity.h"
 #include "../../frontend/gpu/source_registers.h"
+#include "../../frontend/xxmi/owned_runtime.h"
 
 namespace efvk {
 namespace {
@@ -132,6 +134,15 @@ bool prepare_native_transaction(NativeCallCache& cache,TextureResidency* residen
     if(!native_files(cache,residency,plan,next.plan,why,wait_files,pending) ||
        !prepare_native_targets(device,cb,draw,next.plan,next.targets,why,target_cache) ||
        !prepare_native_descriptors(device,cb,draw,next.plan,next.descriptors,why,&next.targets))return false;
+    if(compute_call(draw))for(size_t i=0;i<next.targets.events.size();++i){
+        auto& event=next.targets.events[i];if(!event || !event->work || !event->work->changes_compute_state())continue;
+        const auto projected=native_descriptor_draw(draw,next.descriptors,i);
+        CmdBuf context;context.comp_pipeline=cb->comp_pipeline;context.comp_bound=cb->comp_bound;
+        context.compute_sets_complete=cb->compute_sets_complete;context.dyn=cb->dyn;
+        for(unsigned slot=0;slot<kMaxSets;++slot)context.comp_sets[slot]=projected.sets[slot];
+        auto restore=std::make_shared<NativeComputeRestore>();
+        if(!prepare_native_compute_restore(device,&context,*restore,why))return false;event->compute=std::move(restore);
+    }
     output=std::move(next);return true;
 }
 void begin_native_transaction(Device* device,CmdBuf* cb,const NativeDrawTransaction& transaction)
@@ -150,12 +161,14 @@ DrawRec native_transaction_draw(const DrawRec& original,const NativeDrawTransact
     return native_descriptor_draw(original,transaction.descriptors,before);
 }
 bool native_calls(NativeCallCache& cache, TextureResidency* residency, Device* device, CmdBuf* cb, const DrawRec& r, const efmi::assets::FilePlan& plan,
-                  bool hunting_skip, std::string& why,bool wait_files,bool* pending,NativeGeometryContext* geometry_context)
+                  bool hunting_skip, std::string& why,bool wait_files,bool* pending,NativeGeometryContext* geometry_context,
+                  efmi::frontend::PreparedConfigurationDraw* admission)
 {
     using O = efmi::assets::FileOperation;
     auto refuse = [&](const char* text) { why = text; return false; };
-    if(plan.prepared_final_state)return refuse("Prepared final bindings require complete native call admission");
-    if (!device || !cb || plan.items.empty()) return false;
+    if(plan.prepared_final_state && (!admission || &admission->plan()!=&plan))return refuse("Prepared final bindings require complete native call admission");
+    if (!device || !cb) return false;
+    if(plan.items.empty())return admission && plan.skip_original && admission->admit(why);
     const bool compute = compute_call(r);
     if(compute && device->synchronization2_enabled && r.kind == DK_DISPATCH_INDIRECT)
         return refuse("Native indirect replay under synchronization2 needs argument-stage dependencies");
@@ -208,8 +221,9 @@ bool native_calls(NativeCallCache& cache, TextureResidency* residency, Device* d
         if(!known->second.empty()){why=known->second;return false;}
     }
     for (const auto& item : plan.items) {
-        if(item.prepared_work || item.prepared_state)
+        if(item.prepared_state || (item.prepared_work && !admission))
             return refuse("Prepared calls require ordered host admission and binding restoration");
+        if(item.operation==O::PreparedWork)continue;
         // DrawCommand returns before evaluating arguments when hunting hides this draw.
         if(hunting_skip && (item.operation==O::Caller || item.operation==O::DrawIndexed || item.operation==O::Dispatch))continue;
         const bool geometry=item.operation==O::BindVertex || item.operation==O::BindIndex;
@@ -243,11 +257,13 @@ bool native_calls(NativeCallCache& cache, TextureResidency* residency, Device* d
     }
     NativeGeometryPlan geometry;
     if((!hunting_skip || !compute) && !prepare_native_geometry(device,cb,r,transaction.plan,geometry,why,geometry_context,&transaction.targets,pending))return false;
+    if(admission && !admission->admit(why))return false;
     begin_native_transaction(device,cb,transaction);
     const size_t split = std::min(plan.pre_items,plan.items.size());
     auto record = [&](size_t index) {
         if (hunting_skip && compute) return;
         const auto& item=plan.items[index];
+        if(item.operation==O::PreparedWork){record_native_target(device,cb,transaction.targets,index);return;}
         if(item.operation==O::BindVertex || item.operation==O::BindIndex){
             record_native_geometry(device,cb,transaction.plan,geometry,index);return;
         }

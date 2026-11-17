@@ -2693,3 +2693,32 @@ Custom hunting/analysis roots retain their own original configuration. Relative
 paths name the root, including through module exchange. Character-package fixtures
 that still require the retired model remain separate migration/retirement work;
 do not add compatibility aliases to make those tests appear to pass.
+
+## D-329: Original resource execution at production call boundaries (2026-11-17)
+
+Project application bindings from retained allocations and observed source-register
+facts, execute the one included registry, and translate immutable per-call/final
+snapshots into native bindings. Serialize preparation, full host preflight, admission
+and recording. Preserve explicit INI-owned virtual registers that the current
+application pipeline does not address; do not invent observations for unknown game
+registers. Restore whole application-image layouts around supported pass breaks.
+
+The original uses lazy CustomResource::Substantiate and reference/copy operations
+on mOrigContext1 (CommandList.cpp 6407-6466 and 12505-12568). DX11 provides reference-
+counted lifetime with deferred destruction, hazard tracking and one-context order.
+Vulkan owns every executable packet and allocation explicitly. Pending preflight
+owners cannot be erased before their first recorded use (BUG-169).
+
+New CPU-origin allocations retain one independent initializer. It cannot execute
+shaders or access application/existing resources. A private upload queue publishes
+through a timeline to each consuming application queue; without that queue, the
+fallback is restricted to one consumer queue. Consumer wait submissions have actual
+completion fences for semaphore retirement. Configuration replacement retains the
+allocation's producer dependency. GPU writes invalidate immutable/index proofs;
+cancelled preparation restores the journal. This does not authorize cross-queue
+mutable application work, premature application submission or delayed Store values.
+
+The pinned VVL 1.4.321 incorrectly applies VUID 09506 to ordinary immutable samplers.
+Backport the upstream YCbCr-conversion condition into a separate owned installation,
+restore the pinned source after building, and select it only for the affected child
+test. Do not suppress validation diagnostics or change correct null-resource behavior.

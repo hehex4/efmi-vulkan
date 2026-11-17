@@ -3,6 +3,7 @@
 #include "native_descriptors.h"
 #include "native_targets.h"
 #include "../../frontend/assets/file_plan.h"
+namespace efmi::frontend {class PreparedConfigurationDraw;}
 
 namespace efvk {
 class TextureResidency;
@@ -32,5 +33,6 @@ void record_native_binding(Device*, CmdBuf*, const DrawRec&, const NativeDrawTra
 DrawRec native_transaction_draw(const DrawRec&, const NativeDrawTransaction&, size_t before);
 // Validate the entire native call plan before recording any work. True consumes the original call.
 bool native_calls(NativeCallCache&, TextureResidency*, Device*, CmdBuf*, const DrawRec&, const efmi::assets::FilePlan&, bool hunting_skip, std::string&,
-                  bool wait_files = true, bool* pending = nullptr, NativeGeometryContext* = nullptr);
+                  bool wait_files = true, bool* pending = nullptr, NativeGeometryContext* = nullptr,
+                  efmi::frontend::PreparedConfigurationDraw* admission = nullptr);
 }

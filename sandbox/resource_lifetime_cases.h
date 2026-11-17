@@ -7,12 +7,32 @@
 namespace {
 void secondary_publication_dependencies()
 {
+    {
+        static bool completed=false;static unsigned semaphores=0,fences=0;completed=false;semaphores=fences=0;
+        Device device;device.frame_no=1;
+        retire_semaphore(&device,h<VkSemaphore>(0x9301),[](VkDevice,VkSemaphore,const VkAllocationCallbacks*){++semaphores;},
+            {h<VkFence>(0x9302)},[](VkDevice,VkFence){return completed?VK_SUCCESS:VK_NOT_READY;},
+            [](VkDevice,VkFence,const VkAllocationCallbacks*){++fences;});
+        device.frame_no=100000;destroy_retired(&device,false);
+        check(semaphores==0 && fences==0 && device.retired_semaphores.size()==1,"publication retirement waits for queue completion regardless of presentation age");
+        completed=true;destroy_retired(&device,false);
+        check(semaphores==1 && fences==1 && device.retired_semaphores.empty(),"completed publication retires its semaphore and completion fence together");
+    }
     struct Owner:CommandOwner {
         unsigned resets=0,submits=0;
         void reset_after_completion()override{++resets;used=false;}
         bool seal()override{return used;}
         VkResult before_submit(VkQueue)override{++submits;return VK_SUCCESS;}
     };
+    {
+        std::vector<std::shared_ptr<CommandOwner>> owners;
+        int first=0,second=0;
+        auto pending=owner_for(owners,&first,[&]{auto p=std::make_shared<Owner>();p->backend=&first;return p;});
+        auto other=owner_for(owners,&second,[&]{auto p=std::make_shared<Owner>();p->backend=&second;return p;});
+        check(owners.size()==2,"another preflight retains an unused owner held by a pending plan");
+        pending.reset();owner_for(owners,&second,[]{return std::shared_ptr<Owner>{};});
+        check(owners.size()==1,"an unused owner without a pending plan can retire");
+    }
     Device device;auto owner=std::make_shared<Owner>();owner->used=true;
     const auto handle=h<VkCommandBuffer>(0x9400);
     device.cbs[handle]=std::make_unique<CmdBuf>();auto* child=device.cbs[handle].get();child->owners.push_back(owner);

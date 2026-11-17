@@ -24,6 +24,7 @@ inline bool native_memory_overlap(const NativeMemoryRange& a,const NativeMemoryR
 inline bool native_attachment_memory(Device* device,const CmdBuf* cb,const efmi::frontend::NativeResource& resource,std::string& why){
     if(!cb->in_rp && !cb->inherited_rp)return true;
     if(resource.keep && (resource.uploaded_readonly || resource.uploaded_mutable))return true;
+    if(resource.keep && resource.initialization && resource.initial_contents)return true;
     auto refuse=[&](const char* reason){why=reason;return false;};
     if(!resource.memory || !resource.memory_size)return refuse("Native input attachment memory proof needs a retained allocation range");
     auto view_safe=[&](const TargetView& view){

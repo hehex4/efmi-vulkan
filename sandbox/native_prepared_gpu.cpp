@@ -22,9 +22,10 @@ static void run(bool classic,unsigned mode,const efmi::gpu::HlslProgram& vertex,
     const VkImageAspectFlags aspects=depth?VK_IMAGE_ASPECT_DEPTH_BIT|(stencil?VK_IMAGE_ASPECT_STENCIL_BIT:0u):VK_IMAGE_ASPECT_COLOR_BIT;
     const auto attachment_layout=depth?VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     const VkImageUsageFlags image_usage=VK_IMAGE_USAGE_TRANSFER_SRC_BIT|(depth?VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT:VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
-    Image image{};Buffer pixels{},stencils{};
+    Image image{};Buffer pixels{},stencils{},before_draw{},after_draw{};
     if(attached){image=g.image(format,image_usage,aspects);pixels=g.buffer(64*64*4,VK_BUFFER_USAGE_TRANSFER_DST_BIT);}
     if(stencil)stencils=g.buffer(64*64,VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    if(attached){before_draw=g.buffer(64*64*4,VK_BUFFER_USAGE_TRANSFER_DST_BIT);after_draw=g.buffer(64*64*4,VK_BUFFER_USAGE_TRANSFER_DST_BIT);}
     constexpr auto buffer_usage=VK_BUFFER_USAGE_TRANSFER_DST_BIT|VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     const auto output=g.buffer(256,buffer_usage);
     const auto image_output=g.buffer(4,VK_BUFFER_USAGE_TRANSFER_DST_BIT);
@@ -107,6 +108,7 @@ static void run(bool classic,unsigned mode,const efmi::gpu::HlslProgram& vertex,
         else targets.dynamic_colors.push_back(attachment);
     }
     cb.target_contexts={targets};cb.active_targets=1;cb.in_rp=true;cb.gfx_pipeline=cb.gfx_bound=g.pipeline;
+    if(attached)cb.image_layouts.set(1,1,1,view.view.range,attachment_layout);
     DrawRec draw;draw.pipeline=draw.bound=g.pipeline;draw.targets=1;
 
     efmi::gpu::ResourceDevice resource;resource.device=g.device;resource.memory=g.memory;resource.queue_family=g.family;
@@ -126,7 +128,21 @@ static void run(bool classic,unsigned mode,const efmi::gpu::HlslProgram& vertex,
     image_desc.usage=VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     auto private_image=commands->create_image(image_desc);std::weak_ptr<efmi::gpu::ImageResource> image_lifetime=private_image;
     VkClearColorValue image_value{};image_value.uint32[0]=37;commands->clear(private_image,private_image->full_range(),image_value);
+    efmi::gpu::Image application_image;
+    auto capture_attachment=[&](const Buffer& target){
+        vkGetBufferMemoryRequirements(g.device,target.handle,&req);
+        auto destination=commands->import_buffer(target.handle,target.size,VK_BUFFER_USAGE_TRANSFER_DST_BIT,target.memory,0,req.size,gpu);
+        VkBufferImageCopy copy{};copy.imageSubresource={VkImageAspectFlags(depth?VK_IMAGE_ASPECT_DEPTH_BIT:VK_IMAGE_ASPECT_COLOR_BIT),0,0,1};copy.imageExtent={64,64,1};
+        commands->copy(application_image,destination,copy);
+    };
+    if(attached){
+        efmi::gpu::ApplicationImage input;input.image=image.handle;input.description.format=format;input.description.extent={64,64,1};
+        input.description.usage=image_usage;input.layout=attachment_layout;input.uniform_layout=true;
+        input.memory=image.memory;input.memory_size=view.image.mem_size;input.owner=gpu;
+        application_image=commands->import_image(input);capture_attachment(before_draw);
+    }
     auto first=commands->cut_prepared();
+    if(attached)capture_attachment(after_draw);
     vkGetBufferMemoryRequirements(g.device,image_output.handle,&req);
     auto image_destination=commands->import_buffer(image_output.handle,image_output.size,VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         image_output.memory,0,req.size,gpu);
@@ -140,6 +156,9 @@ static void run(bool classic,unsigned mode,const efmi::gpu::HlslProgram& vertex,
     NativeTargetCache cache;NativeTargetPlan prepared;std::string why;
     auto prepare=[&]{prepared={};return prepare_native_targets(&device,&cb,draw,plan,prepared,why,&cache);};
     if(attached){
+        cb.image_layouts.reset();
+        check(!prepare() && why.find("fresh uniform")!=std::string::npos,"application image work refuses missing layout proof before recording");
+        cb.image_layouts.set(1,1,1,view.view.range,attachment_layout);
         auto aliased=targets;
         auto alias=[&](TargetView& v){v.image.mem=private_image->memory();v.image.mem_off=private_image->memory_offset();v.image.mem_size=private_image->memory_size();};
         if(classic){auto fb=std::make_shared<FramebufferInfo>(*targets.framebuffer);alias(fb->views[0]);aliased.framebuffer=fb;}
@@ -186,12 +205,19 @@ static void run(bool classic,unsigned mode,const efmi::gpu::HlslProgram& vertex,
     vkCmdPipelineBarrier(cb.handle,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_HOST_BIT,0,1,&visible,0,nullptr,0,nullptr);
     VK(vkEndCommandBuffer(cb.handle));check(prepared.owner->seal(),"GPU recording seals its retained work owner");
     // Destroy preparation before submission; only the executable recording retains its packets.
-    prepared={};plan={};first.reset();second.reset();imported.reset();image_destination.reset();private_image.reset();binding={};compute_pipeline.reset();shaders.reset();commands.reset();
+    prepared={};plan={};first.reset();second.reset();imported.reset();image_destination.reset();private_image.reset();application_image.reset();binding={};compute_pipeline.reset();shaders.reset();commands.reset();
     check(!image_lifetime.expired(),"executable recording retains private images after registry preparation retires");
     VK(g.submit(cb.handle));VK(vkQueueWaitIdle(g.queue));
     check(*static_cast<const uint32_t*>(image_output.mapped)==37,"GPU image clear and later copy keep the private GENERAL layout chain");
     check(*static_cast<const uint32_t*>(output.mapped)==13,"GPU buffer result proves ordered fill and compute insertion");
     if(attached){
+        const unsigned sample=8*64+8;
+        if(depth)check(std::abs(static_cast<const float*>(before_draw.mapped)[sample]-0.75f)<0.00001f &&
+            std::abs(static_cast<const float*>(after_draw.mapped)[sample]-0.125f)<0.00001f,
+            "application depth copies observe clear then intervening draw with restored layout");
+        else check(static_cast<const uint8_t*>(before_draw.mapped)[sample*4]<65 &&
+            static_cast<const uint8_t*>(after_draw.mapped)[sample*4]==255,
+            "application color copies observe clear then intervening draw with restored layout");
         bool untouched=true,drawn=true,stencil_ok=true;
         for(unsigned y=0;y<64;++y)for(unsigned x=0;x<64;++x){
             const bool changed=(x>=8 && x<16 && y>=8 && y<16)||(x>=24 && x<32 && y>=24 && y<32);

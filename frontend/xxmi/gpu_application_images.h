@@ -14,6 +14,10 @@ GpuResourceBinding GpuResourceRuntime::import_application_image(const Applicatio
     using application_images::require;using application_images::prune;
     require(source.source_known && source.resource_id && source.identity,
         "Application image requires proven original description and tracking identity");
+    if(source.retained && source.retained->image && !source.retained->image->is_external() && commands_.owns(source.retained->image)){
+        require(source.allocation.image==source.retained->image->image(),"Retained original image changed allocation identity");
+        return *source.retained;
+    }
     const auto& original=source.description;const auto& d=original.texture;const auto& native=source.allocation.description;
     const auto type=original.dimension==D3D11_RESOURCE_DIMENSION_TEXTURE1D?VK_IMAGE_TYPE_1D:
         original.dimension==D3D11_RESOURCE_DIMENSION_TEXTURE2D?VK_IMAGE_TYPE_2D:VK_IMAGE_TYPE_3D;

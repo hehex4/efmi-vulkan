@@ -10,6 +10,7 @@ struct PreparedConfigurationDraw::Impl {
     std::shared_ptr<IniRuntime> registry;
     std::shared_ptr<GpuShaderRuntime> gpu;
     assets::FilePlan plan;
+    std::map<std::tuple<wchar_t,ResourceCopyTargetType,unsigned>,GpuResourceBinding> initial;
     bool armed=false,admitted=false;
     ~Impl(){if(armed && !admitted)gpu->resources().discard();}
 };
@@ -42,6 +43,8 @@ std::unique_ptr<PreparedConfigurationDraw> OwnedRuntime::prepare_draw(std::share
     auto& state=*pending->impl_;state.registry=std::move(registry);state.gpu=impl_->gpu;
     try{
         auto& resources=state.gpu->resources();resources.begin_prepared_plan(application);state.armed=true;
+        for(const auto& input:application.buffers)state.initial[{input.stage,input.type,input.slot}]=resources.binding(input.stage,input.type,input.slot);
+        for(const auto& input:application.images)state.initial[{input.stage,input.type,input.slot}]=resources.binding(input.stage,input.type,input.slot);
         const bool ran=shader_only?state.registry->shader_draw(draw,state.plan,reason):state.registry->draw(draw,state.plan,reason);
         if(!ran || resources.failed()){
             if(reason.empty())reason="Original configuration refused prepared GPU work";
@@ -54,6 +57,7 @@ std::unique_ptr<PreparedConfigurationDraw> OwnedRuntime::prepare_draw(std::share
         return pending;
     }catch(const std::exception& error){reason=error.what();return {};}
 }
+#include "native_configuration_bridge.h"
 void OwnedRuntime::begin(VkQueue queue){impl_->gpu->resources().begin(queue,GpuResourceRuntime::ExecutionSite::OutsideRenderPass);}
 void OwnedRuntime::begin_deferred(){impl_->gpu->resources().begin(VK_NULL_HANDLE,GpuResourceRuntime::ExecutionSite::Deferred);}
 bool OwnedRuntime::pending() const {return impl_->gpu->resources().pending();}

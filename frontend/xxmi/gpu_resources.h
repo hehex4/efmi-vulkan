@@ -14,6 +14,7 @@ struct GpuResourceBinding {
     gpu::Buffer buffer;
     gpu::Image image;
     gpu::ImageView image_view;
+    std::shared_ptr<gpu::ResourceInitialization> initialization;
     ImageSourceDescription image_description;
     D3D11_BUFFER_DESC description{};
     DXGI_FORMAT format=DXGI_FORMAT_UNKNOWN;
@@ -29,7 +30,10 @@ struct GpuResourceBinding {
 struct PreparedDrawState {
     std::map<std::tuple<wchar_t,ResourceCopyTargetType,unsigned>,GpuResourceBinding> bindings;
     D3D11_VIEWPORT viewport{};
+    std::map<gpu::Buffer,gpu::BufferResource::IndexBounds,std::owner_less<gpu::Buffer>> indices;
+    std::set<const void*> initial_contents;
     bool admitted() const {return admission_ && *admission_;}
+    const std::shared_ptr<const bool>& admission() const {return admission_;}
 private:
     friend class GpuResourceRuntime;
     std::shared_ptr<const bool> admission_;
@@ -75,12 +79,14 @@ public:
         DXGI_FORMAT format=DXGI_FORMAT_UNKNOWN;
         uint32_t stride=0;
         std::shared_ptr<const SourceResourceIdentity> identity;
+        std::shared_ptr<const GpuResourceBinding> retained;
     };
     struct ApplicationImageSource {
         uint64_t resource_id=0;
         bool source_known=false;
         ImageSourceDescription description;
         gpu::ApplicationImage allocation;
+        std::shared_ptr<const GpuResourceBinding> retained;
         std::shared_ptr<const SourceResourceIdentity> identity;
     };
     struct ApplicationImageBinding {
@@ -194,7 +200,7 @@ private:
     GpuResourceBinding load_image(CustomResource&);
     // A file the original's loader makes no resource of: null from then on, with its warning (D-139).
     GpuResourceBinding unloaded(CustomResource&,const wchar_t* kind,const std::string& why);
-    gpu::Image allocate_image(ImageSourceDescription&);
+    gpu::Image allocate_image(ImageSourceDescription&,gpu::ResourceCommands* = nullptr);
     void select_view(GpuResourceBinding&,GpuResourceBinding::View,bool raw=false,bool complete_info=true);
     void fill_info(GpuResourceBinding&,ResourceCopyTargetType type=ResourceCopyTargetType::CUSTOM_RESOURCE);
     void image_view(GpuResourceBinding&,GpuResourceBinding::View,bool complete_info);
@@ -202,6 +208,7 @@ private:
     void image_clear(GpuResourceBinding,ClearViewCommand&);
     void set(ResourceCopyTarget&,CommandListState&,const GpuResourceBinding&);
     using Bindings=std::map<Slot,GpuResourceBinding>;
+    std::set<Slot> ini_slots_;
     void assign_binding(Slot,GpuResourceBinding);
     void publish_bindings(Bindings);
     void copy(ResourceCopyOperation&,CommandListState&);
@@ -225,6 +232,8 @@ private:
     std::set<CustomResource*> substantiated_;
     std::map<std::weak_ptr<void>,SourceResourceIdentity,std::owner_less<std::weak_ptr<void>>> source_identities_;
     std::map<Slot,GpuResourceBinding> slots_;
+    bool unknown_application_slots_=false;
+    std::function<bool(uint64_t,const gpu::Image&,gpu::ApplicationImage&,std::string&)> application_image_observer_;
     // A source slot-range command materializes every view before one API bind.
     Bindings* deferred_bindings_=nullptr;
     // Copies to a stage slot cache per instruction, as in the original engine.
@@ -258,5 +267,12 @@ struct ApplicationResourceState {
     std::vector<std::shared_ptr<const GpuResourceRuntime::ApplicationImageSource>> observations;
     // Every omitted source slot is proven unbound. Unknown context refuses.
     bool omitted_slots_unbound=false;
+    // Partial source projections preserve unknowns. Any actual read of an
+    // omitted slot refuses the transaction instead of manufacturing a null.
+    bool allow_unknown_slots=false;
+    bool independent_initialization=false;
+    bool preserve_unmapped_ini_slots=false;
+    std::set<std::tuple<wchar_t,ResourceCopyTargetType,unsigned>> mapped_slots;
+    std::function<bool(uint64_t,const gpu::Image&,gpu::ApplicationImage&,std::string&)> observe_image;
 };
 }

@@ -2,6 +2,84 @@
 static void prepared_resource_cases(Device& d,const std::filesystem::path& root)
 {
     std::filesystem::create_directories(root);
+    {
+        gpu::ResourceCommands commands(d.resource);commands.independent_initialization(true);commands.begin_prepared();
+        auto upload=commands.initialization_commands();const uint32_t value=17;
+        auto buffer=upload->create(4,VK_BUFFER_USAGE_INDEX_BUFFER_BIT,&value,4);
+        auto initialization=gpu::ResourceCommands::finish_initialization(std::move(upload));
+        std::weak_ptr<gpu::ResourceInitialization> lifetime=initialization;
+        auto destination=commands.create(4,VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+        commands.copy(buffer,0,destination,0,4);auto abandoned=commands.finish_prepared();
+        check(abandoned->initializations().size()==1,"prepared consumers retain their first-use initializer");
+        commands.discard();abandoned.reset();
+        check(buffer->initial_contents(),"discarding first consumer preserves independently prepared initial contents");
+        commands.begin_prepared();commands.fill(buffer,0,4,99);
+        check(!buffer->initial_contents(),"a GPU write invalidates immutable first-use contents");commands.discard();
+        check(buffer->initial_contents(),"cancelled GPU mutation restores first-use content proof");
+        {
+            gpu::ResourceCommands replacement(d.resource);replacement.begin_prepared();
+            auto imported=replacement.import_buffer(buffer->buffer(),buffer->size(),buffer->usage(),buffer->memory(),
+                buffer->memory_offset(),buffer->memory_size(),buffer,buffer);
+            auto target=replacement.create(4,VK_BUFFER_USAGE_TRANSFER_DST_BIT);replacement.copy(imported,0,target,0,4);
+            auto packet=replacement.finish_prepared();
+            check(packet->initializations().size()==1,"a replacement registry retains the original allocation producer");
+            replacement.accept_prepared();
+            const auto& vk=d.resource.dispatch;VkCommandPool pool=VK_NULL_HANDLE;VkCommandBuffer cb=VK_NULL_HANDLE;VkFence fence=VK_NULL_HANDLE;
+            VkCommandPoolCreateInfo pool_info{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};pool_info.queueFamilyIndex=d.resource.queue_family;
+            vkcheck(vk.CreateCommandPool(d.resource.device,&pool_info,nullptr,&pool),"create replacement host pool");
+            VkCommandBufferAllocateInfo allocation{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};allocation.commandPool=pool;allocation.commandBufferCount=1;
+            vkcheck(vk.AllocateCommandBuffers(d.resource.device,&allocation,&cb),"allocate replacement host buffer");
+            VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+            vkcheck(vk.BeginCommandBuffer(cb,&begin),"begin replacement host buffer");packet->record(cb);
+            vkcheck(vk.EndCommandBuffer(cb),"end replacement host buffer");
+            for(const auto& dependency:packet->initializations())vkcheck(dependency->before_submit(d.queue),"publish replacement dependency");
+            VkFenceCreateInfo completion{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+            vkcheck(vk.CreateFence(d.resource.device,&completion,nullptr,&fence),"create replacement host fence");
+            VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};submit.commandBufferCount=1;submit.pCommandBuffers=&cb;
+            vkcheck(vk.QueueSubmit(d.queue,1,&submit,fence),"submit replacement host work");
+            vkcheck(vk.WaitForFences(d.resource.device,1,&fence,VK_TRUE,10000000000ull),"complete replacement host work");
+            vk.DestroyCommandPool(d.resource.device,pool,nullptr);vk.DestroyFence(d.resource.device,fence,nullptr);
+            check(replacement.readback(d.queue,target,0,4)==std::vector<uint8_t>(reinterpret_cast<const uint8_t*>(&value),
+                reinterpret_cast<const uint8_t*>(&value)+4),"a replacement registry consumes initial contents after the first recording was discarded");
+        }
+        auto feedback=commands.feedback(buffer,0,4);initialization.reset();
+        check(!lifetime.expired(),"a later consumer retains initialization after the original declaration is released");
+        auto submission=commands.submit(d.queue);submission->wait();std::vector<uint8_t> data;
+        check(commands.feedback_ready(feedback,data) && data.size()==4 && !memcmp(data.data(),&value,4),
+            "later consumer observes initialized data after the first recording was discarded");
+        feedback={};submission.reset();
+        check(lifetime.expired(),"completed consumers release initialization without allocation ownership cycles");
+        commands.begin_prepared();auto foreign=commands.create(4,VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+        auto invalid=commands.initialization_commands();auto copy=invalid->create(4,VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+        invalid->copy(foreign,0,copy,0,4);bool refused=false;
+        try{gpu::ResourceCommands::finish_initialization(std::move(invalid));}catch(const std::runtime_error&){refused=true;}
+        check(refused,"first-use upload refuses an existing resource dependency");commands.discard();
+        commands.begin_prepared();auto image_upload=commands.initialization_commands();gpu::ImageDescription description;
+        description.format=VK_FORMAT_R8G8B8A8_UNORM;description.usage=VK_IMAGE_USAGE_SAMPLED_BIT|VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        auto texture=image_upload->create_image(description);VkBufferImageCopy region{};region.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};region.imageExtent={1,1,1};
+        const uint8_t pixel[]={33,44,55,255};image_upload->write(texture,region,pixel,4);
+        auto image_initialization=gpu::ResourceCommands::finish_initialization(std::move(image_upload));commands.discard();
+        check(commands.readback(d.queue,texture,region)==std::vector<uint8_t>(pixel,pixel+4),"private image layout and pixels initialize before a later consumer");
+        VkClearColorValue white{};for(auto& component:white.float32)component=1;
+        commands.clear(texture,texture->full_range(),white);{auto completed=commands.submit(d.queue);completed->wait();}
+        vkcheck(image_initialization->before_submit(d.queue),"reuse completed initializer");
+        check(commands.readback(d.queue,texture,region)==std::vector<uint8_t>(4,255),"a reused initializer never overwrites later GPU mutations");
+    }
+    {
+        gpu::ResourceCommands commands(d.resource);const uint32_t values[]={0,1,2};
+        auto indices=commands.create(sizeof(values),VK_BUFFER_USAGE_INDEX_BUFFER_BIT,values,sizeof(values));
+        {auto upload=commands.submit(d.queue);upload->wait();}
+        check(indices->index_bounds().valid32 && indices->index_bounds().max32==2,"uploaded original indices retain a whole-buffer extent proof");
+        commands.begin_prepared();commands.fill(indices,4,4,20);
+        check(!indices->index_bounds().valid32,"a partial GPU write invalidates the earlier index extent");
+        commands.discard();
+        check(indices->index_bounds().valid32 && indices->index_bounds().max32==2,"cancelled GPU write restores the original index proof");
+        commands.begin_prepared();commands.fill(indices,0,sizeof(values),9);
+        const auto first=indices->index_bounds();auto packet=commands.cut_prepared();commands.fill(indices,4,4,40);
+        check(first.valid32 && first.min32==9 && first.max32==9 && !indices->index_bounds().valid32,
+              "an earlier call snapshot keeps its extent while a later segment invalidates current contents");
+        commands.discard();
+    }
     write(root/"ordered.hlsl",R"hlsl(StructuredBuffer<uint> Input : register(t0);
 RWStructuredBuffer<uint> Output : register(u0);
 [numthreads(1,1,1)] void main(uint3 id : SV_DispatchThreadID) { Output[id.x] = Input[id.x] * 2; }
