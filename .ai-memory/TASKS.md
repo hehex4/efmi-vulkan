@@ -7,7 +7,17 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
-Active D-333 follows committed D-332 (408eb0f). Source 3.4.9 connects original
+Active D-334 follows committed D-333 (0e50094), root main fast-forwarded. Source
+3.5.0 adds immutable prepared graphics, all descriptor/IA/attachment accesses and
+explicit graphics-state metadata. The old private-recording failure is reproduced;
+final GPU 234 and ABI boundary 13 pass. Matching binaries are 3.5.0 /
+cb4f8fce7699fcff. Backend 13, pass insertion 73, transaction 5, tracker 1020,
+prepared GPU 155, registry GPU 395 and text 748 pass; validation clean.
+Diff reviewed; commit/main fast-forward next. Keep production graphics refused until complete application
+restoration and inherited source stage/state proof are connected. Continue that
+work immediately after verification/commit; no game action is authorized.
+
+D-333 follows committed D-332 (408eb0f). Source 3.4.9 connects original
 patternless regex commands using proven source models. New whole-asset model
 cache proves 18,715 exact identities across vertex/pixel/compute payloads; no
 per-character data and no fabricated DXBC hash. CPU root 39/interpreter 582,

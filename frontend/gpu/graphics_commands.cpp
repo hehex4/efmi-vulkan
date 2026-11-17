@@ -213,22 +213,47 @@ void ShaderCommands::draw(const Graphics& pipeline,const std::vector<ShaderDescr
     VkFramebufferCreateInfo framebuffer={VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};framebuffer.renderPass=pipeline->impl_->pass;
     framebuffer.attachmentCount=uint32_t(views.size());framebuffer.pAttachments=views.data();framebuffer.width=draw.extent.width;framebuffer.height=draw.extent.height;framebuffer.layers=draw.layers;
     checked(d->CreateFramebuffer(d->resource.device,&framebuffer,nullptr,&invocation->framebuffer),"Create retained graphics framebuffer");
-    const auto command=commands.command();commands.pending_->shader_owners_.push_back(invocation);
-    for(const auto& binding:bindings)if(binding.buffer && (binding.buffer->usage()&VK_BUFFER_USAGE_STORAGE_BUFFER_BIT))
-        commands.buffer_access(binding.buffer,binding.offset,binding.size,VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT);
+    const auto images=std::count_if(bindings.begin(),bindings.end(),[](const auto& binding){return bool(binding.image);})+outputs.size();
+    const auto buffers=std::count_if(bindings.begin(),bindings.end(),[](const auto& binding){return bool(binding.buffer);});
+    commands.reserve_prepared(2+images,buffers+vertices.size()+(draw.indexed?1:0)+(draw.arguments?1:0),2*images,images);
+    commands.retain_pending();commands.pending_->shader_owners_.push_back(invocation);
     for(const auto& binding:bindings)if(binding.image)commands.transition(binding.image->owner(),VK_IMAGE_LAYOUT_GENERAL);
     for(const auto& view:outputs)commands.transition(view->owner(),VK_IMAGE_LAYOUT_GENERAL);
     commands.barrier(VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT|(draw.arguments?VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT:0),VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT);
+    for(const auto& binding:bindings)if(binding.buffer || binding.image){
+        const auto& declared=pipeline->impl_->bindings;
+        const auto found=std::find_if(declared.begin(),declared.end(),[&](const auto& b){return b.binding==binding.binding;});
+        VkAccessFlags access=VK_ACCESS_SHADER_READ_BIT;
+        if(found->type==VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER)access=VK_ACCESS_UNIFORM_READ_BIT;
+        else if(found->type==VK_DESCRIPTOR_TYPE_STORAGE_BUFFER || found->type==VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER || found->type==VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            access|=VK_ACCESS_SHADER_WRITE_BIT;
+        if(binding.image)commands.image_access(binding.image->owner(),binding.image->range(),VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,access,VK_IMAGE_LAYOUT_GENERAL);
+        else commands.buffer_access(binding.buffer,binding.offset,binding.size,VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,access);
+    }
+    for(const auto& view:outputs){const bool depth=view==draw.depth;
+        commands.image_access(view->owner(),view->range(),depth?VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT:VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+            depth?VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT|VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT:VK_ACCESS_COLOR_ATTACHMENT_READ_BIT|VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,VK_IMAGE_LAYOUT_GENERAL);
+    }
+    // Indexed/indirect fetches may touch any element in the retained binding.
+    for(const auto& entry:vertices){const auto& buffer=*entry.second;
+        commands.buffer_access(buffer.buffer,buffer.offset,buffer.buffer->size()-buffer.offset,VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT);}
+    if(draw.indexed)commands.buffer_access(draw.indices,draw.index_offset,draw.indices->size()-draw.index_offset,VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,VK_ACCESS_INDEX_READ_BIT);
+    if(draw.arguments)commands.buffer_access(draw.arguments,draw.argument_offset,draw.indexed?sizeof(VkDrawIndexedIndirectCommand):sizeof(VkDrawIndirectCommand),
+        VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,VK_ACCESS_INDIRECT_COMMAND_READ_BIT);
+    commands.emit([d,pipeline,invocation](VkCommandBuffer command){
+    const auto& draw=invocation->graphics;
     VkRenderPassBeginInfo pass={VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};pass.renderPass=pipeline->impl_->pass;pass.framebuffer=invocation->framebuffer;pass.renderArea.extent=draw.extent;
     d->CmdBeginRenderPass(command,&pass,VK_SUBPASS_CONTENTS_INLINE);d->CmdBindPipeline(command,VK_PIPELINE_BIND_POINT_GRAPHICS,pipeline->impl_->pipeline);
     d->CmdBindDescriptorSets(command,VK_PIPELINE_BIND_POINT_GRAPHICS,pipeline->impl_->layout,0,1,&invocation->set,0,nullptr);
     d->CmdSetViewport(command,0,1,&draw.viewport);d->CmdSetScissor(command,0,1,&draw.scissor);
-    for(const auto& entry:vertices){const auto handle=entry.second->buffer->buffer();d->CmdBindVertexBuffers(command,entry.first,1,&handle,&entry.second->offset);}
+    for(const auto& entry:draw.vertices){const auto handle=entry.buffer->buffer();d->CmdBindVertexBuffers(command,entry.slot,1,&handle,&entry.offset);}
     if(draw.indexed)d->CmdBindIndexBuffer(command,draw.indices->buffer(),draw.index_offset,draw.index_type);
     if(draw.arguments){if(draw.indexed)d->CmdDrawIndexedIndirect(command,draw.arguments->buffer(),draw.argument_offset,1,sizeof(VkDrawIndexedIndirectCommand));
         else d->CmdDrawIndirect(command,draw.arguments->buffer(),draw.argument_offset,1,sizeof(VkDrawIndirectCommand));}
     else if(draw.indexed)d->CmdDrawIndexed(command,draw.count,draw.instances,draw.first,draw.vertex_offset,draw.first_instance);
     else d->CmdDraw(command,draw.count,draw.instances,draw.first,draw.first_instance);
     d->CmdEndRenderPass(command);
+    });
+    if(commands.preparing_)commands.prepared_graphics_=true;
 }
 }

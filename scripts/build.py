@@ -175,7 +175,8 @@ def generate_overlay_shaders() -> str:
     return cpp
 # Headers whose structures cross between the layer and a module. A module built from other
 # contents of these is refused by the layer.
-ABI_ROOTS = ["state.h", "character_module.h", "command_owner.h", "json.h", "native_state.h", "../../frontend/xxmi/native_bindings.h"]
+ABI_ROOTS = ["state.h", "character_module.h", "command_owner.h", "json.h", "native_state.h",
+             "../../frontend/xxmi/native_bindings.h", "../../frontend/xxmi/gpu_resources.h"]
 
 _runtime_link = None
 
@@ -191,21 +192,11 @@ def runtime_link() -> list[str]:
 
 
 def abi_stamp() -> str:
-    """64-bit stamp over the shared headers and what they include from layer/src."""
+    """64-bit stamp over the shared headers and their project-local includes."""
     import hashlib
-    import re
     src = os.path.join(ROOT, "layer", "src")
-    seen, todo = [], list(ABI_ROOTS)
-    while todo:
-        name = todo.pop()
-        if name in seen:
-            continue
-        seen.append(name)
-        with open(os.path.join(src, name), encoding="utf-8") as f:
-            text = f.read()
-        todo += [m for m in re.findall(r'^#include "([^"/]+)"', text, re.M) if os.path.isfile(os.path.join(src, m))]
     digest = hashlib.sha256()
-    for name in sorted(seen):
+    for name in abi_headers():
         with open(os.path.join(src, name), encoding="utf-8") as f:
             # The version text changes with every build of the replacement code and is no structure.
             lines = [ln for ln in f.read().splitlines() if not ln.startswith("#define EFVK_VERSION ")]
@@ -217,14 +208,18 @@ def abi_stamp() -> str:
 def abi_headers() -> list[str]:
     import re
     src = os.path.join(ROOT, "layer", "src")
-    seen, todo = [], list(ABI_ROOTS)
+    seen, todo = set(), list(ABI_ROOTS)
     while todo:
-        name = todo.pop()
+        name = os.path.normpath(todo.pop()).replace("\\", "/")
         if name in seen:
             continue
-        seen.append(name)
+        seen.add(name)
         with open(os.path.join(src, name), encoding="utf-8") as f:
-            todo += [m for m in re.findall(r'^#include "([^"/]+)"', f.read(), re.M) if os.path.isfile(os.path.join(src, m))]
+            includes = re.findall(r'^\s*#\s*include "([^"\n]+)"', f.read(), re.M)
+        for include in includes:
+            path = os.path.normpath(os.path.join(src, os.path.dirname(name), include))
+            if os.path.commonpath([os.path.abspath(ROOT), path]) == os.path.abspath(ROOT) and os.path.isfile(path):
+                todo.append(os.path.relpath(path, src))
     return sorted(seen)
 
 

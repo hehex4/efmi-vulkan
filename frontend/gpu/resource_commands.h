@@ -232,7 +232,7 @@ private:
 
 // Immutable commands and allocation owners, prepared without emitting a Vulkan
 // command or submitting work. The host records them at a proven outside-pass
-// position on this device/family, restores compute state when indicated, and
+// position on this device/family, restores compute/graphics state when indicated, and
 // retains this object for the complete executable/pending recording lifetime.
 // This is not a queue-order proof and does not make mutable contents snapshots.
 struct PreparedBufferAccess {
@@ -264,6 +264,7 @@ public:
     void record(VkCommandBuffer) const;
     bool admitted() const {return admitted_;}
     bool changes_compute_state() const {return compute_;}
+    bool changes_graphics_state() const {return graphics_;}
     VkDevice device() const {return device_;}
     uint32_t queue_family() const {return queue_family_;}
     size_t size() const {return commands_.size();}
@@ -284,7 +285,7 @@ private:
     size_t segment_=0;
     VkDevice device_=VK_NULL_HANDLE;
     uint32_t queue_family_=0;
-    bool compute_=false,admitted_=false;
+    bool compute_=false,graphics_=false,admitted_=false;
 };
 
 // First-use CPU data only: no application input and no mutable resource writes.
@@ -323,9 +324,9 @@ public:
     ~ResourceCommands();
     ResourceCommands(const ResourceCommands&)=delete;
     ResourceCommands& operator=(const ResourceCommands&)=delete;
-    // Retained buffer/image transfer and compute preparation. No graphics,
-    // feedback or submission. Seal, then admit only after the
-    // host proves order/layouts and retains the packet with its recording.
+    // Retained transfer/compute/graphics preparation, without feedback or
+    // submission. Seal, then admit only after the host proves order/layouts,
+    // restores affected bindings and retains the packet with its recording.
     // Discard invalidates unadmitted packets and leaves image state unchanged.
     void begin_prepared();
     bool preparing() const {return preparing_;}
@@ -447,7 +448,7 @@ private:
     bool independent_initialization_=false;
     size_t sealed_commands_=0,sealed_accesses_=0;
     bool awaiting_admission_=false;
-    bool preparing_=false,prepared_compute_=false;
+    bool preparing_=false,prepared_compute_=false,prepared_graphics_=false;
     uint64_t recorded_=0;
     std::shared_ptr<SubmissionRecycler> recycler_;
     Buffer image_copy_scratch_;

@@ -16,7 +16,7 @@ from probe_xxmi_host import ROOT, write_ascii
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--no-build", action="store_true")
-    parser.add_argument("--only", choices=("cpu", "gpu", "prepared", "owned-images", "all"), default="all")
+    parser.add_argument("--only", choices=("cpu", "gpu", "prepared", "graphics", "owned-images", "all"), default="all")
     parser.add_argument("--installation", type=Path, help="Read-only root configuration load; settings stay in the project")
     args = parser.parse_args()
     if args.installation and args.only == "cpu":
@@ -69,7 +69,7 @@ def main() -> int:
             raise RuntimeError("Required validation layer is unavailable")
         env.update(VK_LAYER_PATH=str(validation), VK_LAYER_VALIDATE_SYNC="1", VK_LAYER_DUPLICATE_MESSAGE_LIMIT="0",
                    XDG_CACHE_HOME=str(gpu), TMPDIR=str(gpu), TEMP=str(gpu), TMP=str(gpu))
-        mode = args.only if args.only in ("prepared", "owned-images") else "configuration"
+        mode = args.only if args.only in ("prepared", "graphics", "owned-images") else "configuration"
         result = subprocess.run([str(gpu / "resource_gpu.exe"), "--" + mode, str(gpu / "fixture" / mode)],
                                 cwd=gpu, env=env, capture_output=True, encoding="utf-8", errors="replace", timeout=45)
         write_ascii(ROOT / ("build/" + mode + "-gpu.out"), result.stdout + result.stderr)

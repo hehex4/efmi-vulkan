@@ -13,6 +13,23 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-334: Retained graphics preparation precedes host admission (2026-11-17)
+
+Follow original RunCustomShader (CommandList.cpp 2840+): stages and explicitly
+overridden graphics state restore around nested lists, outputs/viewports always
+restore. DX11's runtime supplies reference lifetime/deferred destruction, hazards
+and context order. Vulkan preparation must retain complete immutable invocations,
+describe uniform/storage/sample/attachment/IA/indirect accesses and let the host
+restore affected state. Graphics is never an independent CPU-origin initializer.
+Keep host insertion refused while its restoration contract is incomplete.
+
+Vulkan static pipeline binding invalidates corresponding dynamic state, so binding
+the original pipeline alone is insufficient. See the primary specification:
+https://docs.vulkan.org/spec/latest/chapters/pipelines.html#pipelines-dynamic-state
+Track and restore the affected state before enabling production insertion.
+Shared frontend binding/initialization definitions also belong to the module ABI;
+follow relative includes within this project, never hash external SDK headers.
+
 ## D-333: Original regex links require proven source models (2026-11-17)
 
 Restore original patternless group parsing/linking at production native calls,

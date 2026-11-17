@@ -4068,3 +4068,29 @@ Fresh shader-regex-model-resource-gpu.out passes 395 with zero validation errors
 warnings. Globals audit 952 and final text 748 pass. Diff reviewed; commit and main
 fast-forward follow. Continue prepared graphics/restoration, patterned patches,
 original-only entry, current Store and queue/source/capture work. No game action.
+
+## 2026-11-17 - D-334 retained graphics preparation and resource ABI
+
+Continued after D-333 commit 0e50094/main fast-forward. Read original RunCustomShader
+save/restore semantics in CommandList.cpp 2840+; DX11 supplies deferred lifetime,
+hazard tracking and context order. Reproduced the prepared graphics private-recording
+refusal. The initial fixture called a private helper and did not build; it now records
+using a real host pool/submission. Graphics emits a retained immutable invocation,
+reports all descriptors, attachments, vertex/index and indirect accesses, and marks
+the graphics state it changes. Independent initialization refuses graphics producers.
+Production host/frontend guards remain until complete restoration/source proof.
+
+BUG-175 additionally fixes the module stamp's omitted shared frontend resource
+definitions and relative include traversal. Primary Vulkan pipeline specification
+confirms that static pipeline binding invalidates matching dynamic state; original
+pipeline rebinding alone is insufficient for the next integration step.
+
+prepared-graphics-final.out passes 234, including original DX11 pixel comparison,
+cancelled work, immutable arguments, exact access contracts and recording after both
+preparing engines retire. Zero validation errors/warnings. Four DLLs/tracker build
+at 3.5.0 / cb4f8fce7699fcff; native pass fixture rebuilt. Scoped regression passes
+backend 13, pass insertion 73, transaction 5, tracker 1020, ABI 13 and text 748.
+Prepared GPU 155 and configuration GPU 395 pass cleanly in separate short runs.
+Diff reviewed, memory synced; commit/main fast-forward next. Continue graphics
+restoration and inherited source-state proof, remaining original-only/patterned/
+Store/capture contracts, then Vulkan-native I-01/I-04/I-05. No game or deployment.

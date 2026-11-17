@@ -85,7 +85,7 @@ std::unique_ptr<ResourceCommands> ResourceCommands::initialization_commands(){
 std::shared_ptr<ResourceInitialization> ResourceCommands::finish_initialization(std::unique_ptr<ResourceCommands> commands){
     if(!commands)return {};
     auto packet=commands->finish_prepared();if(!packet){commands->accept_prepared();return {};}
-    if(packet->changes_compute_state() || !packet->initializations().empty())throw std::runtime_error("Independent initialization cannot execute shaders or depend on other producers");
+    if(packet->changes_compute_state() || packet->changes_graphics_state() || !packet->initializations().empty())throw std::runtime_error("Independent initialization cannot execute shaders or depend on other producers");
     for(const auto& access:packet->buffer_accesses())if(access.buffer->creator_!=commands->creator_)
         throw std::runtime_error("Independent initialization cannot access an existing or application buffer");
     for(const auto& state:packet->image_states())if(state.image->creator_!=commands->creator_)
@@ -160,7 +160,7 @@ void PreparedResourceCommands::record(VkCommandBuffer command) const {
 void ResourceCommands::begin_prepared() {
     if(preparing_ || pending_ || awaiting_admission_)throw std::runtime_error("Prepared resource scope requires no pending work or admission");
     prepared_sequence_=std::make_shared<const uint8_t>(0);
-    preparing_=true;prepared_compute_=false;prepared_.clear();prepared_accesses_.clear();
+    preparing_=true;prepared_compute_=prepared_graphics_=false;prepared_.clear();prepared_accesses_.clear();
     prepared_image_accesses_.clear();prepared_image_states_.clear();
     observed_image_layouts_.clear();prepared_image_finals_.clear();sealed_segments_.clear();sealed_commands_=sealed_accesses_=0;
 }
@@ -204,10 +204,11 @@ std::shared_ptr<const PreparedResourceCommands> ResourceCommands::cut_prepared()
     result->image_accesses_=std::move(prepared_image_accesses_);
     result->image_states_=std::move(prepared_image_states_);
     result->device_=device_.device;result->queue_family_=device_.queue_family;result->compute_=prepared_compute_;
+    result->graphics_=prepared_graphics_;
     result->sequence_=prepared_sequence_;result->segment_=sealed_segments_.size();
     sealed_commands_+=result->commands_.size();sealed_accesses_+=result->accesses_.size()+result->image_accesses_.size();
     sealed_segments_.push_back(result);prepared_.clear();prepared_accesses_.clear();
-    prepared_image_accesses_.clear();prepared_image_states_.clear();prepared_compute_=false;return result;
+    prepared_image_accesses_.clear();prepared_image_states_.clear();prepared_compute_=prepared_graphics_=false;return result;
 }
 std::shared_ptr<const PreparedResourceCommands> ResourceCommands::finish_prepared() {
     auto result=cut_prepared();preparing_=false;awaiting_admission_=true;return result;
@@ -500,6 +501,6 @@ void ResourceCommands::discard(){
     for(const auto& saved:image_initial_undo_)saved.first->initial_contents_=saved.second;image_initial_undo_.clear();
     prepared_.clear();prepared_accesses_.clear();prepared_image_accesses_.clear();prepared_image_states_.clear();
     sealed_segments_.clear();prepared_image_finals_.clear();prepared_sequence_.reset();sealed_commands_=sealed_accesses_=0;
-    pending_.reset();observed_image_layouts_.clear();preparing_=prepared_compute_=awaiting_admission_=false;
+    pending_.reset();observed_image_layouts_.clear();preparing_=prepared_compute_=prepared_graphics_=awaiting_admission_=false;
 }
 }

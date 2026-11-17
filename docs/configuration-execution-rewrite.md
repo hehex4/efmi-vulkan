@@ -284,8 +284,14 @@ Vulkan device creation negotiates their supported execution capabilities. Privat
 upload producers and immutable resource packets now retire by producer and consumer
 fence proofs, including F10 and module exchange without Present waits.
 
-These are scoped sandbox/GPU results. Compatibility is not complete: production
-ShaderRegex linkage still needs original source evidence and command entry;
-prepared graphics CustomShaders, current GPU Store boundaries, broader queue/source
+D-333 connects patternless original ShaderRegex entry with exact paired source-model
+evidence, including installed Core enable/disable gates. D-334 prepares immutable
+graphics draws, records all descriptor/attachment/IA accesses and retains resources
+after the preparing engine retires (234 GPU checks). Host insertion remains guarded
+until application graphics-state restoration and source inheritance are complete.
+
+These are scoped sandbox/GPU results. Compatibility is not complete: patterned
+ShaderRegex patches, original-only entry without native IB conveniences,
+production graphics CustomShaders, current GPU Store boundaries, broader queue/source
 contracts and obsolete capture fixture migration remain. No game acceptance is
 implied and native-route work follows completion of this compatibility rewrite.

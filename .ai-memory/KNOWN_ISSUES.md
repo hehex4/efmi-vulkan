@@ -1,5 +1,31 @@
 # EFMI Vulkan - Known issues
 
+## BUG-174: Graphics uses private recording inside prepared execution (D-334)
+
+Original RunCustomShader saves overwritten stages/state and all viewport/output
+bindings while DX11 retains objects through GPU completion, tracks hazards and
+orders one context. ShaderCommands::draw instead calls the immediate command
+allocator, which rejects an active prepared scope. Its access list also misses
+uniform reads, sampled images, attachments and IA/indirect inputs.
+
+prepared-graphics-before.out reproduces the rejection. Retain the complete draw,
+descriptors, pipeline and framebuffer in an immutable command closure, expose all
+accesses and mark graphics state changes. Initial independent DX11/GPU reference
+checks and retirement checks pass 234 with zero validation diagnostics. Host and original frontend
+admission remain guarded until application graphics restoration and source-state
+inheritance are implemented. A preparing engine's destruction must not destroy
+objects that an admitted executable packet still uses.
+
+## BUG-175: Shared frontend resource contracts omitted from module ABI (D-334)
+
+NativeResource survives replacement-module exchange and contains typed resource
+bindings and initialization owners. ABI_ROOTS omitted their definitions and the
+include scanner ignored relative includes. This could admit modules compiled with
+incompatible resource layouts. Include the shared binding definition and traverse
+its project-local include closure relative to each file. Mocked content changes
+prove shared resource/budget headers alter the stamp while private planners do not
+(13/13). A matching layer/modules rebuild is required; no deployed files changed.
+
 ## BUG-173: Production IB entry bypasses original Core regex conditions (D-333 fixed)
 
 Original HackerContext.cpp 1029+ runs shader command lists in stage order.

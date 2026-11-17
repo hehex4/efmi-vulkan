@@ -248,6 +248,7 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
             const auto& work=item.prepared_work;
             if(!work || !work->size() || !work->sequence() || work->device()!=device->handle || work->queue_family()!=device->material_family)
                 return refuse("Prepared compute packet device or queue family is unavailable");
+            if(work->changes_graphics_state())return refuse("Prepared graphics needs complete application graphics restoration");
             if(!sequence)sequence=work->sequence();
             if(sequence!=work->sequence() || work->segment()!=segment++)return refuse("Prepared compute sequence is discontinuous");
             for(const auto& state:work->image_states()){
@@ -299,6 +300,7 @@ bool prepare_native_targets(Device* device,CmdBuf* cb,const DrawRec& draw,const 
         const auto& work=item.prepared_work;
         if(!work || !work->size() || !work->sequence() || work->device()!=device->handle || work->queue_family()!=device->material_family)
             return refuse("Prepared pass work needs its retained device and queue-family contract");
+        if(work->changes_graphics_state())return refuse("Prepared graphics needs complete application graphics restoration");
         if(!sequence)sequence=work->sequence();
         if(sequence!=work->sequence() || work->segment()!=segment++)
             return refuse("Prepared pass work must preserve one contiguous ordered sequence");

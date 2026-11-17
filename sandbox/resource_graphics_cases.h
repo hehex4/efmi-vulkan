@@ -1,3 +1,6 @@
+static void record_prepared_packets(Device&,const std::vector<std::shared_ptr<const gpu::PreparedResourceCommands>>&,
+    const std::function<void(VkCommandBuffer)>&,const std::function<void(VkCommandBuffer)>&,
+    const std::function<void(VkCommandBuffer,size_t)>&);
 static void owned_graphics(Device& d,const std::filesystem::path& root){
     std::filesystem::create_directories(root);
     write(root/"graphics.hlsl",R"hlsl(struct V{float4 position:SV_Position;float2 uv:TEXCOORD0;};
@@ -46,6 +49,30 @@ float4 main(V v):SV_Target{return Image.SampleLevel(Filter,v.uv,0)*Value+float4(
         shaders.draw(pipeline,bindings,draw);auto actual=resources.readback(d.queue,first,image_region(first));
         check(actual==expected,"Production graphics descriptors and original native DX11 pixels agree");
         const float color[4]={1,3,6,12};for(unsigned i=0;i<16;++i)check(!memcmp(actual.data()+i*16,color,16),"Production graphics samples all pixels with source w and stage-separated constants");
+        auto frozen_draw=draw;frozen_draw.colors={target(second)};auto frozen_bindings=bindings;
+        resources.begin_prepared();shaders.draw(pipeline,frozen_bindings,frozen_draw);auto prepared=resources.finish_prepared();
+        check(prepared->changes_graphics_state() && !prepared->changes_compute_state(),"Prepared graphics declares its changed bind point");
+        check(prepared->buffer_accesses().size()==2 && std::all_of(prepared->buffer_accesses().begin(),prepared->buffer_accesses().end(),
+            [](const auto& access){return access.size==16 && access.access==VK_ACCESS_UNIFORM_READ_BIT;}),"Prepared graphics records both stage constant reads");
+        bool sampled=false,attachment=false;for(const auto& access:prepared->image_accesses())if(!access.transition){
+            sampled|=access.image==source && access.access==VK_ACCESS_SHADER_READ_BIT;
+            attachment|=access.image==second && access.access==(VK_ACCESS_COLOR_ATTACHMENT_READ_BIT|VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+        }
+        check(sampled && attachment,"Prepared graphics records sampled input and attachment hazards");
+        frozen_draw.colors.clear();frozen_draw.count=0;frozen_bindings.clear();
+        refuses([&]{prepared->record(VK_NULL_HANDLE);},"Prepared graphics cannot record before host admission");
+        resources.discard();refuses([&]{prepared->record(VK_NULL_HANDLE);},"Cancelled graphics remains unrecordable");prepared.reset();
+        actual=resources.readback(d.queue,second,image_region(second));
+        check(std::all_of(actual.begin(),actual.end(),[](uint8_t value){return value==0;}),"Cancelled graphics emits no draw into its target");
+        frozen_draw=draw;frozen_draw.colors={target(second)};frozen_bindings=bindings;
+        resources.begin_prepared();shaders.draw(pipeline,frozen_bindings,frozen_draw);prepared=resources.finish_prepared();
+        frozen_draw.colors.clear();frozen_draw.count=0;frozen_bindings.clear();
+        resources.accept_prepared();record_prepared_packets(d,{prepared},{},{},{});
+        actual=resources.readback(d.queue,second,image_region(second));
+        check(actual==expected,"Immutable prepared graphics agrees with original DX11 reference pixels");
+        prepared.reset();
+        resources.begin_prepared();resources.clear(second,second->full_range(),VkClearColorValue{});auto transfer=resources.finish_prepared();
+        check(!transfer->changes_graphics_state(),"A later transfer segment does not inherit the graphics state flag");resources.discard();transfer.reset();
         const auto baseline=host.objects->used();auto zero=draw;zero.count=0;zero.colors.clear();zero.extent={};shaders.draw(pipeline,{},zero);
         check(host.objects->used()==baseline,"Zero graphics draw allocates no invocation or descriptors");
         const float changed[4]={2,2,2,2};auto next=resources.create(16,VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,changed,16);
@@ -69,6 +96,18 @@ float4 main(V v):SV_Target{return Image.SampleLevel(Filter,v.uv,0)*Value+float4(
             input.semantic.find("POSITION")==0?VK_FORMAT_R32G32B32A32_SFLOAT:VK_FORMAT_R32G32_SFLOAT,input.semantic.find("POSITION")==0?0u:16u});
         auto stream_pipeline=shaders.compile_graphics({stream_vertex,ps},stream_state);auto vertex_data=resources.create(sizeof(vertices),VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,vertices,sizeof(vertices));
         auto stream_draw=draw;stream_draw.vertices={{0,vertex_data,0}};auto stream_bindings=bindings;stream_bindings.erase(stream_bindings.begin());
+        // Uploads finish before the host's independently recorded prepared segment.
+        resources.readback(d.queue,vertex_data,0,sizeof(vertices));
+        resources.begin_prepared();auto full=stream_draw;full.indexed=true;full.indices=indices;full.index_offset=8;
+        full.arguments=indirect_indexed.arguments;shaders.draw(stream_pipeline,stream_bindings,full);auto fetched=resources.finish_prepared();
+        bool vertex_read=false,index_read=false,indirect_read=false;for(const auto& access:fetched->buffer_accesses()){
+            vertex_read|=access.buffer==vertex_data && access.access==VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
+            index_read|=access.buffer==indices && access.offset==8 && access.access==VK_ACCESS_INDEX_READ_BIT;
+            indirect_read|=access.buffer==full.arguments && access.size==sizeof(VkDrawIndexedIndirectCommand) && access.access==VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+        }
+        check(vertex_read && index_read && indirect_read,"Prepared graphics exposes vertex, offset index and indirect reads");
+        resources.accept_prepared();record_prepared_packets(d,{fetched},{},{},{});fetched.reset();
+        actual=resources.readback(d.queue,first,image_region(first));check(actual==expected,"Prepared vertex/index/indirect draw preserves original pixels");
         shaders.draw(stream_pipeline,stream_bindings,stream_draw);actual=resources.readback(d.queue,first,image_region(first));
         const auto native_stream=native_linked_graphics(stream_vertex,ps,{},[&](ID3D11Device* device,ID3D11DeviceContext* context){native_setup(device,context);
             D3D11_BUFFER_DESC desc{sizeof(vertices),D3D11_USAGE_DEFAULT,D3D11_BIND_VERTEX_BUFFER,0,0,0};D3D11_SUBRESOURCE_DATA initial{vertices,0,0};
@@ -125,5 +164,28 @@ float4 main(V v):SV_Target{return Image.SampleLevel(Filter,v.uv,0)*Value+float4(
         check(!retained.expired(),"Submitted graphics retains descriptor views after generation handles retire");ticket->wait();ticket.reset();
         check(retained.expired(),"Completed graphics releases retired descriptor views");
     }
+    std::shared_ptr<const gpu::PreparedResourceCommands> orphan;
+    std::weak_ptr<gpu::ImageResource> orphan_image;std::weak_ptr<gpu::GraphicsPipeline> orphan_pipeline;
+    {gpu::ResourceCommands resources(d.resource,budgets);gpu::ShaderCommands shaders(resources,host);resources.begin_prepared();
+        gpu::GraphicsDescription state;state.colors={VK_FORMAT_R32G32B32A32_SFLOAT};state.blend.resize(1);state.blend[0].colorWriteMask=15;
+        auto pipeline=shaders.compile_graphics({vs,ps},state);orphan_pipeline=pipeline;
+        gpu::ImageDescription desc;desc.format=state.colors[0];desc.usage=VK_IMAGE_USAGE_SAMPLED_BIT;
+        auto source=resources.create_image(desc);resources.write(source,image_region(source),texel,16);orphan_image=source;
+        auto view=resources.view(source,VK_IMAGE_VIEW_TYPE_2D,desc.format,source->full_range());
+        VkSamplerCreateInfo info{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};info.maxLod=1;
+        std::vector<gpu::ShaderDescriptor> bindings(4);
+        bindings[0].binding=gpu::HlslCompiler::binding('v','b',0);bindings[0].buffer=resources.create(16,VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,vertex,16);bindings[0].size=16;
+        bindings[1].binding=gpu::HlslCompiler::binding('p','b',0);bindings[1].buffer=resources.create(16,VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,pixel,16);bindings[1].size=16;
+        bindings[2].binding=gpu::HlslCompiler::binding('p','t',0);bindings[2].image=view;
+        bindings[3].binding=gpu::HlslCompiler::binding('p','s',0);bindings[3].sampler=shaders.sampler(info);
+        desc.extent={4,4,1};desc.usage=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;auto target=resources.create_image(desc);
+        resources.clear(target,target->full_range(),VkClearColorValue{});
+        gpu::GraphicsDraw draw;draw.colors={resources.view(target,VK_IMAGE_VIEW_TYPE_2D,desc.format,target->full_range())};
+        draw.extent={4,4};draw.viewport={0,4,4,-4,0,1};draw.scissor={{0,0},{4,4}};draw.count=3;
+        shaders.draw(pipeline,bindings,draw);orphan=resources.finish_prepared();resources.accept_prepared();
+    }
+    check(!orphan_image.expired() && !orphan_pipeline.expired(),"Prepared graphics retains images and pipelines after both preparing engines retire");
+    record_prepared_packets(d,{orphan},{},{},{});orphan.reset();
+    check(orphan_image.expired() && orphan_pipeline.expired(),"Completed graphics packet releases its final image and pipeline owners");
     check(!budgets.resident->used() && !budgets.staging->used() && !host.objects->used() && !host.sampler_objects->used(),"Owned graphics releases resident, staging and shader quotas");
 }

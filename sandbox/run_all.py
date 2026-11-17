@@ -57,6 +57,7 @@ STEPS = [
     ("native original regex model mismatch", [os.path.join(HERE, "native_regex_test.py"), "mismatch"]),
     ("native original regex missing model", [os.path.join(HERE, "native_regex_test.py"), "missing"]),
     ("prepared GPU commands", [os.path.join(ROOT, "scripts", "check_configuration.py"), "--only", "prepared"]),
+    ("owned and prepared graphics", [os.path.join(ROOT, "scripts", "check_configuration.py"), "--only", "graphics"]),
     ("owned image and parameter commands", [os.path.join(ROOT, "scripts", "check_configuration.py"), "--no-build", "--only", "owned-images"]),
     # D-129: every writable global of the runtime is per generation, per thread, the load's, locked or
     # classified as safe to share; run after the runtime's build above.

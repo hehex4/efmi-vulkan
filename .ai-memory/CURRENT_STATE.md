@@ -10,7 +10,28 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
-Active D-333: D-332 committed as 408eb0f and root main fast-forwarded. Source now
+Active D-334: D-333 committed as 0e50094 and root main fast-forwarded. Source
+3.5.0 prepares retained graphics packets with complete buffer/image accesses and
+an explicit graphics-state restoration requirement. Original RunCustomShader
+(CommandList.cpp 2840+) saves overridden stages/state and all outputs/viewports;
+DX11 supplies deferred destruction, hazards and ordered context execution.
+prepared-graphics-before.out reproduces the private-recording refusal. The first
+test build incorrectly used a private helper; the fixture now uses a real host
+command pool/submission. prepared-graphics-after.out passes 232 GPU checks with
+zero validation diagnostics. Final engine-retirement coverage passes 234 in
+prepared-graphics-final.out. Four DLLs/tracker and the pass fixture build at 3.5.0 /
+cb4f8fce7699fcff in prepared-graphics-binaries/pass-build.out. Scoped regression
+passes backend 13, pass insertion 73, transaction 5, tracker 1020, ABI 13 and text
+748; prepared GPU 155 and registry GPU 395 also pass, validation clean. Diff
+reviewed; commit and main fast-forward follow, then continue. Host insertion
+still refuses graphics until complete
+application state restoration exists; the frontend guard remains intact.
+ABI hashing now follows relative project-local includes and covers the shared
+resource bindings/initialization contracts. Boundary probes pass 13/13. Continue
+host graphics restoration and stage/state inheritance, then the remaining original
+compatibility gaps before native I-01/I-04/I-05. No real-game action.
+
+D-333 checkpoint: D-332 committed as 408eb0f and root main fast-forwarded. Source
 3.4.9, verified original patternless ShaderRegex entry work. Original
 HackerContext BeforeDraw/AfterDraw stage lists and ShaderRegex.cpp 721+ prove that
 Core's CheckTextureOverride condition must control IB lists. The old production

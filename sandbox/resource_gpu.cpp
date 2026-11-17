@@ -1562,6 +1562,13 @@ int wmain(int argc,wchar_t** argv){
             return errors || warnings?1:0;
         }catch(const std::exception& e){fprintf(stderr,"prepared resources: %s\n",e.what());return 1;}
     }
+    if(argc==3 && !wcscmp(argv[1],L"--graphics")){
+        try{{Device device;device.init(false,false,true,false,false,false,true,true,true);
+            owned_graphics(device,std::filesystem::absolute(argv[2]));}
+            printf("graphics resources: %u checks passed; validation errors=%u warnings=%u\n",unsigned(checks),unsigned(errors),unsigned(warnings));
+            return errors || warnings?1:0;
+        }catch(const std::exception& e){fprintf(stderr,"graphics resources: %s\n",e.what());return 1;}
+    }
     if(argc==3 && !wcscmp(argv[1],L"--owned-images")){
         try{{Device device;device.init(false,false,true,false,false,false,true,true,true);const auto root=std::filesystem::absolute(argv[2]);
             image_commands(device);image_source_reference();image_ini_declarations(device,root/"declarations");
