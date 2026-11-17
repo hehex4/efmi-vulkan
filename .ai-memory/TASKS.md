@@ -7,6 +7,21 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
+## D-332 installed Core and producer retirement (2026-11-17)
+
+- Source and matching binaries 3.4.8 / e4b3f2f85954669e. Actual cached Core shaders
+  negotiate supported float controls, depthClamp and geometryShader. Original
+  initializer and constant/rolling import produce verified GPU rows and restore
+  parameters, without unsupported-command fallbacks.
+- Producer submissions retain their immutable upload packets in the device
+  retirement ledger until both producer and consumer completion. Exact F10 12,
+  resource GPU 395, prepared GPU 155, Core 10, backend 13, production 5, tracker
+  1020, ABI 9, publication 13 and text 744 pass. Diff reviewed; commit follows.
+- Next: original ShaderRegex command entry with proven source facts, prepared
+  graphics/current Store, broader queue/source contracts and obsolete capture
+  migration. Compatibility must finish before native I-01/I-04/I-05. Keep working
+  after this checkpoint. No game action is authorized.
+
 ## D-330 cached source integration verified (2026-11-17)
 
 - Follow-up D-331 verified: 3.4.7, original declaration callback/current alias

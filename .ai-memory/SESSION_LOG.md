@@ -3995,3 +3995,34 @@ tracker 1015, ABI 9 and text 743 with zero GPU validation errors/warnings. Writa
 globals audit passes 952. Diff reviewed; commit/root fast-forward, then continue
 installed Core GPU acceptance and remaining compatibility work before native work.
 No game, deployment or installation modification.
+
+## 2026-11-17: D-332 original Core GPU execution and upload retirement
+
+Read original load_cached_shader (CommandList.cpp 2398-2430) and ReloadConfig
+(IniHandler.cpp 5159+). DX11 supplies reference-counted lifetime/deferred destruction,
+hazards and context order. The Vulkan adapter must negotiate preserved shader
+semantics and keep uploaded allocations until actual queue completion.
+
+The new stable build/native-core-execution fixture reads installed Core through
+a project-owned junction; mutable data and settings stay in the project. Early
+absolute and forward-slash includes were invalid for original root-relative path
+semantics; corrected backslash includes reproduce BUG-171, cached DXBC capability
+4466 unavailable at Vulkan 1.1. Supported float controls, depthClamp and geometry
+features are now negotiated. Both original init/import modes verify all 512
+identity bones, two imported skeletons and IniParams restoration. Known patternless
+ShaderRegex entry remains inert; these are direct command acceptance checks.
+
+Wider Present regression reproduces BUG-172 (80/82): F10 removing included work
+waits twice in Present, in layer and inject. Transfer producer submission and its
+immutable upload packet to the device retirement ledger, poll producer completion
+and separately prove publication consumers complete. This also covers uploads
+without a semaphore. The first shared-header build lacked <functional>; corrected
+build matches source 3.4.8 / ABI e4b3f2f85954669e.
+
+core-retirement-f10.out passes the exact failed layer/inject case, 12/12. Fresh
+resource GPU 395 and prepared GPU 155 pass with zero validation errors/warnings.
+core-retirement-regression.out passes Core 10, backend 13, transaction 5, tracker
+1020, ABI 9 and text 744. Two queues, module swap and empty swap pass 13 in
+core-retirement-publication.out. Diff reviewed; local commit and main fast-forward
+follow, then continue ShaderRegex/source evidence and remaining compatibility
+work before native queue/access/readiness. No game action or deployment.

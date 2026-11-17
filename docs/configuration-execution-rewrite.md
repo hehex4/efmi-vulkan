@@ -274,3 +274,18 @@ result reuse clears it; legacy file/native executors refuse it until final bindi
 emission is integrated. GPU 384 passes with clean validation after reproducing and
 fixing the new-field cache reuse defect. Production source mapping and complete
 per-call/final binding admission still remain required.
+
+D-329 connects production source projection, call/final snapshots and application
+image layout handoff to ordered native admission/recording. D-330 restores imported
+CPU-cache query provenance; D-331 supplies known current shader declarations.
+D-332 executes installed Core initialization and constant/rolling bone import
+through original command lists, including cached shaders and parameter restoration.
+Vulkan device creation negotiates their supported execution capabilities. Private
+upload producers and immutable resource packets now retire by producer and consumer
+fence proofs, including F10 and module exchange without Present waits.
+
+These are scoped sandbox/GPU results. Compatibility is not complete: production
+ShaderRegex linkage still needs original source evidence and command entry;
+prepared graphics CustomShaders, current GPU Store boundaries, broader queue/source
+contracts and obsolete capture fixture migration remain. No game acceptance is
+implied and native-route work follows completion of this compatibility rewrite.

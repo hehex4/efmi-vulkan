@@ -135,11 +135,12 @@ std::shared_ptr<efmi::frontend::OwnedRuntime> OwnedPresenter::runtime(Device* de
         if(device->upload_queue && device->timeline_semaphores){
             resource.initialization_queue=device->upload_queue;resource.initialization_family=device->upload_family;
             resource.initialization_flags=device->upload_flags;resource.initialization_mutex=&device->upload_mx;
-            resource.retire_initialization_semaphore=[device,destroy=resource.dispatch.DestroySemaphore,status=resource.dispatch.GetFenceStatus,
-                destroy_fence=resource.dispatch.DestroyFence](VkSemaphore semaphore,std::vector<VkFence> fences){
-                retire_semaphore(device,semaphore,destroy,std::move(fences),status,destroy_fence);
-            };
         }
+        resource.retire_initialization=[device,destroy=resource.dispatch.DestroySemaphore,status=resource.dispatch.GetFenceStatus,
+            destroy_fence=resource.dispatch.DestroyFence](std::shared_ptr<gpu::ResourceSubmission> producer,VkSemaphore semaphore,std::vector<VkFence> fences){
+            retire_semaphore(device,semaphore,destroy,std::move(fences),status,destroy_fence,
+                [producer=std::move(producer)]{try{return producer->ready();}catch(...){return false;}});
+        };
         gpu::ShaderHost host;
         host.get_device_proc = device->next_gdpa; host.properties = device->physical_properties; host.validator = validator;
         host.float_controls = device->float_controls; host.float_properties = device->float_properties;

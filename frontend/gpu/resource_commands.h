@@ -29,6 +29,7 @@ struct ResourceDispatch {
     EFMI_RESOURCE_COMMAND_FUNCS(X)
 #undef X
 };
+class ResourceSubmission;
 struct ResourceDevice {
     VkDevice device=VK_NULL_HANDLE;
     VkPhysicalDeviceMemoryProperties memory{};
@@ -53,7 +54,9 @@ struct ResourceDevice {
     uint32_t initialization_family=UINT32_MAX;
     VkQueueFlags initialization_flags=0;
     std::mutex* initialization_mutex=nullptr;
-    std::function<void(VkSemaphore,std::vector<VkFence>)> retire_initialization_semaphore;
+    // Retire producer allocations and publication together without waiting on a
+    // recording/presentation thread, including uploads with no semaphore.
+    std::function<void(std::shared_ptr<ResourceSubmission>,VkSemaphore,std::vector<VkFence>)> retire_initialization;
     uint32_t concurrent_family=UINT32_MAX;
 };
 struct ResourceBudgets {
@@ -211,6 +214,7 @@ private:
     friend class ResourceCommands;
     friend class ShaderCommands;
     friend class PreparedResourceCommands;
+    friend class ResourceInitialization;
     ResourceDevice device_;
     std::shared_ptr<SubmissionRecycler> recycler_;
     VkCommandPool pool_=VK_NULL_HANDLE;
@@ -223,6 +227,7 @@ private:
     std::vector<std::shared_ptr<void>> shader_owners_;
     std::map<Image,VkImageLayout,std::owner_less<Image>> image_layouts_;
     std::vector<std::shared_ptr<ResourceInitialization>> initializations_;
+    std::shared_ptr<const void> initialization_packet_;
 };
 
 // Immutable commands and allocation owners, prepared without emitting a Vulkan

@@ -1,5 +1,6 @@
 // Tracked state of one Vulkan device and the frame capture built from it.
 #pragma once
+#include <functional>
 
 #include "common.h"
 #include "resources.h"
@@ -175,7 +176,8 @@ void note_presented();
 // presentations passed (`all`: every one, at device destruction). The first is inline: the
 // replacement module calls it without a host function.
 inline void retire_semaphore(Device* dev, VkSemaphore semaphore, PFN_vkDestroySemaphore destroy,
-    std::vector<VkFence> completions={},PFN_vkGetFenceStatus status=nullptr,PFN_vkDestroyFence destroy_fence=nullptr);
+    std::vector<VkFence> completions={},PFN_vkGetFenceStatus status=nullptr,PFN_vkDestroyFence destroy_fence=nullptr,
+    std::function<bool()> producer_ready={});
 void destroy_retired(Device*, bool all);
 
 // Remembers a function name the application asked vkGetDeviceProcAddr for.
@@ -721,7 +723,8 @@ struct Device {
     // may still be pending when the presenter stops, so they are destroyed on the presenting thread
     // a few presentations later.
     struct RetiredSemaphore { VkSemaphore semaphore; PFN_vkDestroySemaphore destroy; uint64_t frame;
-        std::vector<VkFence> completions;PFN_vkGetFenceStatus status=nullptr;PFN_vkDestroyFence destroy_fence=nullptr; };
+        std::vector<VkFence> completions;PFN_vkGetFenceStatus status=nullptr;PFN_vkDestroyFence destroy_fence=nullptr;
+        std::function<bool()> producer_ready; };
     std::mutex retired_mx;
     std::vector<RetiredSemaphore> retired_semaphores;
 
@@ -813,11 +816,11 @@ struct Device {
     HANDLE cap_event = nullptr;
 };
 inline void retire_semaphore(Device* dev, VkSemaphore semaphore, PFN_vkDestroySemaphore destroy,
-    std::vector<VkFence> completions,PFN_vkGetFenceStatus status,PFN_vkDestroyFence destroy_fence)
+    std::vector<VkFence> completions,PFN_vkGetFenceStatus status,PFN_vkDestroyFence destroy_fence,std::function<bool()> producer_ready)
 {
-    if (!semaphore || !destroy) return;
+    if ((!semaphore || !destroy) && !producer_ready) return;
     std::lock_guard<std::mutex> lock(dev->retired_mx);
-    dev->retired_semaphores.push_back({semaphore, destroy, dev->frame_no,std::move(completions),status,destroy_fence});
+    dev->retired_semaphores.push_back({semaphore, destroy, dev->frame_no,std::move(completions),status,destroy_fence,std::move(producer_ready)});
 }
 
 // Device registry.

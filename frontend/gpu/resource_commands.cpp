@@ -26,6 +26,7 @@ ResourceSubmission::~ResourceSubmission() {
     if(submitted_ && !complete_)device_.dispatch.WaitForFences(device_.device,1,&fence_,VK_TRUE,UINT64_MAX);
     // Retained objects go first: the pool's commands referenced them, and nothing runs any more.
     retained_.clear();shader_owners_.clear();image_layouts_.clear();
+    initialization_packet_.reset();
     if(recycler_){
         std::lock_guard<std::mutex> lock(recycler_->mutex);
         for(auto& stage:staging_)if(recycler_->staging_bytes+stage->size()<=kRecycledStagingTotal){
@@ -103,13 +104,14 @@ std::shared_ptr<ResourceInitialization> ResourceCommands::finish_initialization(
 ResourceInitialization::~ResourceInitialization(){
     // The producer is private and independent of application waits. Consumers
     // retain allocations through their normal executable-recording lifetime.
+    const auto& device=commands_->device_;
+    if(submission_ && device.retire_initialization){
+        device.retire_initialization(std::move(submission_),semaphore_,std::move(consumer_fences_));return;
+    }
     submission_.reset();
-    if(semaphore_){const auto& device=commands_->device_;
-        if(device.retire_initialization_semaphore)device.retire_initialization_semaphore(semaphore_,std::move(consumer_fences_));
-        else{
+    if(semaphore_){
             for(auto fence:consumer_fences_){device.dispatch.WaitForFences(device.device,1,&fence,VK_TRUE,UINT64_MAX);device.dispatch.DestroyFence(device.device,fence,nullptr);}
             device.dispatch.DestroySemaphore(device.device,semaphore_,nullptr);
-        }
     }
 }
 void ResourceInitialization::upload(){
@@ -119,7 +121,7 @@ void ResourceInitialization::upload(){
     check(device.dispatch.CreateSemaphore(device.device,&create,nullptr,&semaphore_),"Create first-use publication");
     packet_->record(commands_->command());ResourceCommands::SubmitSync sync;sync.signals={semaphore_};sync.signal_values={1};
     std::lock_guard<std::mutex> lock(*device.initialization_mutex);
-    submission_=commands_->submit(device.initialization_queue,sync);queue_=device.initialization_queue;
+    submission_=commands_->submit(device.initialization_queue,sync);submission_->initialization_packet_=packet_;queue_=device.initialization_queue;
 }
 VkResult ResourceInitialization::before_submit(VkQueue queue) noexcept{
     std::lock_guard<std::mutex> lock(mutex_);
@@ -142,7 +144,7 @@ VkResult ResourceInitialization::before_submit(VkQueue queue) noexcept{
     if(queue_)return queue_==queue?VK_SUCCESS:VK_ERROR_INITIALIZATION_FAILED;
     try{
         const auto command=commands_->command();packet_->record(command);
-        submission_=commands_->submit(queue);queue_=queue;return VK_SUCCESS;
+        submission_=commands_->submit(queue);submission_->initialization_packet_=packet_;queue_=queue;return VK_SUCCESS;
     }catch(...){commands_->discard();return VK_ERROR_INITIALIZATION_FAILED;}
 }
 bool PreparedBufferAccess::overlaps(VkDeviceMemory memory,VkDeviceSize begin,VkDeviceSize length) const noexcept {

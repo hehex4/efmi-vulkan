@@ -10,6 +10,47 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
+Active D-332: D-331 is committed as ed02efb and root main fast-forwarded. The new
+native_core_execution_test.py reads installed Core via a project-owned junction,
+with all mutable files/settings in build/native-core-execution. Original Include
+needs root-relative backslash paths; two early fixture attempts used incompatible
+absolute/forward-slash paths. Correct paths reveal BUG-171: cached Core DXBC needs
+float controls not negotiated for Vulkan 1.1, and Core GUI needs depthClamp.
+core-execution-original-paths.out fails the real GPU initializer/import output.
+Source is 3.4.8. Matching capability DLLs build; original Core constant/rolling
+GPU values pass, then enabling supported geometryShader removes the Core text
+renderer fallback too. core-execution-regression.out passes Core 10, declarations
+12, production 5, backend 13, tracker 1015, ABI 9 and text 744, but Present fails
+80/82: F10 removing the include causes two waits in Present in both entries.
+BUG-172 is ResourceInitialization destroying its producer submission on the last
+owner's thread. Active core-retirement-build.out builds a nonblocking retirement
+fix: device ledger retains producer/packet until producer and consumer fences
+complete, including semaphore-free uploads. Five tracker assertions added. This
+changes the shared ABI; rebuild all matching DLLs and tracker. No C++ edits during
+build. Next run the exact F10 case, Core/Present/scoped regression and resource GPU
+checks, review, sync memory and commit. Then continue ShaderRegex entry, prepared
+graphics/current Store and remaining compatibility/native work. No game action.
+
+Build follow-up: core-retirement-build.out exposed a missing direct <functional>
+include in shared state.h; corrected. Active build is core-retirement-build-fixed.out,
+source 3.4.8 / ABI e4b3f2f85954669e, exec session 46932. No test has yet validated
+the BUG-172 fix. Run the exact removed_with_present_work fixture for layer/inject
+first, then current Core and fresh configuration GPU/prepared checks. Keep this
+work active through verification/commit and the next compatibility gap.
+
+D-332 verification follow-up: matching 3.4.8 / e4b3f2f85954669e binaries build in
+core-retirement-build-fixed.out. The exact F10 regression passes 12/12 for layer
+and injection. Fresh resource GPU 395 and prepared GPU 155 pass, validation clean.
+core-retirement-regression.out passes Core constant/rolling 10, backend 13,
+production transaction 5, tracker 1020, ABI 9 and text 744. Publication two-queue
+and module-swap cases pass 13 in core-retirement-publication.out. Diff reviewed;
+commit and main fast-forward follow. Earlier pending-build notes are historical.
+Next fix the original ShaderRegex entry: the production path still substitutes
+unconditional IB matches for Core's conditional CheckTextureOverride command.
+Source model/hash/code evidence must be explicit; missing Vulkan declarations do
+not establish original DXBC facts. Continue remaining compatibility work after
+the commit, then native work. No real-game action.
+
 ## D-330: original cached source queries verified (2026-11-17)
 
 Active continuation: D-330 is committed as 96f7af6 and root main fast-forwarded.

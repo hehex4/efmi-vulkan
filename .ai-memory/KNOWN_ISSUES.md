@@ -1,5 +1,47 @@
 # EFMI Vulkan - Known issues
 
+## BUG-171: Original cached Core shaders lack negotiated device capabilities (D-332 fixed)
+
+The first full installed-Core production fixture fails initialization and bone
+import with SPIR-V capability 4466 (SignedZeroInfNanPreserve) on an application
+requesting Vulkan 1.1. Original load_cached_shader prefers valid cached DXBC
+(CommandList.cpp 2398-2430); the adapter correctly preserves its floating-point
+contract, but device creation never enables VK_KHR_shader_float_controls. Core
+TextPrinter also explicitly disables depth clipping and uses a geometry shader,
+requiring enabled depthClamp and geometryShader.
+DX11 supplies these execution semantics plus reference-counted lifetime/deferred
+destruction, hazards and context order; Vulkan must negotiate supported capabilities.
+
+Negotiate the property-only float extension for 1.1 when advertised; retain ordinary
+core 1.2 behavior. Enable supported depthClamp for configured original execution,
+restore the application's feature field after CreateDevice, and report the actual
+enabled extensions/features to the owned renderer while preserving original queue
+counts. Unavailable capabilities still refuse. Both Core import modes now pass 5
+checks each with validation clean and no unsupported command fallback at 3.4.8.
+The wider Present test exposed BUG-172 below; its focused reproduction now passes.
+Spec: https://docs.vulkan.org/refpages/latest/refpages/source/VK_KHR_shader_float_controls.html
+
+## BUG-172: Initialization producer destruction waits during F10 (D-332 fixed)
+
+core-execution-regression.out fails two Present assertions: removing the included
+Present list via F10 causes two vkWaitForFences calls on the presenting thread,
+for both layer and injection entries. Original ReloadConfig (IniHandler.cpp 5159+)
+releases old configuration objects; the D3D runtime defers GPU object destruction,
+tracks hazards and keeps context order without blocking the reload in Present.
+
+ResourceInitialization::~ResourceInitialization reset its producer submission,
+whose destructor waited even when it was probably complete. Only the publication
+semaphore had host retirement. The fix retains producer submission and its original
+immutable packet, polls the producer fence, then waits for consumer completion
+proofs before releasing allocations/semaphore/fences. Semaphore-free single-queue
+uploads use the same ledger. Device destruction follows the existing DeviceWaitIdle
+and final ledger drain. Module code stays loaded under the existing module policy.
+Five tracker cases exercise retention and both completion proofs. The first build
+needed a direct <functional> include in state.h; the corrected matching build
+passes. Exact F10 layer/inject 12 and tracker 1020 pass. Fresh resource GPU 395 and
+prepared GPU 155 pass with clean validation; Core imports pass 10 checks. See
+core-retirement-f10/gpu/prepared/regression.out. No real-game verification.
+
 ## BUG-170: Imported application cache queries return UNKNOWN (D-330 fixed)
 
 gpu_resources.cpp evaluates RegionHash/SpatialHash arguments but returns UNKNOWN

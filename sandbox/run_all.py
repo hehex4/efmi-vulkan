@@ -47,6 +47,8 @@ STEPS = [
     ("native source declarations", [os.path.join(HERE, "native_source_declarations_test.py")]),
     ("native source declarations missing", [os.path.join(HERE, "native_source_declarations_test.py"), "missing"]),
     ("native source declarations words", [os.path.join(HERE, "native_source_declarations_test.py"), "words"]),
+    ("native original Core constant", [os.path.join(HERE, "native_core_execution_test.py")]),
+    ("native original Core rolling", [os.path.join(HERE, "native_core_execution_test.py"), "rolling"]),
     ("prepared GPU commands", [os.path.join(ROOT, "scripts", "check_configuration.py"), "--only", "prepared"]),
     ("owned image and parameter commands", [os.path.join(ROOT, "scripts", "check_configuration.py"), "--no-build", "--only", "owned-images"]),
     # D-129: every writable global of the runtime is per generation, per thread, the load's, locked or

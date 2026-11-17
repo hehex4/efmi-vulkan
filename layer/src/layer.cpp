@@ -1742,6 +1742,11 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
     VkPhysicalDevicePageableDeviceLocalMemoryFeaturesEXT pageable_feature{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PAGEABLE_DEVICE_LOCAL_MEMORY_FEATURES_EXT};
     bool null_descriptors = false, null_descriptors_added = false, robustness_requested = false;
     bool draw_parameters = false, draw_parameters_added = false;
+    bool float_controls_requested=false,float_controls_added=false,depth_clamp_added=false,geometry_added=false;
+    VkPhysicalDeviceFeatures owned_core_features{};
+    VkBool32* app_depth_clamp=nullptr;
+    VkBool32* app_geometry=nullptr;
+    if(info->pEnabledFeatures)owned_core_features=*info->pEnabledFeatures;
     // D-095: timeline semaphores publish the characters' textures to every graphics queue; memory
     // priority and pageable device-local memory let the driver page the layer's textures before the
     // application's. Each is enabled when the device supports it and the application did not.
@@ -1758,8 +1763,13 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
         timeline_requested |= !strcmp(info->ppEnabledExtensionNames[i], VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
         priority_requested |= !strcmp(info->ppEnabledExtensionNames[i], VK_EXT_MEMORY_PRIORITY_EXTENSION_NAME);
         pageable_requested |= !strcmp(info->ppEnabledExtensionNames[i], VK_EXT_PAGEABLE_DEVICE_LOCAL_MEMORY_EXTENSION_NAME);
+        float_controls_requested |= !strcmp(info->ppEnabledExtensionNames[i], VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME);
     }
     for (auto p = static_cast<const VkBaseInStructure*>(info->pNext); p; p = p->pNext) {
+        if(p->sType==VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2){
+            auto* features=const_cast<VkPhysicalDeviceFeatures2*>(reinterpret_cast<const VkPhysicalDeviceFeatures2*>(p));
+            owned_core_features=features->features;app_depth_clamp=&features->features.depthClamp;app_geometry=&features->features.geometryShader;
+        }
         if (p->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES) {
             auto* features = const_cast<VkPhysicalDeviceVulkan12Features*>(reinterpret_cast<const VkPhysicalDeviceVulkan12Features*>(p));
             timeline = features->timelineSemaphore != VK_FALSE; app_timeline = &features->timelineSemaphore;
@@ -1789,7 +1799,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
     }
     const uint32_t app_api = inst ? inst->app_api_version : VK_API_VERSION_1_0;
     if (character_configured() && inst && inst->EnumerateDeviceExtensionProperties && inst->GetPhysicalDeviceFeatures2) {
-        bool robustness_supported = false, timeline_supported = false, priority_supported = false, pageable_supported = false;
+        bool robustness_supported = false, timeline_supported = false, priority_supported = false, pageable_supported = false, float_controls_supported=false;
         uint32_t count = 0;
         if (inst->EnumerateDeviceExtensionProperties(phys, nullptr, &count, nullptr) == VK_SUCCESS && count && count < 4096) {
             std::vector<VkExtensionProperties> available(count);
@@ -1799,6 +1809,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
                     timeline_supported |= !strcmp(available[i].extensionName, VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
                     priority_supported |= !strcmp(available[i].extensionName, VK_EXT_MEMORY_PRIORITY_EXTENSION_NAME);
                     pageable_supported |= !strcmp(available[i].extensionName, VK_EXT_PAGEABLE_DEVICE_LOCAL_MEMORY_EXTENSION_NAME);
+                    float_controls_supported |= !strcmp(available[i].extensionName, VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME);
                 }
         }
         robustness_supported = robustness_supported && !robustness_requested;
@@ -1819,6 +1830,25 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
         VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
         features.pNext = query_chain;
         inst->GetPhysicalDeviceFeatures2(phys, &features);
+        // Original cached DXBC needs explicit signed-zero/NaN/rounding contracts.
+        // Vulkan 1.1 exposes them through this property-only extension (core 1.2).
+        VkPhysicalDeviceProperties supported_properties{};
+        if(inst->GetPhysicalDeviceProperties)inst->GetPhysicalDeviceProperties(phys,&supported_properties);
+        const auto effective_api=std::min(app_api,supported_properties.apiVersion);
+        if(effective_api>=VK_API_VERSION_1_1 && effective_api<VK_API_VERSION_1_2 && !float_controls_requested && float_controls_supported){
+            extensions.push_back(VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME);float_controls_added=changed=true;
+        }
+        // D3D11 DepthClipEnable=false, used by the original Core text renderer.
+        if(!owned_core_features.depthClamp && features.features.depthClamp){
+            owned_core_features.depthClamp=VK_TRUE;
+            if(app_depth_clamp)*app_depth_clamp=VK_TRUE;else modified.pEnabledFeatures=&owned_core_features;
+            depth_clamp_added=changed=true;
+        }
+        if(!owned_core_features.geometryShader && features.features.geometryShader){
+            owned_core_features.geometryShader=VK_TRUE;
+            if(app_geometry)*app_geometry=VK_TRUE;else modified.pEnabledFeatures=&owned_core_features;
+            geometry_added=changed=true;
+        }
         void* chain = const_cast<void*>(info->pNext);
         if (robustness_supported && robust_query.nullDescriptor) {
             extensions.push_back(VK_EXT_ROBUSTNESS_2_EXTENSION_NAME);
@@ -1897,6 +1927,8 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
     if (timeline_added && app_timeline) *app_timeline = VK_FALSE;
     if (priority_added && app_priority) *app_priority = VK_FALSE;
     if (pageable_added && app_pageable) *app_pageable = VK_FALSE;
+    if(depth_clamp_added && app_depth_clamp)*app_depth_clamp=VK_FALSE;
+    if(geometry_added && app_geometry)*app_geometry=VK_FALSE;
     if (r != VK_SUCCESS)
         return r;
     info = requested;
@@ -1952,7 +1984,13 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
             inst->GetPhysicalDeviceMemoryProperties(phys, &memory);
             dev->memory_properties = memory;
             if (character_configured()) {
-                character_device_setup(dev, info, inst->handle, inst->gipa);
+                // Keep original application queue counts, but report the actual
+                // extension contract negotiated for owned execution.
+                VkDeviceCreateInfo execution=*info;
+                execution.enabledExtensionCount=uint32_t(extensions.size());execution.ppEnabledExtensionNames=extensions.data();
+                character_device_setup(dev, &execution, inst->handle, inst->gipa);
+                if(depth_clamp_added)dev->enabled_features.depthClamp=VK_TRUE;
+                if(geometry_added)dev->enabled_features.geometryShader=VK_TRUE;
                 m2_create(dev, props, memory);
             }
         }
@@ -1963,6 +2001,8 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
          info->enabledExtensionCount, dev->app_api_version,
          null_descriptors_added ? "added" : null_descriptors ? "enabled by the application" : "off");
     if (dev->draw_parameters) logf("shader draw parameters %s", dev->draw_parameters_added ? "added" : "enabled by the application");
+    if(float_controls_added || depth_clamp_added || geometry_added)logf("original shader execution: float controls %s, depth clamp %s, geometry %s",
+        float_controls_added?"added":"unchanged",depth_clamp_added?"added":"unchanged",geometry_added?"added":"unchanged");
     logf("timeline semaphores %s, memory priority %s, pageable device memory %s",
          dev->timeline_semaphores ? (dev->timeline_semaphores_added ? "added" : "enabled by the application") : "off",
          dev->memory_priority ? (dev->memory_priority_added ? "added" : "enabled by the application") : "off",

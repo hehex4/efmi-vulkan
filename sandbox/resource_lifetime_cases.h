@@ -17,6 +17,20 @@ void secondary_publication_dependencies()
         check(semaphores==0 && fences==0 && device.retired_semaphores.size()==1,"publication retirement waits for queue completion regardless of presentation age");
         completed=true;destroy_retired(&device,false);
         check(semaphores==1 && fences==1 && device.retired_semaphores.empty(),"completed publication retires its semaphore and completion fence together");
+        bool producer=false;completed=false;auto payload=std::make_shared<int>(42);std::weak_ptr<int> retained=payload;
+        retire_semaphore(&device,h<VkSemaphore>(0x9303),[](VkDevice,VkSemaphore,const VkAllocationCallbacks*){++semaphores;},
+            {h<VkFence>(0x9304)},[](VkDevice,VkFence){return completed?VK_SUCCESS:VK_NOT_READY;},
+            [](VkDevice,VkFence,const VkAllocationCallbacks*){++fences;},[&producer,payload]{return producer;});
+        payload.reset();device.frame_no+=100000;destroy_retired(&device,false);
+        check(!retained.expired() && semaphores==1,"pending producer allocations survive arbitrary presentation age without waiting");
+        producer=true;destroy_retired(&device,false);
+        check(!retained.expired() && semaphores==1,"producer completion still waits for consumer publication fences");
+        completed=true;destroy_retired(&device,false);
+        check(retained.expired() && semaphores==2 && fences==2,"producer owners and publication retire after both completion proofs");
+        producer=false;payload=std::make_shared<int>(43);retained=payload;
+        retire_semaphore(&device,VK_NULL_HANDLE,nullptr,{},nullptr,nullptr,[&producer,payload]{return producer;});payload.reset();
+        destroy_retired(&device,false);check(!retained.expired(),"single-queue producer retirement retains allocations without a semaphore");
+        producer=true;destroy_retired(&device,false);check(retained.expired(),"single-queue producer retires when its fence is ready");
     }
     struct Owner:CommandOwner {
         unsigned resets=0,submits=0;

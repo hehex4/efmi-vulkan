@@ -13,6 +13,21 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-332: Negotiate original shader capabilities and retire upload producers (2026-11-17)
+
+Keep original cached-DXBC selection and floating-point semantics. Negotiate the
+advertised Vulkan 1.1 float-controls extension, supported depthClamp and geometry
+stages for configured original execution; restore caller-owned feature fields
+after device creation and publish the actual enabled contract to the renderer.
+
+Configuration release must not wait for private uploads on the presenting thread.
+The device ledger retains the producer submission and its immutable resource
+packet, polls producer completion and separately proves consumer completion before
+releasing resources and publication objects. Single-queue uploads without a
+semaphore use the same ownership rule. Existing device-close idle/drain and loaded
+module lifetime remain in force. This explicitly supplies the deferred destruction
+that DX11 gives original ReloadConfig, along with Vulkan hazard and queue order.
+
 ## D-328: Preserve the final original context, even without a draw (2026-11-17)
 
 A sequence of call snapshots alone omits post assignments after the last draw.
