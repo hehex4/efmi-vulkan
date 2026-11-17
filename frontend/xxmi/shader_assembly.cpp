@@ -1,4 +1,5 @@
 #include "shader_assembly.h"
+#include "shader_state.h"
 #include "util.h"
 #include <mutex>
 #include <stdexcept>

@@ -1,6 +1,7 @@
 #include "runtime_host.h"
 #include "resource_plan.h"
 #include "shader_regex.h"
+#include "shader_assembly.h"
 #include "globals.h"
 #include "HackerContext.h"
 #include "Override.h"
@@ -485,7 +486,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
                 // process_shader_filter returns before evaluating member arguments
                 // for an unbound or untracked source stage.
                 if(!(draw.stage_hash_mask&bit))return true;
-                if(!draw.source_declaration){why=L"Original shader declarations require verified source facts";return false;}
+                if(!draw.source_declaration && !draw.source_codes[index]){why=L"Original shader declarations require verified source facts";return false;}
                 ShaderDeclarationQuery query;
                 switch(target.evaluation_mode){
                 case ShaderTargetEvaluationMode::DCL_CB_TYPE:query=ShaderDeclarationQuery::ConstantType;break;
@@ -496,6 +497,21 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
                 default:why=L"Unknown source declaration query";return false;
                 }
                 const unsigned slot=unsigned(target.member_args[0].GetValue(&state));
+                if(const auto& code=draw.source_codes[index]){
+                    if(code->model()[0]!=char(target.shader_type)){why=L"Original bytecode stage conflicts with the query";return false;}
+                    const auto& bindings=*code->declarations();
+                    if(query==ShaderDeclarationQuery::ConstantType || query==ShaderDeclarationQuery::ConstantSize){
+                        if(slot>=bindings.constant_buffers.size()){why=L"Original constant declaration slot exceeds its limit";return false;}
+                        const auto& cb=bindings.constant_buffers[slot];
+                        value=query==ShaderDeclarationQuery::ConstantType?float(cb.type):cb.type==ShaderConstantBufferType::NONE?-1.0f:float(cb.size);
+                    }else{
+                        if(slot>=bindings.resources.size()){why=L"Original resource declaration slot exceeds its limit";return false;}
+                        const auto& srv=bindings.resources[slot];
+                        value=query==ShaderDeclarationQuery::ResourceType?float(srv.type):srv.type==ShaderResourceType::NONE?-1.0f:
+                            query==ShaderDeclarationQuery::ResourceStride?float(srv.stride):float(srv.dimension);
+                    }
+                    return true;
+                }
                 std::string unknown;
                 if(draw.source_declaration(target.shader_type,slot,query,value,unknown))return true;
                 why.assign(unknown.begin(),unknown.end());return false;

@@ -11,6 +11,9 @@ struct NativeGeometryContext {
     std::shared_ptr<VariantCache> variants;
     std::shared_ptr<const efmi::frontend::ShaderInputIndex> inputs;
     std::shared_ptr<const efmi::frontend::ShaderModelIndex> models;
+    std::shared_ptr<const efmi::frontend::ShaderSourceIndex> sources;
+    std::map<std::shared_ptr<const ShaderInfo>,std::shared_ptr<const efmi::frontend::SourceShaderCode>,std::owner_less<std::shared_ptr<const ShaderInfo>>> source_codes;
+    size_t source_bytes=0;
     std::map<std::shared_ptr<const ShaderInfo>,std::string,std::owner_less<std::shared_ptr<const ShaderInfo>>> source_models;
     std::mutex mutex;
     struct Profile {std::shared_ptr<const efmi::frontend::VertexProfile> value;std::string reason;};

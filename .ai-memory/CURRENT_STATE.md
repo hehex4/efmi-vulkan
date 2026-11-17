@@ -10,7 +10,25 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
-Active D-338: D-337 committed as c80f677 and main fast-forwarded. Source remains
+Active D-339: D-338 committed as 9989900 and main fast-forwarded. Source 3.5.4
+loads optional exact source archives, caches decoded code under a 64 MiB bound,
+and passes retained original code to declaration queries. Exact DXBC provides
+CB indexing type and absent/raw/structured declaration facts that SPIR-V alone
+cannot prove. The original stage query and its early returns stay intact.
+An actual GPU fixture uses paired synthetic compute bytecode to prove CB type,
+absent SRV and ambiguous uint structured stride. Matching binaries are building
+in exact-source-binaries.out. That first build exposes a private ShaderRegex.h
+include leaking into the layer through shader_assembly.h. Use forward declarations
+in the shared interface and keep original parsing includes in the implementation.
+The ABI closure now covers shader_assembly.h; matching rebuild is running in
+exact-source-binaries-reviewed.out at ABI a687800e5ab6a18e succeeds. Scoped
+exact-source-regression.out passes exact/unknown/invalid-slot GPU 12, previous
+declarations 12, transaction 5, Core 10, tracker 1042, ABI 16 and text 757;
+all GPU validation is clean. Fresh CPU 47/interpreter 590 pass. Diff reviewed;
+commit/main fast-forward follows, then continue patterned shader
+execution and inherited graphics. No game authorization.
+
+D-338 checkpoint: D-337 committed as c80f677 and main fast-forwarded. Source remains
 3.5.3. Work in progress adds exact original DXBC evidence to the whole-asset
 model collector, a compressed deduplicated archive, and a lazy ShaderSourceIndex.
 The first uncompressed collection exceeds its 256 MiB budget. Use Windows

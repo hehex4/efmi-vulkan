@@ -4195,3 +4195,25 @@ bytes versus 286,948,172 bytes of original evidence. The native reader passes
 all compressed source hashes and original DXBC framing/models. The prior status
 that compilation was pending is superseded by these results. Production source
 query/patch integration remains next; no game or deployment.
+
+## 2026-11-17: D-339 production exact declarations in progress
+
+D-338 committed as 9989900/main fast-forward. Source 3.5.4 loads optional exact
+archives and caches decoded shader owners under a 64 MiB bound. RuntimeDraw
+retains source code for authoritative original declaration queries. Added a real
+GPU fixture covering CB indexing type, absent SRV and ambiguous uint structured
+stride, using an explicitly synthetic paired DXBC fixture. Matching binaries
+are building in exact-source-binaries.out. The ABI audit found shader_assembly.h
+missing from the shared closure; add it after this compiler finishes and rebuild
+matching binaries before validation/commit. No game or deployment.
+
+D-339 build correction: shader_assembly.h leaked private ShaderRegex.h into
+the layer, which does not compile against original DX11 private include paths.
+Use forward declarations in the shared interface and explicit private includes
+in its implementation. Four matching DLLs/tracker rebuild at 3.5.4 /
+a687800e5ab6a18e. exact-source-regression.out passes exact declaration cases 12,
+existing declaration cases 12, transaction 5, Core 10, tracker 1042, ABI 16 and
+text 757 with clean GPU validation. Fresh CPU 47/interpreter 590 pass. Diff
+reviewed and memory synchronized; commit/main fast-forward follows. Continue
+original shader identity/patch execution and inherited graphics before native
+queue/access/readiness work. No compatibility-completion claim or game action.

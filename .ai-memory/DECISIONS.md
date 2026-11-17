@@ -13,7 +13,20 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
-## D-338: Exact original bytecode evidence (in progress, 2026-11-17)
+## D-339: Exact source declarations in production (in progress, 2026-11-17)
+
+Original CommandList.cpp 3250-3327 reads ShaderBindings for the tracked original
+shader. CB size counts vectors, CB type retains immediate/dynamic indexing,
+and undeclared SRV stride/dimension return -1. SPIR-V cannot prove absence or
+distinguish every uint structured buffer from raw storage. Prefer paired original
+declarations when available, with bounded slot checks; retain existing physical
+declaration evidence otherwise. Source owners travel in RuntimeDraw and survive
+the 64 MiB decoded-code cache's eviction. ShaderSourceCode's concrete definition
+must join the shared ABI closure. The archive has no package/character identity.
+DX11 reference lifetime/deferred destruction, hazards and ordered context remain
+explicit Vulkan responsibilities; this metadata adds no GPU submission or wait.
+
+## D-338: Exact original bytecode evidence (2026-11-17)
 
 Original HackerDevice.cpp 2520+ hashes actual DXBC according to configured
 FNV/embedded/bytecode policy; ByteCodeReader derives declarations from bounded

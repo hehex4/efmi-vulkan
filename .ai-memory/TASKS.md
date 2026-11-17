@@ -7,7 +7,16 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
-Active D-338 follows c80f677/main fast-forward. Finish compressed exact DXBC
+Active D-339 follows 9989900/main fast-forward. Matching 3.5.4 binaries build
+at ABI a687800e5ab6a18e after removing a private header leak and covering shared
+SourceShaderCode. Exact declaration GPU 12, previous declarations 12, transaction
+5, Core 10, tracker 1042, ABI 16 and text 757 pass. Fresh CPU/interpreter
+verification passes 47/590. Diff reviewed; commit/main fast-forward follows.
+Source code lookup is bounded and retained;
+original exact declarations override incomplete physical SPIR-V inference. Then
+continue original patterned execution and inherited graphics/Store/capture work.
+
+D-338 follows c80f677/main fast-forward. Finish compressed exact DXBC
 archive generation and lazy reader checks, then connect original source facts
 and patterned execution. No production source archive integration exists yet.
 The first raw collector exceeded 256 MiB. The compressed rerun admits 18,589

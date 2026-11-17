@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <fstream>
 #include <set>
+#include <d3dcompiler.h>
 using namespace efmi::frontend;
 namespace fs=std::filesystem;
 static std::vector<uint32_t> code_at(const fs::path& path){
@@ -14,6 +15,15 @@ static std::vector<uint32_t> code_at(const fs::path& path){
 }
 int wmain(int argc,wchar_t** argv){
     try {
+        if(argc==4 && std::wstring(argv[1])==L"--dxbc"){
+            std::ifstream input(argv[2],std::ios::binary);std::string text((std::istreambuf_iterator<char>(input)),{});
+            ID3DBlob* code=nullptr;ID3DBlob* errors=nullptr;
+            const auto hr=D3DCompile(text.data(),text.size(),nullptr,nullptr,nullptr,"main","cs_5_0",D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&code,&errors);
+            if(errors){fprintf(stderr,"%s",static_cast<const char*>(errors->GetBufferPointer()));errors->Release();}
+            if(FAILED(hr) || !code)throw std::runtime_error("Fixture DXBC compilation failed");
+            std::ofstream output(argv[3],std::ios::binary);output.write(static_cast<const char*>(code->GetBufferPointer()),code->GetBufferSize());code->Release();
+            return output?0:1;
+        }
         if(argc==3 && (std::wstring(argv[1])==L"--fixture" || std::wstring(argv[1])==L"--sandbox-vertex")){
             const auto code=std::wstring(argv[1])==L"--fixture"?material_fixture::shader(true):spv::vertex_shader();
             std::ofstream file(argv[2],std::ios::binary);

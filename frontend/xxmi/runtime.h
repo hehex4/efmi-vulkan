@@ -10,6 +10,7 @@
 
 namespace efmi::frontend {
 class RuntimeExtension;
+class SourceShaderCode;
 struct SourceShaderState;
 struct RuntimeShaderCall;
 struct RuntimeConfig {
@@ -148,6 +149,7 @@ struct RuntimeDraw {
     // Exact paired-asset evidence. Empty means unknown; SPIR-V execution model
     // alone does not prove an original DXBC model or its hash/bytecode.
     std::array<std::string,6> source_models;
+    std::array<std::shared_ptr<const SourceShaderCode>,6> source_codes;
     // The application's call, as the original's DRAW_TYPE takes it: indexed or not, direct or indirect.
     bool indexed = true, indirect = false, compute = false;
     // Bit N: the pipeline's vertex input reads binding N, DX11's input slot N (D-161: a buffer the lists

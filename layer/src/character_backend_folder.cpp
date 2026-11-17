@@ -59,6 +59,13 @@ std::shared_ptr<ConfigurationGeneration> folder_create(Device* device, const VkP
         else logf("configuration source models refused: %s",why.c_str());
     }
     source.installation = root;
+    wchar_t source_path[32768]={};const auto source_length=GetEnvironmentVariableW(L"EFMI_VK_SHADER_SOURCES",source_path,32768);
+    const auto source_file=source_length && source_length<32768?std::filesystem::path(source_path):settings/"shader-sources.bin";
+    if(std::filesystem::is_regular_file(source_file,input_error)){
+        auto sources=std::make_shared<efmi::frontend::ShaderSourceIndex>();std::string why;
+        if(sources->load(source_file,why)){logf("configuration source bytecode: %zu exact identities",sources->size());folder->geometry->sources=std::move(sources);}
+        else logf("configuration source bytecode refused: %s",why.c_str());
+    }
     std::string gpu_reason;
     auto gpu = OwnedPresenter::runtime(device, memory, root, gpu_reason, variants ? variants->pipeline_cache() : VK_NULL_HANDLE);
     if (!gpu_reason.empty()) logf("configuration GPU: %s", gpu_reason.c_str());

@@ -26,6 +26,7 @@ for name, shared in (
     ('../../frontend/xxmi/native_bindings.h', True), ('../../frontend/xxmi/gpu_resources.h', True),
     ('../../frontend/gpu/resource_commands.h', True), ('../../frontend/assets/allocation_budget.h', True),
     ('graphics_dynamic_state.h', True), ('native_graphics_restore.h', False),
+    ('../../frontend/xxmi/shader_assembly.h', True),
 ):
     if (changed_stamp(name) != baseline) == shared:
         passed += 1

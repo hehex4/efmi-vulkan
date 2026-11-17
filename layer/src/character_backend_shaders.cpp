@@ -6,6 +6,7 @@
 #include "native_execution.h"
 #include "native_targets.h"
 #include "native_configuration.h"
+#include "../../frontend/xxmi/shader_assembly.h"
 
 namespace efvk {
 
@@ -652,7 +653,7 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
         // Serialize the entire speculative original context, including host
         // preflight and admission, against Present, reload and other draws.
         std::lock_guard<std::mutex> plan_lock(*hooks->folder->plan_mx);
-        if(auto* geometry=hooks->folder->geometry.get();geometry && geometry->models){
+        if(auto* geometry=hooks->folder->geometry.get();geometry && (geometry->models || geometry->sources)){
             std::shared_lock<std::shared_mutex> resources(b.device->res_mx);
             const auto pipeline=b.device->pipes.find(r.pipeline);
             if(pipeline!=b.device->pipes.end()){
@@ -662,8 +663,24 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
                     const auto found=geometry->source_models.find(stage.shader);
                     if(found!=geometry->source_models.end())request.source_models[i]=found->second;
                     else{
-                        geometry->models->lookup(stage.shader->code,request.source_models[i]);
+                        if(geometry->models)geometry->models->lookup(stage.shader->code,request.source_models[i]);
                         if(geometry->source_models.size()<65536)geometry->source_models.emplace(stage.shader,request.source_models[i]);
+                    }
+                    if(geometry->sources){
+                        auto found=geometry->source_codes.find(stage.shader);
+                        if(found==geometry->source_codes.end()){
+                            std::shared_ptr<const efmi::frontend::SourceShaderCode> code;std::string why;
+                            geometry->sources->lookup(stage.shader->code,code,why);
+                            const auto bytes=code?code->bytes().size():0;
+                            while(!geometry->source_codes.empty() && (geometry->source_bytes+bytes>(64u<<20) || geometry->source_codes.size()>=65536)){
+                                const auto old=geometry->source_codes.begin();if(old->second)geometry->source_bytes-=old->second->bytes().size();
+                                geometry->source_codes.erase(old);
+                            }
+                            geometry->source_bytes+=bytes;
+                            found=geometry->source_codes.emplace(stage.shader,std::move(code)).first;
+                        }
+                        request.source_codes[i]=found->second;
+                        if(found->second)request.source_models[i]=found->second->model();
                     }
                 }
             }

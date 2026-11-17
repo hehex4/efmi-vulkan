@@ -1,6 +1,9 @@
 #pragma once
-#include "shader_state.h"
+#include <memory>
+#include <string>
 #include <vector>
+
+struct ShaderBindings;
 
 namespace efmi::frontend {
 // Immutable original DXBC evidence. Construction validates the container and
