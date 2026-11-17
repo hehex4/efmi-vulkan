@@ -2308,6 +2308,7 @@ int wmain(int argc, wchar_t** argv)
             compute_scene.buffer_barriers = true;
         else if (a == L"--compute-repeat" && i + 1 < argc)
             compute_scene.repeat = std::max(1,std::min(16,_wtoi(argv[++i])));
+        else if (a == L"--compute-indirect-offset"){compute_scene.indirect=true;compute_scene.argument_offset=16;}
         else if (a == L"--compute-indirect")
             compute_scene.indirect = true;
         else if (a == L"--compute-secondary")

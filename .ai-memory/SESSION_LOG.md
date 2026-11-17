@@ -4411,3 +4411,21 @@ D-349 verified at 3.6.4 / ABI ca3dfae1e8932a4d. Direct and indirect image
 self-references pass 10/10, previously 6/10. Retained image 5, output phases
 27, output resource transactions 64, configuration transaction 5, ABI 16 and
 text 761 pass. See original-image-self-reference-regression.out. Sandbox only.
+
+## D-350: Compute caller forwarding
+
+Active D-350 follows db0a723. Original CommandList.cpp 1668-1718 forwards
+from_caller with Dispatch group counts or the argument buffer and byte offset.
+Its indirect_offset operand reads DrawCallInfo.args_offset. DX11 retains resource
+references, tracks hazards and preserves context order. Use the existing retained
+prepared dispatch path and explicit buffer access in Vulkan. Source 3.6.5.
+Old direct case returns GPU 7 instead of 23 (2/4). Matching build and scoped
+regression running. Test indirect parameters at byte 16 with zeros before them.
+Sandbox only.
+
+D-350 verified at 3.6.5 / ca3dfae1e8932a4d. Original compute from_caller
+direct and offset-16 indirect both read GPU 23 (8 checks), versus 7 from the old
+direct path. Inherited compute 12, indirect compute regex 16, image self-reference
+10, transaction 5, text 761, configuration CPU 57 and full interpreter 602 pass.
+Evidence: compute-from-caller-{before,regression,cpu,interpreter}.out.
+Next correct native root this and its mutable indirect arguments. Sandbox only.

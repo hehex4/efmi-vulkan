@@ -15,7 +15,7 @@ from efmi_vk.probe_client import ProbeClient
 def main():
     case = sys.argv[1] if len(sys.argv) > 1 else "known"
     if case not in ("known", "missing", "words", "exact", "exact_unknown", "exact_slot",
-                    "exact_inherit", "exact_inherit_unknown", "exact_inherit_nested",
+                    "exact_inherit", "exact_inherit_caller", "exact_inherit_caller_indirect", "exact_inherit_unknown", "exact_inherit_nested",
                     "exact_inherit_source_fnv", "exact_inherit_source_embedded", "exact_inherit_source_bytecode", "exact_inherit_source_unknown", "exact_inherit_source_slots", "exact_inherit_source_regex",
                     "exact_inherit_source_regex_skip", "exact_inherit_source_regex_prepost", "exact_inherit_source_regex_nomatch", "exact_inherit_source_regex_indirect",
                     "exact_inherit_source_regex_indirect_skip", "exact_inherit_source_regex_indirect_prepost", "exact_inherit_source_regex_indirect_nomatch"):
@@ -100,9 +100,13 @@ def main():
                     (mods/'post.hlsl').write_text('RWStructuredBuffer<uint4> output:register(u0);[numthreads(1,1,1)] void main(){output[0]+=uint4(10,0,0,0);}',encoding='ascii')
                 pattern='UNMATCHED_OPCODE' if case.endswith('_nomatch') else 'l\\(1, 0, 0, 0\\)'
                 ini.write_text('[ShaderRegexCompute]\nshader_model = cs_5_0\n'+commands+'[ShaderRegexCompute.Pattern]\n'+pattern+'\n[ShaderRegexCompute.Pattern.Replace]\nl(9, 0, 0, 0)\n'+tail,encoding='ascii')
+    if case.startswith("exact_inherit_caller"):
+        offset = 16 if case.endswith("_indirect") else 0
+        ini.write_text(ini.read_text().replace("dispatch = 1,1,1", f"if indirect_offset == {offset}\ndraw = from_caller\nendif", 1), encoding="ascii")
+    result.unlink(missing_ok=True)
     with Sandbox(threads=0, seconds=4, validation=True, env_extra=env,
                  extra_args=["--compute-shader", str(shader), "--compute-output", str(result),
-                             "--compute-constant-buffer", "--compute-capture"]+(['--compute-indirect'] if '_indirect' in case else [])) as sb:
+                             "--compute-constant-buffer", "--compute-capture"]+(['--compute-indirect-offset'] if case == 'exact_inherit_caller_indirect' else ['--compute-indirect'] if '_indirect' in case else [])) as sb:
         time.sleep(1.2)
         with ProbeClient(sb.pid) as probe:
             status = probe.status().get("replacement", {})
@@ -112,7 +116,7 @@ def main():
         checks.equal(sb.proc.returncode, 0, "production declaration sandbox exits normally")
     data = read_compute_result(result)
     words = struct.unpack_from("<4I", data) if len(data) == 16 else None
-    expected = (23, 0, 0, 0) if case in ('exact_inherit','exact_inherit_nested') or (source_entry and not case.endswith(('_unknown','_slots'))) else (1, 0, 4, 2) if case == "exact" else (1, 0, 16, 2) if case == "known" else (7, 0, 0, 0)
+    expected = (23, 0, 0, 0) if (case in ('exact_inherit','exact_inherit_nested') or case.startswith('exact_inherit_caller')) or (source_entry and not case.endswith(('_unknown','_slots'))) else (1, 0, 4, 2) if case == "exact" else (1, 0, 16, 2) if case == "known" else (7, 0, 0, 0)
     if regex_case:expected=(0 if case.endswith('_skip') else 42 if case.endswith('_prepost') else 8 if case.endswith('_nomatch') else 16,0,0,0)
     checks.equal(words, expected, "verified aliases drive replacement; missing and ambiguous declarations preserve the caller")
     hooks = status.get("shader_overrides", {})

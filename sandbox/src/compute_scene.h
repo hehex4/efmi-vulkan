@@ -14,6 +14,7 @@ struct ComputeScene {
     VkCommandBuffer command = VK_NULL_HANDLE;
     unsigned repeat = 1;
     uint32_t input_word = 7;
+    uint32_t argument_offset = 0;
     Buffer data, arguments;
     Buffer alternate, input;
     VkDescriptorSetLayout set_layout = VK_NULL_HANDLE;
@@ -37,7 +38,7 @@ static bool create_compute_scene()
     std::vector<uint32_t> code(size / 4);
     const bool read = fread(code.data(), 1, size, file) == size; fclose(file);
     if (!read || !make_buffer(c.data, 16, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | (c.uniform_alias ? VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT : 0) | (c.capture_usage ? VK_BUFFER_USAGE_TRANSFER_SRC_BIT : 0), true, true) ||
-        !make_buffer(c.arguments, 12, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | (c.capture_usage ? VK_BUFFER_USAGE_TRANSFER_SRC_BIT : 0), true, true)) return false;
+        !make_buffer(c.arguments, c.argument_offset+12, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | (c.capture_usage ? VK_BUFFER_USAGE_TRANSFER_SRC_BIT : 0), true, true)) return false;
     memset(c.data.map, 0, 16);
     if(c.binding_scene){
         if(!make_buffer(c.alternate,16,VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|(c.capture_usage?VK_BUFFER_USAGE_TRANSFER_SRC_BIT:0),true,true) ||
@@ -57,7 +58,7 @@ static bool create_compute_scene()
         VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};view.image=c.writable_image;view.viewType=VK_IMAGE_VIEW_TYPE_2D;view.format=VK_FORMAT_R32_UINT;
         view.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1};CHECK(vkCreateImageView(g.device,&view,nullptr,&c.writable_view));
     }
-    const uint32_t groups[3] = {1, 1, 1}; memcpy(c.arguments.map, groups, 12);
+    const uint32_t groups[3] = {1, 1, 1}; memset(c.arguments.map,0,c.argument_offset);memcpy(static_cast<uint8_t*>(c.arguments.map)+c.argument_offset,groups,12);
     VkDescriptorSetLayoutBinding binding = {0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
     VkDescriptorSetLayoutCreateInfo si = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
     VkDescriptorSetLayoutBinding bindings[5]={binding,binding,binding,binding,binding};bindings[1].binding=1;bindings[2].binding=2;bindings[3].binding=3;bindings[3].descriptorType=g.reference_storage?VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
@@ -168,7 +169,7 @@ static void record_compute_scene(VkCommandBuffer cmd)
     bind_compute_descriptors(cmd);
     if(c.reference_pipeline){record_reference_images(cmd);return;}
     for(unsigned i=0;i<c.repeat;++i){
-        if(c.indirect)vkCmdDispatchIndirect(cmd,c.arguments.buf,0);else vkCmdDispatch(cmd,1,1,1);
+        if(c.indirect)vkCmdDispatchIndirect(cmd,c.arguments.buf,c.argument_offset);else vkCmdDispatch(cmd,1,1,1);
         host.srcAccessMask=VK_ACCESS_SHADER_WRITE_BIT;host.dstAccessMask=VK_ACCESS_SHADER_READ_BIT|VK_ACCESS_SHADER_WRITE_BIT|(c.uniform_alias?VK_ACCESS_UNIFORM_READ_BIT:0);
         if(c.buffer_barriers){
             VkBufferMemoryBarrier buffers[3]{};const Buffer* originals[]={&c.data,&c.input,&c.alternate};

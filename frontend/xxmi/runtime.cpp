@@ -845,6 +845,11 @@ bool IniRuntime::run_draw(const RuntimeDraw& input, assets::FilePlan& output, st
                                              : (input.indexed ? DrawCall::DrawIndexedInstanced : DrawCall::DrawInstanced);
         DrawCallInfo call = input.indexed ? DrawCallInfo(type, 0, input.count, input.instances, uint32_t(input.base), input.first, input.first_instance, nullptr, 0)
                                           : DrawCallInfo(type, input.count, 0, input.instances, input.first, 0, input.first_instance, nullptr, 0);
+        if(input.indirect && input.indirect_arguments.bound){
+            if(input.indirect_arguments.offset>UINT_MAX)
+                throw std::runtime_error("Indirect caller offset exceeds the original DX11 range");
+            call.args_offset=UINT(input.indirect_arguments.offset);
+        }
         call.skip = call.hunting_skip = input.hunting_skip;
         if (input.compute) {
             call.VertexCount = call.IndexCount = call.InstanceCount = 0;

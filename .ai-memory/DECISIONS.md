@@ -3022,3 +3022,7 @@ views still emit and retain the existing phase checks. Old direct/indirect
 self-reference fixtures reproduce 6/10 with phase-handoff refusal. Build matching
 DLLs, rerun these and affected images/graphics/transaction checks, then commit/main
 FF and continue samplers/indirect this/current Store. No game action.
+
+## D-350: Share prepared compute caller forwarding with original CustomShaders
+
+Keep the current compute shader and source arguments for draw = from_caller. A known null shader does no work. Bound native indirect offsets must fit the original unsigned 32-bit field. The indirect argument allocation is retained through the consuming GPU commands.

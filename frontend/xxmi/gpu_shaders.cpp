@@ -191,17 +191,24 @@ void GpuShaderRuntime::inherit_compute(){
 }
 bool GpuShaderRuntime::execute_original(CommandListState& state,std::wstring& why){
     try{require(state.call_info!=nullptr,"Original operation lacks caller data");const auto& call=*state.call_info;
+        if(call.type==DrawCall::Dispatch || call.type==DrawCall::DispatchIndirect){
+            if(adapter_ && adapter_->planning_prepared()){
+                inherit_compute();
+                require(compute_known_, "Caller dispatch inherits an unknown application compute stage");
+            }
+            if(!compute_)return true;
+        }
         if(call.type==DrawCall::DispatchIndirect){
-            require(adapter_ && adapter_->planning_prepared() && compute_known_ && compute_,"Patched indirect dispatch needs a proven compute pipeline");
+            require(adapter_ && adapter_->planning_prepared(),"Indirect caller dispatch needs retained application arguments");
             const auto& args=indirect_arguments_;
             require(args.bound && args.buffer && args.keep && (args.usage&VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT) &&
-                args.offset%4==0 && args.offset<=args.size && args.size-args.offset>=12,"Patched indirect dispatch lacks retained argument range/usage");
+                args.offset%4==0 && args.offset<=args.size && args.size-args.offset>=12,"Indirect caller dispatch lacks retained argument range/usage");
             auto buffer=resources_.commands().import_buffer(VkBuffer(args.buffer),args.size,args.usage,VkDeviceMemory(args.memory),
                 args.memory_offset,args.memory_size,args.keep);
             commands_.dispatch_indirect(compute_,descriptors({&compute_->program()}),buffer,args.offset);++dispatches_;return true;
         }
         if(call.type==DrawCall::Dispatch){
-            if(compute_ && call.ThreadGroupCountX && call.ThreadGroupCountY && call.ThreadGroupCountZ){
+            if(call.ThreadGroupCountX && call.ThreadGroupCountY && call.ThreadGroupCountZ){
                 commands_.dispatch(compute_,descriptors({&compute_->program()}),{call.ThreadGroupCountX,call.ThreadGroupCountY,call.ThreadGroupCountZ});++dispatches_;}
             return true;
         }
@@ -265,6 +272,9 @@ gpu::Sampler GpuShaderRuntime::sampler(wchar_t stage,unsigned slot){
 }
 bool GpuShaderRuntime::draw(DrawCommand& command,CommandListState& state,std::wstring& why){
     try{
+        if(command.type==DrawCommandType::FROM_CALLER && state.call_info &&
+           (state.call_info->type==DrawCall::Dispatch || state.call_info->type==DrawCall::DispatchIndirect))
+            return execute_original(state,why);
         const bool indirect=command.type==DrawCommandType::DISPATCH_INDIRECT;
         const bool prepared_plan=adapter_ && adapter_->planning_prepared();
         if(!indirect && command.type!=DrawCommandType::DISPATCH){

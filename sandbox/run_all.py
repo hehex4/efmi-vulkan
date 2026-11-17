@@ -61,6 +61,8 @@ STEPS = [
     ("native exact source unknown identity", [os.path.join(HERE, "native_source_declarations_test.py"), "exact_unknown"]),
     ("native exact source invalid slot", [os.path.join(HERE, "native_source_declarations_test.py"), "exact_slot"]),
     ("native inherited compute", [os.path.join(HERE, "native_source_declarations_test.py"), "exact_inherit"]),
+    ("original compute from caller direct", [os.path.join(HERE, "native_source_declarations_test.py"), "exact_inherit_caller"]),
+    ("original compute from caller indirect", [os.path.join(HERE, "native_source_declarations_test.py"), "exact_inherit_caller_indirect"]),
     ("native inherited compute unknown", [os.path.join(HERE, "native_source_declarations_test.py"), "exact_inherit_unknown"]),
     ("native inherited compute nested", [os.path.join(HERE, "native_source_declarations_test.py"), "exact_inherit_nested"]),
     ("native inherited graphics", [os.path.join(HERE, "native_inherited_graphics_test.py")]),
