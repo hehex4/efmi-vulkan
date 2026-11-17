@@ -2,6 +2,7 @@
 #include "variant_gpu_fixture.h"
 #include "../layer/src/native_targets.h"
 #include "../frontend/gpu/shader_commands.h"
+#include "../frontend/gpu/graphics_commands.h"
 #include <cmath>
 
 static efmi::gpu::HlslProgram compile(const std::filesystem::path& root,char stage,const char* source)
@@ -14,7 +15,8 @@ static efmi::gpu::HlslProgram compile(const std::filesystem::path& root,char sta
 }
 
 static void run(bool classic,unsigned mode,const efmi::gpu::HlslProgram& vertex,
-                const efmi::gpu::HlslProgram& fragment,const efmi::gpu::HlslProgram& compute)
+                const efmi::gpu::HlslProgram& fragment,const efmi::gpu::HlslProgram& compute,
+                const efmi::gpu::HlslProgram* private_fragment=nullptr)
 {
     auto gpu=std::make_shared<Gpu>();auto& g=*gpu;g.init(false,1,0,0,true,true);
     const bool attached=mode!=2,depth=mode==1 || mode==3,stencil=mode==3;
@@ -29,6 +31,7 @@ static void run(bool classic,unsigned mode,const efmi::gpu::HlslProgram& vertex,
     constexpr auto buffer_usage=VK_BUFFER_USAGE_TRANSFER_DST_BIT|VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     const auto output=g.buffer(256,buffer_usage);
     const auto image_output=g.buffer(4,VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    Buffer graphics_output{};if(private_fragment)graphics_output=g.buffer(4,VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
     // All host metadata describes these actual Vulkan objects and their allocation spans.
     Device device;device.handle=g.device;device.physical_properties=g.properties;
@@ -37,6 +40,7 @@ static void run(bool classic,unsigned mode,const efmi::gpu::HlslProgram& vertex,
     X(CmdPipelineBarrier) X(CmdBeginRendering) X(CmdEndRendering) X(CmdBeginRenderPass) X(CmdEndRenderPass)
     X(CreateRenderPass) X(CreateRenderPass2) X(DestroyRenderPass) X(CreateFramebuffer) X(DestroyFramebuffer)
     X(CmdBindPipeline) X(CmdBindDescriptorSets) X(CreatePipelineLayout) X(DestroyPipelineLayout)
+    X(CmdBindVertexBuffers) X(CmdBindIndexBuffer) X(CmdSetViewport) X(CmdSetScissor) X(CmdSetBlendConstants)
 #undef X
     TargetView view;
     if(attached){
@@ -69,6 +73,11 @@ static void run(bool classic,unsigned mode,const efmi::gpu::HlslProgram& vertex,
     VkPipelineLayoutCreateInfo layout{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};VK(vkCreatePipelineLayout(g.device,&layout,nullptr,&g.layout));
     RecipeFixture fixture;fixture.vi.vertexBindingDescriptionCount=fixture.vi.vertexAttributeDescriptionCount=0;
     fixture.gp.layout=g.layout;fixture.gp.renderPass=g.pass;fixture.ba.blendEnable=VK_FALSE;
+    const VkDynamicState graphics_dynamic[]={VK_DYNAMIC_STATE_VIEWPORT,VK_DYNAMIC_STATE_SCISSOR,VK_DYNAMIC_STATE_BLEND_CONSTANTS};
+    if(private_fragment){fixture.dyn.dynamicStateCount=3;fixture.dyn.pDynamicStates=graphics_dynamic;
+        fixture.ba.blendEnable=VK_TRUE;fixture.ba.srcColorBlendFactor=fixture.ba.srcAlphaBlendFactor=VK_BLEND_FACTOR_CONSTANT_COLOR;
+        fixture.ba.dstColorBlendFactor=fixture.ba.dstAlphaBlendFactor=VK_BLEND_FACTOR_ZERO;
+    }
     fixture.cb.attachmentCount=attached && !depth?1:0;fixture.ds.depthTestEnable=fixture.ds.depthWriteEnable=depth;
     fixture.ds.depthCompareOp=VK_COMPARE_OP_ALWAYS;fixture.ds.stencilTestEnable=stencil;
     fixture.ds.front={VK_STENCIL_OP_KEEP,VK_STENCIL_OP_REPLACE,VK_STENCIL_OP_KEEP,VK_COMPARE_OP_ALWAYS,255,255,9};fixture.ds.back=fixture.ds.front;
@@ -108,6 +117,9 @@ static void run(bool classic,unsigned mode,const efmi::gpu::HlslProgram& vertex,
         else targets.dynamic_colors.push_back(attachment);
     }
     cb.target_contexts={targets};cb.active_targets=1;cb.in_rp=true;cb.gfx_pipeline=cb.gfx_bound=g.pipeline;
+    const VkViewport tracked_viewport{0,0,64,64,0,1};const VkRect2D tracked_scissor{{0,0},{64,64}};
+    cb.graphics_dynamic.set_viewports(0,1,&tracked_viewport);cb.graphics_dynamic.set_scissors(0,1,&tracked_scissor);
+    if(private_fragment){cb.graphics_dynamic.known=1u<<VK_DYNAMIC_STATE_BLEND_CONSTANTS;cb.graphics_dynamic.blend_constants={1,1,1,1};}
     if(attached)cb.image_layouts.set(1,1,1,view.view.range,attachment_layout);
     DrawRec draw;draw.pipeline=draw.bound=g.pipeline;draw.targets=1;
 
@@ -119,6 +131,7 @@ static void run(bool classic,unsigned mode,const efmi::gpu::HlslProgram& vertex,
 #undef X
     auto commands=std::make_unique<efmi::gpu::ResourceCommands>(resource);
     efmi::gpu::ShaderHost host;host.get_device_proc=vkGetDeviceProcAddr;host.properties=g.properties;
+    host.shader_draw_parameters=true;
     host.validator=L"F:/vulkan/Vulkan-ValidationLayers/external/Release/64/SPIRV-Tools/build/source/SPIRV-Tools-shared.dll";
     auto shaders=std::make_unique<efmi::gpu::ShaderCommands>(*commands,host);auto compute_pipeline=shaders->compile(compute);
     commands->begin_prepared();VkMemoryRequirements req{};vkGetBufferMemoryRequirements(g.device,output.handle,&req);
@@ -128,6 +141,21 @@ static void run(bool classic,unsigned mode,const efmi::gpu::HlslProgram& vertex,
     image_desc.usage=VK_IMAGE_USAGE_TRANSFER_SRC_BIT|VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     auto private_image=commands->create_image(image_desc);std::weak_ptr<efmi::gpu::ImageResource> image_lifetime=private_image;
     VkClearColorValue image_value{};image_value.uint32[0]=37;commands->clear(private_image,private_image->full_range(),image_value);
+    auto graphics=[&]{
+        if(!private_fragment)return;
+        efmi::gpu::GraphicsDescription state;state.colors={VK_FORMAT_R8G8B8A8_UNORM};state.blend.resize(1);state.blend[0].colorWriteMask=15;
+        state.blend[0].blendEnable=VK_TRUE;state.blend[0].srcColorBlendFactor=state.blend[0].srcAlphaBlendFactor=VK_BLEND_FACTOR_CONSTANT_COLOR;
+        state.blend_constants={.5f,.5f,.5f,.5f};
+        auto pipeline=shaders->compile_graphics({vertex,*private_fragment},state);
+        efmi::gpu::ImageDescription desc;desc.format=state.colors[0];desc.usage=VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        auto image=commands->create_image(desc);commands->clear(image,image->full_range(),VkClearColorValue{});
+        efmi::gpu::GraphicsDraw draw;draw.colors={commands->view(image,VK_IMAGE_VIEW_TYPE_2D,desc.format,image->full_range())};
+        draw.extent={1,1};draw.viewport={0,0,1,1,0,1};draw.scissor={{0,0},{1,1}};draw.count=3;shaders->draw(pipeline,{},draw);
+        VkMemoryRequirements span{};vkGetBufferMemoryRequirements(g.device,graphics_output.handle,&span);
+        auto destination=commands->import_buffer(graphics_output.handle,graphics_output.size,VK_BUFFER_USAGE_TRANSFER_DST_BIT,graphics_output.memory,0,span.size,gpu);
+        VkBufferImageCopy copy{};copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};copy.imageExtent={1,1,1};commands->copy(image,destination,copy);
+    };
+    graphics();
     efmi::gpu::Image application_image;
     auto capture_attachment=[&](const Buffer& target){
         vkGetBufferMemoryRequirements(g.device,target.handle,&req);
@@ -149,7 +177,7 @@ static void run(bool classic,unsigned mode,const efmi::gpu::HlslProgram& vertex,
     VkBufferImageCopy image_copy{};image_copy.imageSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};image_copy.imageExtent={1,1,1};
     commands->copy(private_image,image_destination,image_copy);
     efmi::gpu::ShaderDescriptor binding;binding.binding=compute.bindings.at(0).binding;binding.buffer=imported;binding.size=4;
-    shaders->dispatch(compute_pipeline,{binding},{1,1,1});auto second=commands->finish_prepared();
+    shaders->dispatch(compute_pipeline,{binding},{1,1,1});graphics();auto second=commands->finish_prepared();
     efmi::assets::FilePlan plan;plan.items.resize(2);
     for(auto& item:plan.items)item.operation=efmi::assets::FileOperation::PreparedWork;
     plan.items[0].prepared_work=first;plan.items[1].prepared_work=second;
@@ -184,6 +212,7 @@ static void run(bool classic,unsigned mode,const efmi::gpu::HlslProgram& vertex,
     }
     vkCmdBindPipeline(cb.handle,VK_PIPELINE_BIND_POINT_GRAPHICS,g.pipeline);
     VkViewport viewport{0,0,64,64,0,1};vkCmdSetViewport(cb.handle,0,1,&viewport);
+    if(private_fragment)device.d.CmdSetBlendConstants(cb.handle,cb.graphics_dynamic.blend_constants.data());
     for(unsigned i=0;i<2;++i){
         record_native_target(&device,&cb,prepared,i);
         VkRect2D rect{{int32_t(8+16*i),int32_t(8+16*i)},{8,8}};vkCmdSetScissor(cb.handle,0,1,&rect);
@@ -237,7 +266,10 @@ static void run(bool classic,unsigned mode,const efmi::gpu::HlslProgram& vertex,
     }
     VK(vkResetCommandPool(g.device,g.pool,0));for(auto& owner:cb.owners)owner->reset_after_completion();
     check(image_lifetime.expired(),"legal recording reset retires private image allocations");
-    printf("pass insertion: %s mode=%u complete\n",classic?"classic":"dynamic",mode);
+    if(private_fragment){const auto* color=static_cast<const uint8_t*>(graphics_output.mapped);
+        check(!color[0] && color[1]>=127 && color[1]<=128 && !color[2] && color[3]>=127 && color[3]<=128,
+            "Prepared graphics executes with its own static blend before restoring application dynamic blend and viewport");}
+    printf("pass insertion: %s mode=%u graphics=%u complete\n",classic?"classic":"dynamic",mode,private_fragment?1:0);
 }
 
 int main(int argc,char** argv)
@@ -249,6 +281,8 @@ int main(int argc,char** argv)
         const auto fragment=compile(root,'p',"float4 main():SV_Target { return float4(1,0,0,1); }");
         const auto compute=compile(root,'c',"RWStructuredBuffer<uint> Output:register(u0); [numthreads(1,1,1)] void main(){ Output[0]+=6; }");
         for(bool classic:{false,true})for(unsigned mode=0;mode<4;++mode)run(classic,mode,vertex,fragment,compute);
+        const auto private_fragment=compile(root,'p',"float4 main():SV_Target { return float4(0,1,0,1); }");
+        for(bool classic:{false,true})run(classic,0,vertex,fragment,compute,&private_fragment);
     }catch(const std::exception& e){printf("EXCEPTION: %s\n",e.what());++failed;}
     check(!errors && !warnings,"zero core and synchronization validation errors or warnings");
     printf("native prepared GPU: %d passed, %d failed; validation errors=%u warnings=%u\n",passed,failed,errors.load(),warnings.load());

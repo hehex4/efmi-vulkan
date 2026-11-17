@@ -10,7 +10,28 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
-Active D-334: D-333 committed as 0e50094 and root main fast-forwarded. Source
+Active D-335: D-334 committed as 4cc4002 and main fast-forwarded. Source 3.5.1
+tracks complete core viewport/scissor arrays, scalar and two-face stencil dynamic
+values, and graphics descriptor completeness. Shared descriptor restoration now
+serves compute and graphics. Graphics preflight retains effective native IA
+bindings, rejects unknown extended state, and host events replay state around
+classic/dynamic LOAD continuations. Native execution projects per-event descriptors
+and earlier geometry changes before admission. The original frontend still refuses
+prepared graphics until inherited source stages/state are proven; do not claim
+production CustomShader completion. Final tracker 1042 passes. Actual classic and
+dynamic graphics insertion passes 95 with zero validation errors/warnings in
+graphics-restore-gpu.out: private viewport/static blend and later application
+dynamic blend produce independent correct pixels. First fixture build used an
+unlisted global Vulkan entry; using the resolved Device dispatch fixes it.
+Four matching DLLs are 3.5.1 / a3f16e583590c2cd. Scoped regressions pass backend
+13, transaction 5, pass insertion 95, tracker 1042, ABI 15 and text 753. Fresh
+prepared/compute GPU 155 also passes cleanly. Diff review corrected bind-point
+wording in shared descriptor errors; matching binaries rebuild and tracker 1042
+pass in graphics-restore-reviewed-build/tracker-reviewed.out. Commit/main
+fast-forward next, then continue source
+inheritance and original graphics admission. No game or deployment.
+
+D-334 checkpoint: D-333 committed as 0e50094 and root main fast-forwarded. Source
 3.5.0 prepares retained graphics packets with complete buffer/image accesses and
 an explicit graphics-state restoration requirement. Original RunCustomShader
 (CommandList.cpp 2840+) saves overridden stages/state and all outputs/viewports;

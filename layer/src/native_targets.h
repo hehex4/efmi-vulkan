@@ -5,6 +5,7 @@
 namespace efvk {
 class PipelineVariant;
 struct NativeComputeRestore;
+struct NativeGraphicsRestore;
 inline bool native_output_binding(const efmi::frontend::NativeBinding& binding){
     return binding.kind==efmi::frontend::NativeBinding::ColorTarget || binding.kind==efmi::frontend::NativeBinding::DepthTarget;
 }
@@ -40,6 +41,7 @@ struct NativeTargetPlan {
         // Work-only breaks retain every output, including depth-only/no-color passes.
         std::shared_ptr<const efmi::gpu::PreparedResourceCommands> work;
         std::shared_ptr<const NativeComputeRestore> compute;
+        std::shared_ptr<const NativeGraphicsRestore> graphics;
         // Whole-image handoff around a packet, after End and before LOAD Begin.
         std::vector<VkImageMemoryBarrier> work_before,work_after;
         bool change=false;

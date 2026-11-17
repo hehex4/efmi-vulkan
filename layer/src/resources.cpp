@@ -652,6 +652,7 @@ static std::shared_ptr<DescriptorSetInfo> prepare_push_locked(CmdBuf* cb, VkPipe
     const std::shared_ptr<const PipelineLayoutInfo>& layout, uint32_t slot)
 {
     if(point==VK_PIPELINE_BIND_POINT_COMPUTE && slot>=kMaxSets)cb->compute_sets_complete=false;
+    if(point==VK_PIPELINE_BIND_POINT_GRAPHICS && slot>=kMaxSets)cb->graphics_sets_complete=false;
     auto* bound = point == VK_PIPELINE_BIND_POINT_GRAPHICS ? cb->sets : cb->comp_sets;
     if (!layout || slot >= layout->sets.size() || !layout->sets[slot] ||
         !(layout->sets[slot]->flags & VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR)) {
@@ -710,6 +711,7 @@ void on_bind_sets(Device* dev, CmdBuf* cb, VkPipelineBindPoint point, VkPipeline
 {
     if (point != VK_PIPELINE_BIND_POINT_GRAPHICS && point != VK_PIPELINE_BIND_POINT_COMPUTE) return;
     if(point==VK_PIPELINE_BIND_POINT_COMPUTE && count && (first>=kMaxSets || count>kMaxSets-first))cb->compute_sets_complete=false;
+    if(point==VK_PIPELINE_BIND_POINT_GRAPHICS && count && (first>=kMaxSets || count>kMaxSets-first))cb->graphics_sets_complete=false;
     auto* bound = point == VK_PIPELINE_BIND_POINT_GRAPHICS ? cb->sets : cb->comp_sets;
     if (!g_cfg.track_resources) {
         // No layouts are known, so the dynamic offsets cannot be split between the sets of the
@@ -761,6 +763,7 @@ void on_unsupported_descriptor_bind(CmdBuf* cb, VkPipelineBindPoint point, const
     // Conservative: an untracked binding may also disturb other sets.
     if (point != VK_PIPELINE_BIND_POINT_GRAPHICS && point != VK_PIPELINE_BIND_POINT_COMPUTE) return;
     if(point==VK_PIPELINE_BIND_POINT_COMPUTE)cb->compute_sets_complete=false;
+    if(point==VK_PIPELINE_BIND_POINT_GRAPHICS)cb->graphics_sets_complete=false;
     auto* bound = point == VK_PIPELINE_BIND_POINT_GRAPHICS ? cb->sets : cb->comp_sets;
     for (uint32_t i = 0; i < kMaxSets; i++) { bound[i] = SetBind(); bound[i].unsupported = reason; }
 }

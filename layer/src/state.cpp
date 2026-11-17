@@ -388,6 +388,7 @@ void CmdBuf::reset_recording()
     active_targets = 0;
     target_contexts.clear();
     viewport = VkViewport{}; scissor = VkRect2D{}; has_viewport = has_scissor = false;
+    graphics_dynamic=GraphicsDynamicState{};graphics_sets_complete=true;
     pass = PassInstance{};
     draws.clear();
     dyn.clear();
@@ -1014,6 +1015,9 @@ void on_fill_buffer(Device* dev, CmdBuf* cb, VkBuffer dst, uint64_t off, uint64_
 
 void on_execute_commands(Device* dev, CmdBuf* cb, uint32_t count, const VkCommandBuffer* cbs)
 {
+    // Executed secondary command buffers leave primary non-render-pass state
+    // undefined. New tracked state must be established before restoration.
+    if(count){cb->graphics_dynamic=GraphicsDynamicState{};cb->graphics_sets_complete=false;}
     uint32_t rp = cb->in_rp ? cb->rp_count + cb->dyn_rp_count : 0;
     for (uint32_t i = 0; i < count; i++) {
         CmdBuf* s;

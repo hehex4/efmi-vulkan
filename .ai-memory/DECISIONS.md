@@ -13,6 +13,26 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-335: Restore proven application graphics state around packets (2026-11-17)
+
+Original RunCustomShader (CommandList.cpp 2840+) restores overridden shader/state
+objects and all viewport/output bindings; DX11 supplies reference lifetime/deferred
+destruction, implicit hazard handling and one context's execution order. Vulkan
+must retain a frozen restoration and perform it outside the interrupted pass before
+the LOAD continuation. Merely binding the former pipeline is not sufficient:
+https://docs.vulkan.org/spec/latest/chapters/pipelines.html#pipelines-dynamic-state
+
+Share descriptor identity/layout recreation/offset validation between bind points.
+Track all core dynamic state, including both stencil faces and up to 16 complete
+viewport/scissor slots. Keep values for future pipelines, rebind the original
+pipeline, then replay its required dynamic state. Preserve actual selected native
+pipelines, effective retained vertex/index bindings and per-event descriptor/IA
+projection. Unknown extended dynamic state, binding windows, incomplete tracking
+or null effective bindings refuse before any packet recording. Secondary execution
+invalidates the primary restoration snapshot. The native host supports proven
+graphics packets; original frontend stage/state inheritance remains a separate
+guard and must be completed next. No real-game verification is implied.
+
 ## D-334: Retained graphics preparation precedes host admission (2026-11-17)
 
 Follow original RunCustomShader (CommandList.cpp 2840+): stages and explicitly

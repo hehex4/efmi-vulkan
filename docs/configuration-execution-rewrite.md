@@ -287,8 +287,11 @@ fence proofs, including F10 and module exchange without Present waits.
 D-333 connects patternless original ShaderRegex entry with exact paired source-model
 evidence, including installed Core enable/disable gates. D-334 prepares immutable
 graphics draws, records all descriptor/attachment/IA accesses and retains resources
-after the preparing engine retires (234 GPU checks). Host insertion remains guarded
-until application graphics-state restoration and source inheritance are complete.
+after the preparing engine retires (234 GPU checks). D-335 restores proven core
+graphics state, descriptor offsets/layouts and effective retained IA bindings around
+host insertion. Classic/dynamic graphics packets and subsequent application pixels
+pass 95 GPU checks, validation clean. Unknown extended state/windows still refuse;
+the original frontend requires inherited source stage/state admission next.
 
 These are scoped sandbox/GPU results. Compatibility is not complete: patterned
 ShaderRegex patches, original-only entry without native IB conveniences,

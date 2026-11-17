@@ -966,6 +966,7 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdSetViewport(VkCommandBuffer cmd, uint32_t first
     Device* dev = dev_of(cmd);
     if (first == 0 && count && viewports)
         if (CmdBuf* cb = cb_of(dev, cmd)) { cb->viewport = viewports[0]; cb->has_viewport = true; }
+    if(auto cb=cb_of(dev,cmd))cb->graphics_dynamic.set_viewports(first,count,viewports);
     dev->d.CmdSetViewport(cmd, first, count, viewports);
 }
 
@@ -975,8 +976,40 @@ VKAPI_ATTR void VKAPI_CALL hk_CmdSetScissor(VkCommandBuffer cmd, uint32_t first,
     Device* dev = dev_of(cmd);
     if (first == 0 && count && scissors)
         if (CmdBuf* cb = cb_of(dev, cmd)) { cb->scissor = scissors[0]; cb->has_scissor = true; }
+    if(auto cb=cb_of(dev,cmd))cb->graphics_dynamic.set_scissors(first,count,scissors);
     dev->d.CmdSetScissor(cmd, first, count, scissors);
 }
+
+VKAPI_ATTR void VKAPI_CALL hk_CmdSetLineWidth(VkCommandBuffer cmd,float width){
+    count_call(HI_CmdSetLineWidth);auto dev=dev_of(cmd);
+    if(auto cb=cb_of(dev,cmd)){cb->graphics_dynamic.line_width=width;cb->graphics_dynamic.known|=1u<<VK_DYNAMIC_STATE_LINE_WIDTH;}
+    dev->d.CmdSetLineWidth(cmd,width);
+}
+VKAPI_ATTR void VKAPI_CALL hk_CmdSetDepthBias(VkCommandBuffer cmd,float constant,float clamp,float slope){
+    count_call(HI_CmdSetDepthBias);auto dev=dev_of(cmd);
+    if(auto cb=cb_of(dev,cmd)){cb->graphics_dynamic.depth_bias={constant,clamp,slope};cb->graphics_dynamic.known|=1u<<VK_DYNAMIC_STATE_DEPTH_BIAS;}
+    dev->d.CmdSetDepthBias(cmd,constant,clamp,slope);
+}
+VKAPI_ATTR void VKAPI_CALL hk_CmdSetBlendConstants(VkCommandBuffer cmd,const float values[4]){
+    count_call(HI_CmdSetBlendConstants);auto dev=dev_of(cmd);
+    if(auto cb=cb_of(dev,cmd)){std::copy_n(values,4,cb->graphics_dynamic.blend_constants.begin());cb->graphics_dynamic.known|=1u<<VK_DYNAMIC_STATE_BLEND_CONSTANTS;}
+    dev->d.CmdSetBlendConstants(cmd,values);
+}
+VKAPI_ATTR void VKAPI_CALL hk_CmdSetDepthBounds(VkCommandBuffer cmd,float minimum,float maximum){
+    count_call(HI_CmdSetDepthBounds);auto dev=dev_of(cmd);
+    if(auto cb=cb_of(dev,cmd)){cb->graphics_dynamic.depth_bounds={minimum,maximum};cb->graphics_dynamic.known|=1u<<VK_DYNAMIC_STATE_DEPTH_BOUNDS;}
+    dev->d.CmdSetDepthBounds(cmd,minimum,maximum);
+}
+#define STENCIL_STATE(name,kind) \
+VKAPI_ATTR void VKAPI_CALL hk_##name(VkCommandBuffer cmd,VkStencilFaceFlags faces,uint32_t value){ \
+    count_call(HI_##name);auto dev=dev_of(cmd); \
+    if(auto cb=cb_of(dev,cmd))cb->graphics_dynamic.set_stencil(kind,faces,value); \
+    dev->d.name(cmd,faces,value); \
+}
+STENCIL_STATE(CmdSetStencilCompareMask,0)
+STENCIL_STATE(CmdSetStencilWriteMask,1)
+STENCIL_STATE(CmdSetStencilReference,2)
+#undef STENCIL_STATE
 
 VKAPI_ATTR void VKAPI_CALL hk_CmdBeginRenderPass(VkCommandBuffer cmd, const VkRenderPassBeginInfo* info,
                                                  VkSubpassContents contents)

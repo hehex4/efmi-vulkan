@@ -10,6 +10,7 @@
 #include "pacing.h"
 #include "work.h"
 #include "native_geometry_state.h"
+#include "graphics_dynamic_state.h"
 
 #include <array>
 #include <atomic>
@@ -80,6 +81,8 @@ struct CharacterModule;
     X(CmdNextSubpass) X(CmdNextSubpass2) X(CmdNextSubpass2KHR)                                                          \
     X(CmdBeginRendering) X(CmdBeginRenderingKHR) X(CmdEndRendering) X(CmdEndRenderingKHR)                              \
     X(CmdSetViewport) X(CmdSetScissor)                                                                                 \
+    X(CmdSetLineWidth) X(CmdSetDepthBias) X(CmdSetBlendConstants) X(CmdSetDepthBounds)                               \
+    X(CmdSetStencilCompareMask) X(CmdSetStencilWriteMask) X(CmdSetStencilReference)                                \
     X(CmdSetRenderingAttachmentLocations) X(CmdSetRenderingAttachmentLocationsKHR)                             \
     X(CmdSetRenderingInputAttachmentIndices) X(CmdSetRenderingInputAttachmentIndicesKHR)                           \
     X(CmdBeginQuery) X(CmdEndQuery) X(CmdBeginQueryIndexedEXT) X(CmdEndQueryIndexedEXT)                         \
@@ -509,6 +512,8 @@ struct CmdBuf {
     VkViewport viewport{};
     VkRect2D scissor{};
     bool has_viewport = false, has_scissor = false;
+    GraphicsDynamicState graphics_dynamic;
+    bool graphics_sets_complete = true;
     // The classic render pass instance being recorded (D-113), kept until the module's pass end call
     // after the application's vkCmdEndRenderPass. `serial` counts the instances of this recording.
     struct PassInstance {

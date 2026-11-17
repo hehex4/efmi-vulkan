@@ -4094,3 +4094,32 @@ Prepared GPU 155 and configuration GPU 395 pass cleanly in separate short runs.
 Diff reviewed, memory synced; commit/main fast-forward next. Continue graphics
 restoration and inherited source-state proof, remaining original-only/patterned/
 Store/capture contracts, then Vulkan-native I-01/I-04/I-05. No game or deployment.
+
+## 2026-11-17 - D-335 native graphics state restoration
+
+Continued after 4cc4002/main fast-forward. Followed original RunCustomShader's
+save/restore contract and the primary Vulkan dynamic-state invalidation rule.
+Added core dynamic state tracking, complete viewport/scissor arrays (bounded at 16),
+both stencil faces and graphics descriptor completeness. Extracted shared descriptor
+identity/layout recreation/offset restoration from the compute implementation.
+Graphics restoration preserves selected pipelines, known values for future pipelines,
+required dynamic state after rebinding, and retained effective vertex/index bindings.
+Per-event native descriptor and geometry projection occurs before whole-plan admission.
+Host classic/dynamic pass events retain and replay these snapshots. Original frontend
+graphics remains guarded until source stage/state inheritance is explicitly proven.
+
+Tracker initially passes 1037; effective IA lifetime and graphics descriptor bind-point
+coverage brings it to 1042. The first native GPU fixture build referenced a Vulkan
+global absent from its test loader; using the resolved Device dispatch fixes it.
+graphics-restore-gpu.out passes 95, including private graphics with a different
+viewport/static blend, subsequent application dynamic blend/pixels, preserved
+attachments and completion lifetime. Zero validation errors/warnings.
+
+Four DLLs at 3.5.1 / a3f16e583590c2cd build. Scoped regression passes backend 13,
+transaction 5, pass insertion 95, tracker 1042, ABI 15 and text 753; fresh prepared
+GPU 155 passes. Review corrected bind-point wording in shared errors, then rebuilt
+matching DLLs/tracker; reviewed tracker 1042 passes. Remaining explicit restrictions
+include extended dynamic state, extended IA windows and unknown effective bindings.
+Diff reviewed and memory synchronized; commit/main fast-forward follow. Continue
+original INI graphics admission, inherited source proof, original-only/patterned/
+Store/capture work, then native I-01/I-04/I-05. No game, deployment or cleanup.

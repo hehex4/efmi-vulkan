@@ -3,6 +3,7 @@
 #include "native_descriptors.h"
 #include "native_targets.h"
 #include "native_compute_restore.h"
+#include "native_graphics_restore.h"
 #include "texture_residency.h"
 #include "texture_identity.h"
 #include "../../frontend/gpu/source_registers.h"
@@ -257,6 +258,20 @@ bool native_calls(NativeCallCache& cache, TextureResidency* residency, Device* d
     }
     NativeGeometryPlan geometry;
     if((!hunting_skip || !compute) && !prepare_native_geometry(device,cb,r,transaction.plan,geometry,why,geometry_context,&transaction.targets,pending))return false;
+    auto effective_geometry=cb->native_geometry;
+    for(size_t i=0;i<transaction.targets.events.size();++i){
+        if(i<geometry.bindings.size() && geometry.bindings[i])effective_geometry=geometry.bindings[i];
+        auto& event=transaction.targets.events[i];if(!event || !event->work || !event->work->changes_graphics_state())continue;
+        CmdBuf context;context.gfx_pipeline=cb->gfx_pipeline;context.gfx_bound=cb->gfx_bound;
+        context.graphics_dynamic=cb->graphics_dynamic;context.graphics_sets_complete=cb->graphics_sets_complete;
+        context.m2_extended_bind=cb->m2_extended_bind;context.native_geometry=effective_geometry;context.dyn=cb->dyn;
+        context.ib=cb->ib;context.ib_off=cb->ib_off;context.index_size=cb->index_size;
+        for(unsigned slot=0;slot<kMaxVb;++slot)context.vb[slot]=cb->vb[slot];
+        const auto projected=native_descriptor_draw(r,transaction.descriptors,i);
+        for(unsigned slot=0;slot<kMaxSets;++slot)context.sets[slot]=compute?cb->sets[slot]:projected.sets[slot];
+        auto restore=std::make_shared<NativeGraphicsRestore>();
+        if(!prepare_native_graphics_restore(device,&context,*restore,why))return false;event->graphics=std::move(restore);
+    }
     if(admission && !admission->admit(why))return false;
     begin_native_transaction(device,cb,transaction);
     const size_t split = std::min(plan.pre_items,plan.items.size());
