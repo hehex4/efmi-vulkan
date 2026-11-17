@@ -1,5 +1,12 @@
 # EFMI Vulkan - Architecture
 
+D-330/331 (3.4.6/3.4.7) restore original CPU cache-view queries and current shader
+declaration queries. CPU observations retain original ref/copy provenance and
+rollback. Shader facts follow the same current explicit aliases as source bindings;
+CB sizes count vectors, SRV stride counts bytes. Missing SPIR-V variables do not
+prove missing DXBC declarations; uint-word ambiguity and CB indexing mode stay
+unknown. No package, character table or synchronous application submission is added.
+
 D-329 (3.4.5 / ABI 3462dd23d7bf741b) connects the original prepared registry to
 production interception. Retained application sources become original resource
 bindings; immutable call/final snapshots become native assignments after complete

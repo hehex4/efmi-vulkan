@@ -20,6 +20,7 @@ struct NativeApplicationBinding {
     gpu::ApplicationImage image;
 };
 struct NativeApplicationState {
+    decltype(RuntimeDraw::source_declaration) source_declaration;
     std::vector<NativeApplicationBinding> bindings;
     bool independent_initialization=false;
     std::function<bool(uint64_t,const gpu::Image&,gpu::ApplicationImage&,std::string&)> observe_image;

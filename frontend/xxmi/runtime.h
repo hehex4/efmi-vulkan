@@ -96,7 +96,7 @@ struct RuntimeTexture {
     uint32_t view_format = 0;
     uint32_t width = 0, height = 0, levels = 0, layers = 0;
 };
-constexpr uint32_t kWordBufferDeclaration = 0xFFFFFFFFu;
+enum class ShaderDeclarationQuery { ConstantType,ConstantSize,ResourceType,ResourceStride,ResourceDimension };
 // The vertex shader groups of the EFMITTL library a draw's vertex shader stands for (D-113, D-171): the lit
 // pass of cloth, the lit pass of skin, an outline. The shadow groups are never met (the Vulkan shadow vertex
 // shaders output no UV).
@@ -121,14 +121,11 @@ struct RuntimeDraw {
     // lightmap and the normal map its fragment shader samples, -1 for a role it has not. False:
     // not known, and the RabbitFX library binds nothing.
     std::function<bool(int32_t roles[3], std::string& reason)> texture_roles;
-    // The DX11 declaration of t register `slot` of the draw's shader at `stage` (L'v', L'h', L'd',
-    // L'g', L'p') as the original reads it off DXBC, for `vs->srv_type(n)`, `srv_stride` and
-    // `srv_dimension` (D-124): the original's ShaderResourceType, D3D_SRV_DIMENSION and stride.
-    // False: not known, and the query refuses.
-    // `type` kWordBufferDeclaration: a buffer of 32-bit words, which DX11 declares structured (type 2,
-    // dimension 1, the given stride) or raw (type 3, dimension 11, stride 0); the SPIR-V does not tell.
-    // A condition is then evaluated with both and goes on when they agree (D-159).
-    std::function<bool(wchar_t stage, unsigned slot, uint32_t& type, uint32_t& dimension, uint32_t& stride, std::string& reason)> source_srv;
+    // Original declaration values for the current source stage, independently of
+    // bound resource size. ConstantSize counts float4 vectors, ResourceStride bytes.
+    // False leaves an explicit diagnostic; a missing Vulkan variable alone cannot
+    // prove absence in DXBC, and uint words cannot prove raw versus structured.
+    std::function<bool(wchar_t stage,unsigned slot,ShaderDeclarationQuery,float&,std::string&)> source_declaration;
     // `vbN->stride` in a replaced draw's plan: the stride of the game's vertex buffer at DX11 input slot N
     // (the Vulkan binding of that number), as the original's IAGetVertexBuffers gives it; 0 when none is
     // bound. False with the reason when it is not known (a dynamic stride).

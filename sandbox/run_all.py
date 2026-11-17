@@ -44,6 +44,9 @@ STEPS = [
     ("native prepared pass insertion", [os.path.join(HERE, "native_prepared_test.py")]),
     ("native configuration transaction", [os.path.join(HERE, "native_configuration_test.py")]),
     ("native cached source queries", [os.path.join(HERE, "native_cached_source_test.py")]),
+    ("native source declarations", [os.path.join(HERE, "native_source_declarations_test.py")]),
+    ("native source declarations missing", [os.path.join(HERE, "native_source_declarations_test.py"), "missing"]),
+    ("native source declarations words", [os.path.join(HERE, "native_source_declarations_test.py"), "words"]),
     ("prepared GPU commands", [os.path.join(ROOT, "scripts", "check_configuration.py"), "--only", "prepared"]),
     ("owned image and parameter commands", [os.path.join(ROOT, "scripts", "check_configuration.py"), "--no-build", "--only", "owned-images"]),
     # D-129: every writable global of the runtime is per generation, per thread, the load's, locked or

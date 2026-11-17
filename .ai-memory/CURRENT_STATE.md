@@ -12,6 +12,20 @@
 
 ## D-330: original cached source queries verified (2026-11-17)
 
+Active continuation: D-330 is committed as 96f7af6 and root main fast-forwarded.
+D-331 is verified at 3.4.7 / unchanged ABI 3462dd23d7bf741b. Current shader declarations
+and explicit native aliases reach original CB-size/SRV queries. Missing variables,
+raw/structured uint ambiguity and unproved CB indexing mode remain diagnostic gaps.
+Original unbound/untracked stage returns happen before member argument evaluation.
+source-declarations-before.out reproduces the old GPU output 7 instead of 1/16/2.
+The corrected CPU fixture passes 29 (original pre and post evaluate the condition
+twice); interpreter passes 572. Matching four DLLs/tracker build in
+source-declarations-binaries-fixed.out. Scoped regression passes declarations 12,
+cached queries 4, transaction 5, backend 13, tracker 1015, ABI 9 and text 743, all
+GPU validation clean. Globals audit passes 952. Commit/root fast-forward next;
+continue installed Core GPU acceptance and remaining compatibility gaps, then
+native I-01/I-04/I-05. No real-game action. Do not end at this checkpoint.
+
 - Source and four development DLLs are 3.4.6 / ABI 3462dd23d7bf741b. BUG-170 is fixed: original cache_resource_data policy, imported CPU observations, named ref/copy cache windows and cancellation rollback now feed HashRegion/SpatialHash. No GPU submission/readback is initiated by these CPU queries.
 - cached-source-before.out reproduces the original failure. cached-source-reviewed.out passes GPU registry 395 with zero validation errors/warnings. cached-source-regression.out passes production cached queries 4, production transaction 5, configuration backend 13, tracker 1015, ABI 9 and text 742. Fresh root 27, interpreter 570 and prepared GPU 155 pass in cached-source-root/interpreter/prepared.out. Writable globals audit passes 952 classifications after classifying the existing immutable SHA-256 provider.
 - Production fixture initially placed spatial output in readback word 1, which the sandbox deliberately overwrites with its alternate-buffer result. Moving the assertion to word 2 makes both independent hash expectations pass. This is a fixture correction, not an IniParams upload fix. Earlier parser spelling and enum-operator fixture/build failures remain recorded in SESSION_LOG.md.

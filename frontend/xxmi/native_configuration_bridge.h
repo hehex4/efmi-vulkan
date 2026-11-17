@@ -81,7 +81,8 @@ std::unique_ptr<PreparedConfigurationDraw> OwnedRuntime::prepare_native_draw(std
                 binding.format=DXGI_FORMAT(r.format);application.buffers.push_back(std::move(binding));
             }
         }
-        auto pending=prepare_draw(std::move(registry),draw,application,shader_only,reason);if(!pending)return {};
+        auto observed=draw;if(input.source_declaration)observed.source_declaration=input.source_declaration;
+        auto pending=prepare_draw(std::move(registry),observed,application,shader_only,reason);if(!pending)return {};
         auto& state=*pending->impl_;auto previous=state.initial;
         assets::FilePlan result;result.skip_original=state.plan.skip_original;
         auto emit=[&](const std::shared_ptr<const PreparedDrawState>& snapshot){

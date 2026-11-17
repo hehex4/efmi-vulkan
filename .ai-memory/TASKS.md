@@ -9,6 +9,11 @@
 
 ## D-330 cached source integration verified (2026-11-17)
 
+- Follow-up D-331 verified: 3.4.7, original declaration callback/current alias
+  mapping, root 29, interpreter 572, native declarations 12 and scoped regression
+  clean. See CURRENT_STATE.md. Commit then continue installed Core GPU acceptance,
+  prepared graphics/current Store, queue/source contracts and capture migration.
+
 - BUG-170 repaired at 3.4.6 / ABI 3462dd23d7bf741b. GPU registry 395, native cached-query output 4, production transaction 5, backend 13, tracker 1015, ABI 9, text 742, root 27, interpreter 570 and prepared GPU 155 pass; GPU validation clean. Globals audit passes 952 classifications. Commit/root fast-forward, then continue immediately.
 - Next: wire verified source shader declaration queries into native original execution; then prepared graphics CustomShaders/current Store, broader queue/source contracts and obsolete capture entry migration. Only after compatibility completion return to native I-01/I-04/I-05. No game action.
 

@@ -2739,3 +2739,18 @@ spatial upper bound. Check actual retained byte bounds and finite quantization b
 CPU reads. No per-character identity, synthetic position, delayed Store result or
 package substitution is introduced. Current-value GPU-only readback remains a
 separate execution boundary.
+
+## D-331: Current shader declaration facts (2026-11-17)
+
+Original process_shader_filter (CommandList.cpp 3228-3328) reads tracked shader
+identity and DXBC declaration tables, with unbound/untracked early returns before
+member arguments. ByteCodeReader.cpp 220-235 keeps CB vector count and indexing
+mode separately. DX11 provides reference lifetime/deferred destruction, hazard
+tracking and context order; these queries add no new submission or lifetime shortcut.
+
+Project native projection now retains current declaration facts alongside resolved
+source addresses, including explicit aliases. The original query adapter asks that
+snapshot for CB size and SRV type/stride/dimension. A uint-word buffer is not enough
+to distinguish raw from structured; absent Vulkan variables can still exist in DXBC.
+Keep those queries unknown with diagnostics. SPIR-V CB extent does not establish
+original indexing mode. This is shared shader/resource behavior, never character data.

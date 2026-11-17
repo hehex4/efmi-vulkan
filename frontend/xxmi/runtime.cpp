@@ -466,13 +466,10 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
             if(config.initial_shaders)p.source_shaders.install(*config.initial_shaders,p.context);
             p.adapter.shader_queries([&p](auto& operand,auto& state,auto& value,auto& why){return p.source_shaders.query(operand,state,value,why);});
         }else if(config.initial_shaders)throw std::runtime_error("Source shader facts require shader hook opt-in");
-        if(!config.shader_hooks)p.adapter.plan_shader_queries([&p](auto& operand,auto&,float& value,std::wstring& why){
+        if(!config.shader_hooks)p.adapter.plan_shader_queries([&p](auto& operand,auto& state,float& value,std::wstring& why){
             if(!p.current_draw || !p.current_draw->native_calls)return false;
             const auto& draw=*p.current_draw;
-            const auto& target=operand.shader_target;
-            if(target.evaluation_mode!=ShaderTargetEvaluationMode::SHADER){
-                why=L"Original shader declarations require verified source facts";return false;
-            }
+            auto& target=operand.shader_target;
             const wchar_t* names=L"vhdgpc";
             const auto* stage=target.shader_type?wcschr(names,target.shader_type):nullptr;
             if(!stage){why=L"Invalid native shader query stage";return false;}
@@ -483,6 +480,25 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
             // ShaderFixes or hunting selects a replacement pipeline.
             if(!(draw.shader_stages&bit)){value=-0.0f;return true;}
             value=0.0f;
+            if(target.evaluation_mode!=ShaderTargetEvaluationMode::SHADER){
+                // process_shader_filter returns before evaluating member arguments
+                // for an unbound or untracked source stage.
+                if(!(draw.stage_hash_mask&bit))return true;
+                if(!draw.source_declaration){why=L"Original shader declarations require verified source facts";return false;}
+                ShaderDeclarationQuery query;
+                switch(target.evaluation_mode){
+                case ShaderTargetEvaluationMode::DCL_CB_TYPE:query=ShaderDeclarationQuery::ConstantType;break;
+                case ShaderTargetEvaluationMode::DCL_CB_SIZE:query=ShaderDeclarationQuery::ConstantSize;break;
+                case ShaderTargetEvaluationMode::DCL_SRV_TYPE:query=ShaderDeclarationQuery::ResourceType;break;
+                case ShaderTargetEvaluationMode::DCL_SRV_STRIDE:query=ShaderDeclarationQuery::ResourceStride;break;
+                case ShaderTargetEvaluationMode::DCL_SRV_DIMENSION:query=ShaderDeclarationQuery::ResourceDimension;break;
+                default:why=L"Unknown source declaration query";return false;
+                }
+                const unsigned slot=unsigned(target.member_args[0].GetValue(&state));
+                std::string unknown;
+                if(draw.source_declaration(target.shader_type,slot,query,value,unknown))return true;
+                why.assign(unknown.begin(),unknown.end());return false;
+            }
             if(draw.stage_hash_mask&bit){
                 const auto match=G->mShaderOverrideMap.find(uint64_t(draw.stage_hashes[index]));
                 if(match!=G->mShaderOverrideMap.end())value=match->second.filter_index==FLT_MAX?1.0f:match->second.filter_index;

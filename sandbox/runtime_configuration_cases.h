@@ -117,4 +117,24 @@ global $unexpected = 1
     bool warned=false;
     for(const auto& message:runtime->status().diagnostic_messages)warned|=message.find("verified source facts")!=std::string::npos;
     check(warned,"Unavailable native source-register declarations retain the original adapter warning");
+    unsigned queries=0;
+    draw.source_declaration=[&](wchar_t stage,unsigned slot,ShaderDeclarationQuery query,float& value,std::string& why){
+        ++queries;if(stage!=L'c' || slot!=0 || query!=ShaderDeclarationQuery::ResourceStride){why="Unexpected query";return false;}
+        value=4;return true;
+    };
+    const bool declaration_ran=runtime->shader_draw(draw,plan,reason);
+    if(!declaration_ran || !plan.skip_original || queries!=2)
+        std::cerr<<"Declaration query diagnostic: ran="<<declaration_ran<<" skip="<<plan.skip_original<<" queries="<<queries<<" reason="<<reason<<"\n";
+    check(declaration_ran && plan.skip_original && queries==2,
+        "Verified source declaration facts reach original conditional command execution");
+    draw.stage_hashes[5]=9;draw.stage_hash_mask=0;queries=0;
+    // Name this override through its index trigger because the current source
+    // hash is intentionally unknown. Original evaluation returns before args.
+    shaders+="[TextureOverrideEarlyDeclaration]\nhash = aabbccdd\n"
+        "if vs->srv_stride(-1) == 0 && cs->cb_size(-1) == 0\nhandling = skip\nendif\n";
+    write(root/"d3dx.ini",shaders.c_str());runtime=IniRuntime::load(config,{},reason);
+    if(!runtime)throw std::runtime_error(reason);
+    draw.hash=0xaabbccdd;
+    check(runtime->draw(draw,plan,reason) && plan.skip_original && queries==0,
+        "Unbound and unknown-hash source shaders return zero before evaluating declaration arguments");
 }

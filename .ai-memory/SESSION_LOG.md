@@ -3973,3 +3973,25 @@ in cached-source-root/interpreter/prepared.out. The writable-globals audit passe
 Diff reviewed; commit/root fast-forward next, then continue compatibility declaration
 queries, prepared graphics/current Store and capture migration before native
 I-01/I-04/I-05. No game load, deployment, launcher or installation change.
+
+## 2026-11-17: D-331 source declaration queries through production
+
+source-declarations-before.out reproduces the old missing original conditional
+output: GPU 7 instead of CB-vector-count 1 / structured stride 16 / type 2. Native
+projection now retains declaration facts through explicit register aliases. Original
+unbound/untracked stage return ordering is preserved. Missing declarations, CB
+indexing mode and raw/structured words remain unknown, never guessed from a capture.
+
+First CPU build rejected const MemberArg::GetValue; corrected to a mutable target.
+The initial test expected one query, but original pre/post each evaluates the branch;
+corrected expected count two. Root 29 passes in source-declarations-root-reviewed.out;
+interpreter 572 passes in source-declarations-interpreter.out. An initial build driver
+used a Path operator on build.ROOT's string; corrected before compilation. Matching
+four DLLs and tracker build at 3.4.7 / ABI 3462dd23d7bf741b in
+source-declarations-binaries-fixed.out. After resume the old exec session was gone;
+fresh logs verify 3.4.7 actually loads. Scoped source-declarations-regression.out passes
+known/missing/ambiguous declarations 12, cached queries 4, transaction 5, backend 13,
+tracker 1015, ABI 9 and text 743 with zero GPU validation errors/warnings. Writable
+globals audit passes 952. Diff reviewed; commit/root fast-forward, then continue
+installed Core GPU acceptance and remaining compatibility work before native work.
+No game, deployment or installation modification.
