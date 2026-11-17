@@ -86,6 +86,8 @@ STEPS = [
     ("original graphics regex regex_caller_indirect", [os.path.join(HERE, "native_inherited_graphics_test.py"), "regex_caller_indirect"]),
     ("original graphics regex regex_caller_skip", [os.path.join(HERE, "native_inherited_graphics_test.py"), "regex_caller_skip"]),
     ("original graphics regex pixel caller", [os.path.join(HERE, "native_inherited_graphics_test.py"), "regex_caller_pixel"]),
+    ("original image self reference regex_caller_self_ref", [os.path.join(HERE, "native_inherited_graphics_test.py"), "regex_caller_self_ref"]),
+    ("original image self reference regex_caller_indirect_self_ref", [os.path.join(HERE, "native_inherited_graphics_test.py"), "regex_caller_indirect_self_ref"]),
     ("original executable compute regex", [os.path.join(HERE, "native_source_declarations_test.py"), "exact_inherit_source_regex"]),
     ("original executable compute regex skip", [os.path.join(HERE, "native_source_declarations_test.py"), "exact_inherit_source_regex_skip"]),
     ("original executable compute regex prepost", [os.path.join(HERE, "native_source_declarations_test.py"), "exact_inherit_source_regex_prepost"]),

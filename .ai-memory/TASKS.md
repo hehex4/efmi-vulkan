@@ -7,6 +7,11 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
+D-349 verified at 3.6.4 / ABI ca3dfae1e8932a4d. Direct and indirect image
+self-references pass 10/10, previously 6/10. Retained image 5, output phases
+27, output resource transactions 64, configuration transaction 5, ABI 16 and
+text 761 pass. See original-image-self-reference-regression.out. Sandbox only.
+
 D-348 verified: source 3.6.3 / ABI ca3dfae1e8932a4d executes original
 graphics ShaderRegex through retained inherited programs and the prepared caller.
 Original VS signature still defines IA semantics. Patch/nested/unmatched/unknown,

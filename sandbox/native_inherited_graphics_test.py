@@ -20,9 +20,9 @@ from build_shader_model_index import encode_sources
 def main():
     case = sys.argv[1] if len(sys.argv) > 1 else 'enabled'
     if case not in ('enabled', 'unknown_source', 'unknown_layout', 'nested', 'reference', 'state', 'state_nested',
-                    'indirect', 'indirect_nonindexed', 'indirect_count', 'regex', 'regex_nested', 'regex_nomatch', 'regex_caller_unknown', 'regex_caller', 'regex_caller_indirect', 'regex_caller_skip', 'regex_caller_pixel'):
+                    'indirect', 'indirect_nonindexed', 'indirect_count', 'regex', 'regex_nested', 'regex_nomatch', 'regex_caller_unknown', 'regex_caller', 'regex_caller_indirect', 'regex_caller_skip', 'regex_caller_pixel', 'regex_caller_self_ref', 'regex_caller_indirect_self_ref'):
         raise ValueError('Unknown inherited graphics fixture')
-    original_caller = case in ('regex_caller', 'regex_caller_indirect', 'regex_caller_skip', 'regex_caller_pixel')
+    original_caller = case in ('regex_caller', 'regex_caller_indirect', 'regex_caller_skip', 'regex_caller_pixel', 'regex_caller_self_ref', 'regex_caller_indirect_self_ref')
     checks = Checks('native inherited graphics ' + case)
     root = Path(ROOT) / 'build/native-inherited-graphics'
     mods, settings = root / 'Mods', root / 'settings'
@@ -90,6 +90,8 @@ def main():
                                 ('handling = skip\n' if case == 'regex_caller_skip' else '') +
                                 'ResourceOriginalVB = ref vb0\nvb0 = ref ResourceTriangle\n'
                                 'post ResourceSaved = copy o0\npost vb0 = ref ResourceOriginalVB')
+        if case in ('regex_caller_self_ref', 'regex_caller_indirect_self_ref'):
+            text = text.replace('vb0 = ref ResourceTriangle\npost ResourceSaved', 'vb0 = ref ResourceTriangle\no0 = ref set_viewport o0\npost ResourceSaved')
         if case == 'regex_caller_unknown':
             text = text.replace('handling = skip\nrun = CustomShaderInherited', '')
         pattern = r'add o0\.xyzw, r0\.xyzw, cb0\[0\]\.xyzw' if case != 'regex_nomatch' else 'instruction_that_does_not_exist'
@@ -121,7 +123,7 @@ def main():
         args.append('--native-target-unique-vertex')
     if original_caller:
         args.append('--native-target-solid')
-    if case == 'regex_caller_indirect':
+    if case in ('regex_caller_indirect', 'regex_caller_indirect_self_ref'):
         args.append('--indexed-indirect')
     if case.startswith('indirect'):
         args.append('--non-indexed-indirect' if case == 'indirect_nonindexed' else
@@ -135,7 +137,7 @@ def main():
         checks.equal(sb.proc.returncode, 0, 'Inherited graphics sandbox exits normally')
         (root / (case + '-stdout.txt')).write_text(sb.output(), encoding='utf-8')
         (root / (case + '-layer.log')).write_text(sb.log(), encoding='utf-8')
-    accepted = case in ('enabled', 'nested', 'reference', 'state', 'state_nested', 'indirect', 'indirect_nonindexed', 'regex', 'regex_nested', 'regex_nomatch', 'regex_caller', 'regex_caller_indirect', 'regex_caller_skip', 'regex_caller_pixel')
+    accepted = case in ('enabled', 'nested', 'reference', 'state', 'state_nested', 'indirect', 'indirect_nonindexed', 'regex', 'regex_nested', 'regex_nomatch', 'regex_caller', 'regex_caller_indirect', 'regex_caller_skip', 'regex_caller_pixel', 'regex_caller_self_ref', 'regex_caller_indirect_self_ref')
     checks.check(pixels.exists(), 'This process produced a fresh completed image')
     checks.equal(colored_pixels(pixels, (0, 0, 255) if case == 'regex_caller_pixel' else (255, 255, 0)) > 200, accepted and case not in ('regex_nomatch', 'regex_caller_skip'), 'Inherited VS/IA produce actual replacement pixels; unknown proof preserves the caller')
     reason = status.get('shader_overrides', {}).get('last_reason', '')

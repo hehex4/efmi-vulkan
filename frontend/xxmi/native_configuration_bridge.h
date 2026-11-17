@@ -18,6 +18,9 @@ inline Key key(const NativeBinding& value){
 }
 inline bool equal(const GpuResourceBinding& a,const GpuResourceBinding& b){
     if(!a && !b)return true;
+    // Image query metadata (format/stride/size) can be filled by a ref copy
+    // without changing the retained typed view passed to the native context.
+    if(a.image || b.image)return a.image==b.image && a.image_view==b.image_view && a.view==b.view;
     return a.buffer==b.buffer && a.image==b.image && a.image_view==b.image_view &&
         a.format==b.format && a.stride==b.stride && a.offset==b.offset && a.visible_size==b.visible_size &&
         a.region==b.region && a.view==b.view && a.view_format==b.view_format && a.view_offset==b.view_offset && a.view_size==b.view_size;

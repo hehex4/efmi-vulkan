@@ -3010,3 +3010,15 @@ original indexing mode. This is shared shader/resource behavior, never character
 ## D-348: Execute original graphics ShaderRegex programs through inherited state
 
 Original ShaderRegex.cpp 763-810 applies stage-model patterns and links command lists; CommandList.cpp 2872-2897 overrides only explicit CustomShader stages and restores them afterward. DX11 retains shader/resource references, defers destruction, tracks hazards and orders one context. Vulkan translates exact patched DXBC into retained programs and uses immutable prepared commands/access records, including the caller boundary. Preserve original VS input signature rather than interpreting the existing IA layout as a new patched declaration. Missing stages, samplers and unsupported state still refuse the call; graphics patch admission alone does not prove the whole native caller is executable.
+
+## D-349: Native image bindings compare physical retained views
+
+Active D-349 follows a2f19b0/main fast-forward. Original UsableRefView
+(CommandList.cpp 12409-12450) retains an already-compatible typed view; DX11
+handles reference/deferred lifetime, hazards and context order. Source 3.6.4
+separates physical image/view equality from buffer/query metadata in native
+binding emission. Same retained image/view/kind needs no native rebind; different
+views still emit and retain the existing phase checks. Old direct/indirect
+self-reference fixtures reproduce 6/10 with phase-handoff refusal. Build matching
+DLLs, rerun these and affected images/graphics/transaction checks, then commit/main
+FF and continue samplers/indirect this/current Store. No game action.

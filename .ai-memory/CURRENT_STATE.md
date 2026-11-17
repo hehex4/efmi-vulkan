@@ -10,6 +10,11 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
+D-349 verified at 3.6.4 / ABI ca3dfae1e8932a4d. Direct and indirect image
+self-references pass 10/10, previously 6/10. Retained image 5, output phases
+27, output resource transactions 64, configuration transaction 5, ABI 16 and
+text 761 pass. See original-image-self-reference-regression.out. Sandbox only.
+
 D-348 verified: source 3.6.3 / ABI ca3dfae1e8932a4d executes original
 graphics ShaderRegex through retained inherited programs and the prepared caller.
 Original VS signature still defines IA semantics. Patch/nested/unmatched/unknown,

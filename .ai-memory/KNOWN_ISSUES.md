@@ -2083,3 +2083,8 @@ can occupy the serialized vertex-program container; inspect actual entry points.
 ## 2026-11-17: Original image self-reference emits a false output rebind
 
 During D-348, adding o0 = ref set_viewport o0 to the original patched caller reproduces a prepared-image phase-handoff refusal. The original UsableRefView keeps the same typed view; GpuResourceRuntime fills format/stride query metadata, while native_configuration::equal also compares those buffer-style fields for images. Next isolate physical image view equality from metadata without weakening genuine output phase checks. Omitting the redundant output assignment allows the direct/indirect caller fixture to pass.
+
+D-349 verified at 3.6.4 / ABI ca3dfae1e8932a4d. Direct and indirect image
+self-references pass 10/10, previously 6/10. Retained image 5, output phases
+27, output resource transactions 64, configuration transaction 5, ABI 16 and
+text 761 pass. See original-image-self-reference-regression.out. Sandbox only.

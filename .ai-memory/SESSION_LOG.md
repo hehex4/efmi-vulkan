@@ -4394,3 +4394,20 @@ graphics-regex-{binaries,regression,pixel,owned,prepared}.out. Diff reviewed;
 commit/main FF, then fix false image self-reference output rebind, followed by
 sampler inheritance, indirect this/current Store. No game action or completion
 claim. No active process.
+
+## 2026-11-17: D-349 image self-reference binding equality
+
+Active D-349 follows a2f19b0/main fast-forward. Original UsableRefView
+(CommandList.cpp 12409-12450) retains an already-compatible typed view; DX11
+handles reference/deferred lifetime, hazards and context order. Source 3.6.4
+separates physical image/view equality from buffer/query metadata in native
+binding emission. Same retained image/view/kind needs no native rebind; different
+views still emit and retain the existing phase checks. Old direct/indirect
+self-reference fixtures reproduce 6/10 with phase-handoff refusal. Build matching
+DLLs, rerun these and affected images/graphics/transaction checks, then commit/main
+FF and continue samplers/indirect this/current Store. No game action.
+
+D-349 verified at 3.6.4 / ABI ca3dfae1e8932a4d. Direct and indirect image
+self-references pass 10/10, previously 6/10. Retained image 5, output phases
+27, output resource transactions 64, configuration transaction 5, ABI 16 and
+text 761 pass. See original-image-self-reference-regression.out. Sandbox only.
