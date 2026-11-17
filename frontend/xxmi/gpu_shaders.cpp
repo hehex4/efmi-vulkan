@@ -1,4 +1,6 @@
 #include "gpu_shaders.h"
+#include "shader_assembly.h"
+#include "../gpu/dxbc_bindings.h"
 #include "image_formats.h"
 #include "globals.h"
 #include <chrono>
@@ -106,6 +108,36 @@ void GpuShaderRuntime::set_programs(const std::vector<gpu::HlslProgram>& program
     auto compute=next[5]?commands_.compile(*next[5]):gpu::Compute{};
     for(unsigned i=0;i<5;++i)stages_[i]=std::move(next[i]);stages_known_=31;compute_=std::move(compute);compute_known_=true;
 }
+void GpuShaderRuntime::application_compute(const RuntimeDraw& draw){
+    compute_.reset();source_compute_.reset();compute_known_=false;
+    if(!draw.compute || !(draw.shader_stages&32))return;
+    source_compute_=draw.source_codes[5];
+}
+void GpuShaderRuntime::inherit_compute(){
+    if(compute_known_ || !source_compute_)return;
+    require(source_compute_->model()[0]=='c',"Inherited application bytecode is not a compute shader");
+    const auto found=inherited_compute_.find(source_compute_);
+    if(found!=inherited_compute_.end()){compute_=found->second.pipeline;compute_known_=true;return;}
+    require(cached_compiler_!=nullptr,"Inherited original compute needs bytecode translation");
+    gpu::HlslProgram program;std::string why;const auto& code=source_compute_->bytes();
+    const auto key=cache_?cache_->bytecode_key(code,'c',uint32_t(cached_mode_)|0x10000u):std::string();
+    if(!key.empty() && cache_->load(key,program))++shader_stats_.cached;
+    else{
+        const auto began=std::chrono::steady_clock::now();
+        if(!cached_compiler_->compile(code,'c',program,why,cached_mode_))throw std::runtime_error("Inherited original compute translation failed: "+why);
+        gpu::dxbc_storage_reads(program);
+        ++shader_stats_.translated;shader_stats_.translate_us+=elapsed_us(began);
+        if(!key.empty())cache_->store(key,program);
+    }
+    const auto bytes=code.size()+program.dxbc.size()+program.spirv.size()*4;
+    require(bytes<=(64u<<20),"Inherited original compute exceeds its cache budget");
+    auto pipeline=commands_.compile(program);
+    while(!inherited_compute_.empty() && (inherited_compute_bytes_+bytes>(64u<<20) || inherited_compute_.size()>=64)){
+        const auto old=inherited_compute_.begin();inherited_compute_bytes_-=old->second.bytes;inherited_compute_.erase(old);
+    }
+    inherited_compute_.emplace(source_compute_,InheritedCompute{pipeline,bytes});inherited_compute_bytes_+=bytes;
+    compute_=std::move(pipeline);compute_known_=true;
+}
 bool GpuShaderRuntime::execute_original(CommandListState& state,std::wstring& why){
     try{require(state.call_info!=nullptr,"Original operation lacks caller data");const auto& call=*state.call_info;
         if(call.type==DrawCall::Dispatch){
@@ -178,6 +210,7 @@ bool GpuShaderRuntime::draw(DrawCommand& command,CommandListState& state,std::ws
         if(!indirect && command.type!=DrawCommandType::DISPATCH){
             return draw_graphics(command,state);
         }
+        if(prepared_plan)inherit_compute();
         require(!prepared_plan || compute_known_,"Prepared CustomShader inherits an unknown application compute stage");
         gpu::Buffer arguments;uint32_t offset=0;std::array<uint32_t,3> groups{};
         if(indirect){const float value=command.args[0].evaluate(&state);

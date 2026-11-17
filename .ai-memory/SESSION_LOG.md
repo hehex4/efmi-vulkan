@@ -4217,3 +4217,35 @@ text 757 with clean GPU validation. Fresh CPU 47/interpreter 590 pass. Diff
 reviewed and memory synchronized; commit/main fast-forward follows. Continue
 original shader identity/patch execution and inherited graphics before native
 queue/access/readiness work. No compatibility-completion claim or game action.
+
+## 2026-11-17: D-340 inherited compute execution in progress
+
+Continued after 65f2af0/main fast-forward. Original RunCustomShader leaves CS
+unchanged when no cs_override is specified and restores explicit nested overrides.
+Added per-call original compute evidence, lazy exact bytecode translation and a
+bounded retained compute pipeline cache. Existing prepared packets/access tracking
+and host compute restoration supply lifetime and ordering. No unbound stage is
+inferred from missing pipeline information. The cache counts both original and
+translated DXBC/SPIR-V payloads and bounds entries separately.
+
+Old 3.5.4 binaries reproduce GPU 7 instead of 23, with the unknown-inherited-CS
+guard, in inherited-compute-before.out (2/4). Initial 3.5.5 binaries build; the
+reviewed build is in inherited-compute-binaries-reviewed.out. Then run inherited,
+unknown-identity and nested-override GPU variants and affected Core/resource
+checks. No game or deployment; compatibility remains incomplete.
+
+Reviewed binaries completed. Production inherited/nested cases exposed a texel
+usage mismatch after the fixture supplied a proven float4 structured source view.
+The original DX11 runtime supplies view access, deferred reference lifetime,
+hazard handling and context order; Vulkan must preserve those explicitly.
+Added exact raw/structured SRV word-read lowering to read-only SSBOs without
+augmenting application usage. Typed buffer format conversion remains unchanged.
+The first scoped run rejected the pinned translator's Depth=2 image declaration;
+spirv.c:6648 confirms that declaration. Accept non-depth 0 or unknown 2 for Buffer.
+The corrected scoped bytecode resources pass 130 checks with zero validation
+errors/warnings, covering both float modes, reassembly, mixed views, dimensions
+and OOB zero. Matching DLL rebuild succeeds in inherited-storage-binaries.out.
+Production inherited/unknown/nested 12, exact declarations 4, graphics 20,
+transaction 5, Core 10, tracker 1042, ABI 16 and text 757 pass, validation clean.
+Prepared regression passes 155. Diff reviewed; commit and main fast-forward,
+then continue original shader hash entry. No game or completion claim.

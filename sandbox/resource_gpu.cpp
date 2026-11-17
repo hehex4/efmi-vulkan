@@ -1600,6 +1600,15 @@ int wmain(int argc,wchar_t** argv){
             return errors || warnings?1:0;
         }catch(const std::exception& e){fprintf(stderr,"configuration resources: %s\n",e.what());return 1;}
     }
+    if(argc==3 && !wcscmp(argv[1],L"--bytecode-resources")){
+        try{{Device device;device.init(false,false,true,false,false,false,true,true,true);
+            bytecode_resources(device,std::filesystem::absolute(argv[2]),gpu::DxbcFloat32Mode::Software);}
+            {Device device;device.init(false,false,true,false,false,true);
+            bytecode_resources(device,std::filesystem::absolute(argv[2])/"hardware");}
+            printf("bytecode resources: %u checks passed; validation errors=%u warnings=%u\n",unsigned(checks),unsigned(errors),unsigned(warnings));
+            return errors || warnings?1:0;
+        }catch(const std::exception& e){fprintf(stderr,"bytecode resources: %s\n",e.what());return 1;}
+    }
     if(argc==4 && !wcscmp(argv[1],L"--present-ini")){
         try{return present_ini(std::filesystem::absolute(argv[2]),unsigned(_wtoi(argv[3])));}
         catch(const std::exception& e){fprintf(stderr,"present-ini: %s\n",e.what());return 1;}

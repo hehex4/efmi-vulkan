@@ -7,7 +7,17 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
-Active D-339 follows 9989900/main fast-forward. Matching 3.5.4 binaries build
+Active D-340 follows 65f2af0/main fast-forward. Source 3.5.5 lazily executes
+verified inherited application CS through original CustomShader dispatch. Finish
+the old-binary reproduction, matching build and inherited/unknown/nested GPU
+checks; preserve explicit source/resource lifetime and native restoration.
+The storage-only source blocker is fixed by bounded read-only SSBO lowering.
+Bytecode GPU 130 and production inherited/unknown/nested 12 pass, with affected
+graphics 20, transaction 5, Core 10, tracker 1042, ABI 16 and text 757 clean.
+Matching 3.5.5 DLLs build; prepared GPU 155 passes clean. Commit/fast-forward. Then
+continue original shader identity, patterned execution and graphics inheritance.
+
+D-339 follows 9989900/main fast-forward. Matching 3.5.4 binaries build
 at ABI a687800e5ab6a18e after removing a private header leak and covering shared
 SourceShaderCode. Exact declaration GPU 12, previous declarations 12, transaction
 5, Core 10, tracker 1042, ABI 16 and text 757 pass. Fresh CPU/interpreter

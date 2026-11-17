@@ -10,7 +10,34 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
-Active D-339: D-338 committed as 9989900 and main fast-forwarded. Source 3.5.4
+Active D-340: D-339 committed as 65f2af0 and main fast-forwarded. Source 3.5.5
+adds lazy translation of the active original compute shader when a prepared
+CustomShader omits its CS override. A graphics call does not prove CS unbound.
+Decoded source and translated pipelines are retained with bounded caches; normal
+explicit overrides and nested restoration keep their original behavior. The new
+production fixture rebinds an original CB and dispatches the inherited exact
+DXBC, with unknown-identity and nested-override variants. Reproduction against
+3.5.4 binaries returns original GPU 7 instead of 23 (2/4 checks) in
+inherited-compute-before.out. Initial matching binaries build; review keeps
+missing compute stage information unknown and counts translated DXBC in the
+64 MiB payload cache. Reviewed matching binaries are building in
+inherited-compute-binaries-reviewed.out at unchanged ABI a687800e5ab6a18e.
+That reviewed build completed. Inherited production cases still return GPU 7:
+uint-only views lack source proof, and a float4 proven view then exposes the
+translator's UNIFORM_TEXEL_BUFFER requirement on a STORAGE_BUFFER-only source.
+An in-progress raw/structured SRV SPIR-V adapter preserves word reads and dimensions
+using read-only storage buffers, clamps before loading and returns zero OOB.
+Typed views keep native format conversion. No application usage is augmented.
+The scoped bytecode resource test passes 130 with clean validation after accepting
+the pinned translator's non-depth Buffer Depth=2 declaration. Matching 3.5.5 DLLs
+build at ABI a687800e5ab6a18e (inherited-storage-binaries.out). Scoped production
+checks pass inherited/unknown/nested 12, exact declarations 4, graphics 20,
+transaction 5, Core 10, tracker 1042, ABI 16 and text 757, validation clean
+(inherited-storage-production.out). Prepared resource regression passes 155 with
+clean validation. Diff reviewed; commit/main fast-forward follows, then
+continue original identity/patterned execution and inherited graphics. No game.
+
+D-339 checkpoint: D-338 committed as 9989900 and main fast-forwarded. Source 3.5.4
 loads optional exact source archives, caches decoded code under a 64 MiB bound,
 and passes retained original code to declaration queries. Exact DXBC provides
 CB indexing type and absent/raw/structured declaration facts that SPIR-V alone

@@ -82,6 +82,7 @@ v.p=float4(k==2?6:-2,k==1?6:-2,1,2);v.ids=uint2(id,instance);return v;})hlsl");
     }
     check(!budgets.resident->used() && !budgets.staging->used(),"Translated graphics allocations retire");
 }
+#include "../frontend/gpu/dxbc_bindings.h"
 static void bytecode_resources(Device& d,const std::filesystem::path& root,gpu::DxbcFloat32Mode mode=gpu::DxbcFloat32Mode::Hardware){
     gpu::DxbcCompiler compiler(L"F:/vulkan/vkd3d-2.1-build/efmi-vkd3d-shader.dll");
     const auto bytes=bytecode_source('c',R"hlsl(cbuffer Parameters:register(b2){uint Add;};
@@ -89,19 +90,38 @@ StructuredBuffer<uint4> Input:register(t3); ByteAddressBuffer Raw:register(t4); 
 RWStructuredBuffer<uint4> Output:register(u0);
 [numthreads(1,1,1)] void main(uint3 id:SV_DispatchThreadID){Output[id.x]=Input[1-id.x]+uint4(Add,Raw.Load(id.x*4),Typed[id.x],0);})hlsl");
     gpu::ResourceBudgets budgets;auto host=shader_host(d);
-    for(bool reassembled:{false,true}){auto program=translated_bytecode(compiler,reassembled?bytecode_roundtrip(bytes):bytes,'c',mode);
+    for(bool storage_reads:{false,true})for(bool reassembled:{false,true}){auto program=translated_bytecode(compiler,reassembled?bytecode_roundtrip(bytes):bytes,'c',mode);
+        if(storage_reads)gpu::dxbc_storage_reads(program);
         check(program.bindings.size()==5,"Bytecode scan maps CBV, raw, structured, typed and UAV declarations");
         gpu::ResourceCommands resources(d.resource,budgets);gpu::ShaderCommands shaders(resources,host);auto pipeline=shaders.compile(program);
         const uint32_t cb[]={23,0,0,0},input[]={1,2,3,4,5,6,7,8},raw[]={11,13},typed[]={17,19};
         auto params=resources.create(16,VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,cb,16);
-        auto a=resources.create(32,VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT,input,32);
-        auto b=resources.create(8,VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT,raw,8);
+        const auto read_usage=storage_reads?VK_BUFFER_USAGE_STORAGE_BUFFER_BIT:VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT;
+        auto a=resources.create(32,read_usage,input,32);
+        auto b=resources.create(8,read_usage,raw,8);
         auto c=resources.create(8,VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT,typed,8);
         auto output=resources.create(32,VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,nullptr,0,true);
         shaders.dispatch(pipeline,{buffer_descriptor('b',2,params),buffer_descriptor('t',3,a,VK_FORMAT_R32_UINT),
             buffer_descriptor('t',4,b,VK_FORMAT_R32_UINT),buffer_descriptor('t',6,c,VK_FORMAT_R32_UINT),buffer_descriptor('u',0,output)},{2,1,1});
         const uint32_t expected[]={28,17,24,8,24,15,22,4};const auto actual=resources.readback(d.queue,output,0,32);
         check(!memcmp(actual.data(),expected,32),"Typed, raw and structured bytecode addresses preserve source elements");
+    }
+    {
+        const auto bounds_bytes=bytecode_source('c',R"hlsl(ByteAddressBuffer Raw:register(t0);
+StructuredBuffer<uint4> Input:register(t1);RWStructuredBuffer<uint4> Output:register(u0);
+[numthreads(1,1,1)] void main(){uint bytes,count,stride;Raw.GetDimensions(bytes);Input.GetDimensions(count,stride);
+Output[0]=uint4(bytes,count,stride,Raw.Load(4));Output[1]=Input[1];
+Output[2]=uint4(Raw.Load(8),Raw.Load(0xfffffffc),Input[2].x,Input[0xffffffff].w);})hlsl");
+        auto program=translated_bytecode(compiler,bounds_bytes,'c',mode);gpu::dxbc_storage_reads(program);
+        gpu::ResourceCommands resources(d.resource,budgets);gpu::ShaderCommands shaders(resources,host);
+        auto pipeline=shaders.compile(program);const uint32_t raw[]={11,13},input[]={1,2,3,4,5,6,7,8};
+        auto a=resources.create(8,VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,raw,8);
+        auto b=resources.create(32,VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,input,32);
+        auto output=resources.create(48,VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,nullptr,0,true);
+        shaders.dispatch(pipeline,{buffer_descriptor('t',0,a),buffer_descriptor('t',1,b),buffer_descriptor('u',0,output)},{1,1,1});
+        const uint32_t expected[]={8,2,16,13,5,6,7,8,0,0,0,0};
+        const auto actual=resources.readback(d.queue,output,0,48);
+        check(!memcmp(actual.data(),expected,48),"Storage-only raw/structured reads preserve dimensions and zero OOB values");
     }
     const auto parameter_bytes=bytecode_source('c',R"hlsl(Texture1D<float4> Parameters:register(t120); RWStructuredBuffer<uint4> Output:register(u3);
 [numthreads(32,1,1)] void main(uint3 id:SV_DispatchThreadID){uint count;Parameters.GetDimensions(count);

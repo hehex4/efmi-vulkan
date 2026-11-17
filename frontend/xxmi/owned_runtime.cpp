@@ -43,6 +43,7 @@ std::unique_ptr<PreparedConfigurationDraw> OwnedRuntime::prepare_draw(std::share
     auto& state=*pending->impl_;state.registry=std::move(registry);state.gpu=impl_->gpu;
     try{
         auto& resources=state.gpu->resources();resources.begin_prepared_plan(application);state.armed=true;
+        state.gpu->application_compute(draw);
         for(const auto& input:application.buffers)state.initial[{input.stage,input.type,input.slot}]=resources.binding(input.stage,input.type,input.slot);
         for(const auto& input:application.images)state.initial[{input.stage,input.type,input.slot}]=resources.binding(input.stage,input.type,input.slot);
         const bool ran=shader_only?state.registry->shader_draw(draw,state.plan,reason):state.registry->draw(draw,state.plan,reason);

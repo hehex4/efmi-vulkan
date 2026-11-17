@@ -482,6 +482,9 @@ std::shared_ptr<ShaderInvocation> ShaderCommands::descriptors(const std::shared_
             require(value.buffer && !value.image && !value.sampler,"Shader buffer descriptor requires exactly one owned buffer");commands.validate(value.buffer,value.offset,value.size);
             const bool uniform=binding.type==VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,storage=binding.type==VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
             if(uniform || storage){const auto usage=uniform?VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT:VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+                if(storage && binding.source_type=='t' &&
+                   (binding.source_buffer==ShaderBufferKind::Raw || binding.source_buffer==ShaderBufferKind::Structured))
+                    require(value.size>=4 && value.size%4==0 && value.offset%4==0,"Raw/structured storage read requires whole words");
                 const auto alignment=uniform?limits.minUniformBufferOffsetAlignment:limits.minStorageBufferOffsetAlignment;
                 require((value.buffer->usage()&usage) && alignment && value.offset%alignment==0 &&
                     value.size<=(uniform?limits.maxUniformBufferRange:limits.maxStorageBufferRange) &&

@@ -13,7 +13,29 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
-## D-339: Exact source declarations in production (in progress, 2026-11-17)
+## D-340: Lazy inherited compute execution (2026-11-17)
+
+Raw/structured DXBC SRVs use read-only scalar-word storage when inherited source
+buffers lack texel usage. Lower only proven original declarations, preserve
+dimensions and R32_UINT component defaults, clamp indices before loads and return
+zero OOB. Require whole-word non-null descriptor ranges. Typed SRVs retain format
+conversion; no application creation flags or contents are changed. Pinned vkd3d
+uses Depth=2 for Buffer image declarations (spirv.c:6648). Scoped GPU checks cover
+both float modes and original/reassembled code. Production inherited/unknown/nested
+cases pass 12, prepared resources 155, and affected Core/graphics/host checks pass.
+
+Original RunCustomShader (CommandList.cpp 2867-2898) changes CS only when
+cs_override is specified and restores that override after nested execution.
+An omitted CS inherits the current context. Prepared native execution now keeps
+exact active compute evidence and translates it only when a dispatch needs an
+otherwise unknown inherited CS. Explicit overrides never require that translation.
+A graphics pipeline does not prove the context CS is unbound. Bound caches retain
+source/code/pipeline owners; emitted packets retain execution owners independently
+of eviction or generation retirement. DX11 supplies reference lifetime/deferred
+destruction, hazard tracking and one context's order; the existing prepared Vulkan
+access ledger, host restoration and completion ownership remain mandatory.
+
+## D-339: Exact source declarations in production (2026-11-17)
 
 Original CommandList.cpp 3250-3327 reads ShaderBindings for the tracked original
 shader. CB size counts vectors, CB type retains immediate/dynamic indexing,

@@ -27,6 +27,9 @@ public:
     // Copies host-owned source programs; this does not infer application state
     // or the original tracked identities used by shader filter expressions.
     void set_programs(const std::vector<gpu::HlslProgram>&);
+    // Only the intercepted compute pipeline proves its active source stage.
+    // A graphics call does not prove that the application's CS is unbound.
+    void application_compute(const RuntimeDraw&);
     // Opt in before installation. The original CustomShader::compile loads a cache
     // <file>.<model>.<flags>.bin in place of compiling when its last-write time equals the
     // HLSL's exactly; such a cache runs through the exact bytecode translation. Without this
@@ -66,6 +69,7 @@ private:
     bool run(RunCustomShaderCommand&,CommandListState&,std::wstring&);
     bool draw(DrawCommand&,CommandListState&,std::wstring&);
     bool draw_graphics(DrawCommand&,CommandListState&);
+    void inherit_compute();
     std::vector<gpu::ShaderDescriptor> descriptors(const std::vector<const gpu::HlslProgram*>&);
     gpu::Sampler sampler(wchar_t,unsigned);
     gpu::Sampler source_sampler(const D3D11_SAMPLER_DESC&);
@@ -86,6 +90,10 @@ private:
     std::map<CustomShader*,Entry> shaders_;
     gpu::Compute compute_;
     bool compute_known_=false; // Null differs from an unimported application stage.
+    std::shared_ptr<const SourceShaderCode> source_compute_;
+    struct InheritedCompute {gpu::Compute pipeline;size_t bytes=0;};
+    std::map<std::shared_ptr<const SourceShaderCode>,InheritedCompute,std::owner_less<std::shared_ptr<const SourceShaderCode>>> inherited_compute_;
+    size_t inherited_compute_bytes_=0;
     std::array<std::shared_ptr<gpu::HlslProgram>,5> stages_;
     uint8_t stages_known_=0,graphics_known_=0; // Explicit source facts, not constructor defaults.
     SourceGraphicsState graphics_=source_graphics_defaults();

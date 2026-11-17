@@ -301,7 +301,14 @@ executed original stage commands enter TextureOverrides; conditions cannot be
 bypassed by native matching. Geometry, IA and backend fixtures supply explicit
 CheckTextureOverride commands using actual sandbox shader identities.
 
-These are scoped sandbox/GPU results. Compatibility is not complete: patterned
+D-338/D-339 retain exact paired original DXBC with a bounded source archive and
+declaration cache. D-340 executes inherited original compute when CustomShader
+omits cs, including nested overrides. Raw/structured source reads can use native
+storage-only buffers without changing application usage. Scoped bytecode GPU 130
+and production inherited/unknown/nested 12 pass with clean validation.
+
+These are scoped sandbox/GPU results. Compatibility is not complete: original
+shader hash entry, patterned
 ShaderRegex patches, general inherited graphics CustomShaders, current GPU Store boundaries, broader queue/source
 contracts and obsolete capture fixture migration remain. No game acceptance is
 implied and native-route work follows completion of this compatibility rewrite.
