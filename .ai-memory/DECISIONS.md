@@ -13,6 +13,18 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-333: Original regex links require proven source models (2026-11-17)
+
+Restore original patternless group parsing/linking at production native calls,
+with stage order, conditional CheckTextureOverride entry and original filter
+precedence. Use an isolated map to retain original shared command links; never
+invent a DXBC shader hash from a Vulkan identity. Retain legacy file-plan/library
+diagnostics separately. Exact whole-asset pairing proves models for 18,715 modules;
+unpaired/unknown source models remain unknown. This metadata owns no GPU assets or
+character configuration and implies no patched-code/declaration correspondence.
+Patterned source patches need executable translation before command linkage.
+See docs/shader-source-models.md for proof boundaries and remaining work.
+
 ## D-332: Negotiate original shader capabilities and retire upload producers (2026-11-17)
 
 Keep original cached-DXBC selection and floating-point semantics. Negotiate the

@@ -2,6 +2,7 @@
 #include "shader_state.h"
 #include <map>
 #include <vector>
+struct ShaderOverride;
 
 namespace efmi::frontend {
 class DrawPlanAdapter;
@@ -30,9 +31,15 @@ public:
     void initialize(DrawPlanAdapter&);
     Preparation prepare(const SourceShaderState&,unsigned stage_mask,bool require_known,bool analyse_patches=false) const;
     void apply(Preparation,DrawPlanAdapter&);
+    unsigned stages() const {return relevant_stages_;}
+    // Patternless groups need a proven source model, but no invented DXBC hash.
+    // Original linking runs in an isolated temporary map; live native hashes
+    // and source-hash query identities are never replaced by that internal key.
+    ShaderOverride* model_commands(const std::string&,DrawPlanAdapter&);
 private:
     struct Identity {std::string model;std::shared_ptr<const SourceShaderCode> code;};
     std::map<uint64_t,Identity> linked_;
+    std::map<std::string,std::shared_ptr<ShaderOverride>> model_links_;
     size_t retained_bytes_=0;
     unsigned relevant_stages_=0;
     bool initialized_=false;

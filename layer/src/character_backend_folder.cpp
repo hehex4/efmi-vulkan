@@ -51,6 +51,13 @@ std::shared_ptr<ConfigurationGeneration> folder_create(Device* device, const VkP
         }else logf("configuration shader inputs refused: %s",input_reason.c_str());
     }
     efmi::frontend::RuntimeConfig source{root, {}, settings, "configuration"};
+    wchar_t model_path[32768]={};const auto model_length=GetEnvironmentVariableW(L"EFMI_VK_SHADER_MODELS",model_path,32768);
+    const auto model_file=model_length && model_length<32768?std::filesystem::path(model_path):settings/"shader-models.bin";
+    if(std::filesystem::is_regular_file(model_file,input_error)){
+        auto models=std::make_shared<efmi::frontend::ShaderModelIndex>();std::string why;
+        if(models->load(model_file,why)){logf("configuration source models: %zu exact identities",models->size());folder->geometry->models=std::move(models);}
+        else logf("configuration source models refused: %s",why.c_str());
+    }
     source.installation = root;
     std::string gpu_reason;
     auto gpu = OwnedPresenter::runtime(device, memory, root, gpu_reason, variants ? variants->pipeline_cache() : VK_NULL_HANDLE);

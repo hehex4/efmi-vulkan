@@ -85,4 +85,42 @@ bool ShaderInputIndex::lookup(const std::vector<uint32_t>& code,VertexProfile& p
         return profile.prepare(code,found->second.semantics,reason,false);
     } catch(const std::exception& e){reason=e.what();return false;}
 }
+bool ShaderModelIndex::load(const std::filesystem::path& path,std::string& reason){
+    try{
+        std::ifstream file(path,std::ios::binary|std::ios::ate);const auto size=file.tellg();
+        require(bool(file) && size>=48 && size<=budget,"Shader model cache is unavailable or exceeds its budget");
+        std::vector<uint8_t> bytes(static_cast<size_t>(size));file.seekg(0);
+        require(bool(file.read(reinterpret_cast<char*>(bytes.data()),size)) && file.peek()==EOF,"Shader model cache changed while reading");
+        return decode(bytes,reason);
+    }catch(const std::exception& e){reason=e.what();return false;}
+}
+bool ShaderModelIndex::decode(const std::vector<uint8_t>& bytes,std::string& reason){
+    try{
+        require(bytes.size()>=48 && bytes.size()<=budget,"Shader model cache exceeds its budget");
+        Reader input(bytes);require(!std::memcmp(input.take(8),"EFVSM001",8),"Unknown shader model cache version");
+        const auto count=input.word(),size=input.word();
+        require(count<=65536 && size==bytes.size()-48 && size==count*40,"Invalid shader model cache framing");
+        const auto expected=input.take(32);const auto actual=digest(bytes.data()+48,size);
+        require(!std::memcmp(expected,actual.data(),32),"Shader model cache checksum mismatch");
+        std::map<std::array<uint8_t,32>,Entry> next;
+        for(uint32_t i=0;i<count;++i){
+            std::array<uint8_t,32> key{};std::memcpy(key.data(),input.take(32),32);
+            Entry entry;entry.bytes=input.word();const auto token=input.word(),kind=token>>16,major=(token>>4)&15,minor=token&15;
+            require(entry.bytes>=20 && entry.bytes<=16u*1024*1024 && entry.bytes%4==0 && kind<6 &&
+                (major==4 || major==5) && minor<=1 && !(token&0xff00),"Invalid shader model entry");
+            entry.model=std::string(1,"pvghdc"[kind])+"s_"+std::to_string(major)+"_"+std::to_string(minor);
+            require(next.emplace(key,std::move(entry)).second,"Duplicate shader model identity");
+        }
+        require(input.done(),"Trailing shader model cache bytes");entries_=std::move(next);reason.clear();return true;
+    }catch(const std::exception& e){reason=e.what();return false;}
+}
+bool ShaderModelIndex::lookup(const std::vector<uint32_t>& code,std::string& model) const{
+    model.clear();
+    try{
+        if(code.size()<5 || code.size()>(1u<<22) || code[0]!=0x07230203)return false;
+        const auto found=entries_.find(digest(code.data(),code.size()*4));
+        if(found==entries_.end() || found->second.bytes!=code.size()*4)return false;
+        model=found->second.model;return true;
+    }catch(const std::exception&){return false;}
+}
 }

@@ -4026,3 +4026,45 @@ core-retirement-regression.out passes Core 10, backend 13, transaction 5, tracke
 core-retirement-publication.out. Diff reviewed; local commit and main fast-forward
 follow, then continue ShaderRegex/source evidence and remaining compatibility
 work before native queue/access/readiness. No game action or deployment.
+
+## 2026-11-17: D-333 original model-linked ShaderRegex and Core IB gate
+
+Continued after committing D-332 as 408eb0f and fast-forwarding main. Read original
+HackerContext BeforeDraw/AfterDraw and ShaderRegex.cpp 721+ plus filter precedence
+at 366+. BUG-173: production inserted IB lists independently of the Core's regex
+condition. Restore original patternless links using proven source models, isolated
+from native hash entries; original explicit filters and per-stage pre/post order
+are preserved. Prepared Vulkan ownership/admission still supplies DX11's deferred
+destruction, hazard tracking and context order. The legacy file-plan diagnostics
+keep their own entry; patterned groups still need executable original DXBC patches.
+
+The new asset reader proves combined payload stage/model correspondence across
+232 fingerprinted assets. A strict header-flag check initially rejected a valid
+0x21 flag; version-2 flags are now opaque, with complete checked ranges and actual
+executable stage/model headers. Result: 18,715 admitted exact module identities,
+751 unpaired-only identities excluded, zero model conflicts, 748,648-byte cache.
+No character names or assets in the runtime cache. Representative vertex/pixel/
+compute modules pass independent spirv-val; the complete corpus was range/model
+parsed, not independently validated in its entirety.
+
+Initial compilation needed a ShaderOverride forward declaration/shared owner.
+The CPU Core-style condition fixture initially lacked native IB source facts and
+could not match; providing the actual fixture resource fixes it. Root 39 and full
+interpreter 582 pass in shader-regex-model-cpu-reviewed/interpreter-reviewed.out.
+The first full-interpreter command used a relative input path; corrected to the
+required absolute fixture path. Metadata reader 24/parser 15 pass in
+shader-model-reader.out. Matching DLLs/tracker build at 3.4.9 / unchanged ABI
+e4b3f2f85954669e in shader-regex-model-binaries.out.
+
+Production regex enabled/gated/mismatched/missing-model GPU modes pass 16 checks
+after correcting test-module imports. Scoped regression passes backend 13,
+transaction 5, tracker 1020 and ABI 9. Core initially omitted synthetic model facts
+for the sandbox vertex, correctly producing explicit refusals. Adding those facts
+restores import acceptance. The new Core gate test selected mip 200 via scalar
+Texture1D.Load(200), giving zero despite actual indexed-call suppression; explicit
+int2(200,0) fixes the readback. shader-regex-core-final.out passes Core imports 10
+and original enable/disable gate 12, including GPU parameters and call suppression.
+Fresh shader-regex-model-resource-gpu.out passes 395 with zero validation errors/
+warnings. Globals audit 952 and final text 748 pass. Diff reviewed; commit and main
+fast-forward follow. Continue prepared graphics/restoration, patterned patches,
+original-only entry, current Store and queue/source/capture work. No game action.

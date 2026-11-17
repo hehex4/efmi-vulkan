@@ -215,6 +215,9 @@ void RuntimeValidateSections(const std::vector<std::wstring>& native_shaders,boo
     for (const auto& section : ini_sections) {
         if (!_wcsnicmp(section.first.c_str(), L"Include", 7))
             throw std::runtime_error("Recursive INI includes need an explicit runtime input adapter");
+        // Original regex parsing/linking remains active. Native calls supply
+        // verified source models and refuse missing bytecode for patterned groups.
+        if(!_wcsnicmp(section.first.c_str(),L"ShaderRegex",11))continue;
         // ShaderOverride and ShaderRegex sections act on the game's shaders by their DX11 hash, which a
         // Vulkan character generation cannot see (D-089). Without shader hooks they stay inert, as for
         // shaders that never run: the original's overlay warning names each one that would act, and

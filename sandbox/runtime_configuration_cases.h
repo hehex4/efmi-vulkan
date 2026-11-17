@@ -137,4 +137,68 @@ global $unexpected = 1
     draw.hash=0xaabbccdd;
     check(runtime->draw(draw,plan,reason) && plan.skip_original && queries==0,
         "Unbound and unknown-hash source shaders return zero before evaluating declaration arguments");
+
+    // The original Core enters TextureOverrides through a conditional regex
+    // command, not by eagerly inserting all matching IB lists.
+    for(unsigned enabled=0;enabled<2;++enabled){
+        const std::string regex=std::string("[Constants]\nglobal $enabled = ")+std::to_string(enabled)+R"ini(
+global $pre = 0
+global $post = 0
+global $hit = 0
+global $v = 0
+global $p = 0
+[ShaderOverrideVertex]
+hash = 1
+filter_index = 42
+$pre = $pre * 10 + 1
+post $post = $post * 10 + 4
+[ShaderRegexA]
+shader_model = vs_5_0
+filter_index = 7
+$pre = $pre * 10 + 2
+post $post = $post * 10 + 5
+if $enabled
+    checktextureoverride = ib
+endif
+[ShaderRegexB]
+shader_model = ps_5_0
+filter_index = 11
+$pre = $pre * 10 + 3
+post $post = $post * 10 + 6
+$v = vs
+$p = ps
+[TextureOverrideConditional]
+hash = aabbccdd
+$hit = $hit + 1
+post $hit = $hit + 100
+handling = skip
+)ini";
+        write(root/"d3dx.ini",regex.c_str());runtime=IniRuntime::load(config,{},reason);
+        if(!runtime)throw std::runtime_error(reason);
+        draw={};draw.native_calls=true;draw.hash=0xaabbccdd;draw.shader_stages=17;draw.stage_hash_mask=17;
+        draw.stage_hashes[0]=1;draw.stage_hashes[4]=2;draw.source_models[0]="vs_5_0";draw.source_models[4]="ps_5_0";
+        draw.count=3;
+        draw.native_resource=[](const NativeBinding& address,NativeResource& resource,std::string&){
+            resource={};if(address.kind!=NativeBinding::Index)return true;
+            resource.bound=true;resource.dimension=1;resource.format_known=true;resource.format=42;
+            resource.identity=1;resource.buffer=1;resource.size=64;resource.range=64;resource.index_size=4;
+            resource.descriptor_type=0x7fffffffu;return true;
+        };
+        check(runtime->draw(draw,plan,reason),"Proven models enter original patternless regex commands");
+        values=runtime->status().variables;
+        if(values.at("$hit")!=enabled*101 || plan.skip_original!=bool(enabled)){
+            std::cerr<<"Regex conditional diagnostic: enabled="<<enabled<<" hit="<<values.at("$hit")<<" skip="<<plan.skip_original<<" reason="<<reason<<"\n";
+            for(const auto& message:runtime->status().diagnostic_messages)std::cerr<<message<<"\n";
+        }
+        check(values.at("$hit")==enabled*101 && plan.skip_original==bool(enabled),
+            "Core-style regex condition controls original IB pre/post commands without eager matches");
+        check(values.at("$pre")==123 && values.at("$post")==456 && values.at("$v")==42 && values.at("$p")==11,
+            "Native explicit entries precede stage-ordered regex links and keep original filter precedence");
+        draw.source_models[0].clear();
+        check(!runtime->draw(draw,plan,reason) && reason.find("verified source shader model")!=std::string::npos &&
+            runtime->status().variables==values,"Missing original model refuses before command side effects");
+        draw.source_models[0]="vs_5_0";
+        check(runtime->draw(draw,plan,reason) && runtime->status().variables.at("$hit")==enabled*202,
+            "Repeated model entry does not accumulate command links");
+    }
 }

@@ -618,6 +618,7 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
         matched_index = index_region_hash(b.device, r, b.frames.load(std::memory_order_relaxed), index_hash);
     }
     bool named = matched_index;
+    if(hooks && hooks->program)named|=(hooks->program->runtime()->shader_regex_stages()&modules.stages)!=0;
     if (hooks && hooks->program)
         for (unsigned i = 0; i < 6 && !named; ++i)
             named = (modules.mask >> i & 1u) && std::binary_search(hooks->hashes.begin(), hooks->hashes.end(), modules.hashes[i]);
@@ -651,6 +652,22 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
         // Serialize the entire speculative original context, including host
         // preflight and admission, against Present, reload and other draws.
         std::lock_guard<std::mutex> plan_lock(*hooks->folder->plan_mx);
+        if(auto* geometry=hooks->folder->geometry.get();geometry && geometry->models){
+            std::shared_lock<std::shared_mutex> resources(b.device->res_mx);
+            const auto pipeline=b.device->pipes.find(r.pipeline);
+            if(pipeline!=b.device->pipes.end()){
+                std::lock_guard<std::mutex> cache(geometry->mutex);
+                for(const auto& stage:pipeline->second.shaders){const int i=original_stage(stage.stage);
+                    if(i<0 || !stage.shader)continue;
+                    const auto found=geometry->source_models.find(stage.shader);
+                    if(found!=geometry->source_models.end())request.source_models[i]=found->second;
+                    else{
+                        geometry->models->lookup(stage.shader->code,request.source_models[i]);
+                        if(geometry->source_models.size()<65536)geometry->source_models.emplace(stage.shader,request.source_models[i]);
+                    }
+                }
+            }
+        }
         efmi::frontend::NativeApplicationState application;
         std::unique_ptr<efmi::frontend::PreparedConfigurationDraw> prepared;
         if(native_application_state(b.device,cb,r,application,reason,hooks->program->runtime()->native_bindings()) && hooks->program->gpu())

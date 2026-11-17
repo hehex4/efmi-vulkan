@@ -1,5 +1,30 @@
 # EFMI Vulkan - Known issues
 
+## BUG-173: Production IB entry bypasses original Core regex conditions (D-333 fixed)
+
+Original HackerContext.cpp 1029+ runs shader command lists in stage order.
+ShaderRegex.cpp 721+ links patternless groups by actual shader model; the Core's
+CheckTextureOverride command then conditionally enters IB lists. Production
+run_draw instead inserted matching TextureOverride lists unconditionally and
+declared the original regex inert. This bypasses enable_mods and other conditions.
+
+The active fix parses original groups and uses original model linking in an
+isolated map, preserving explicit filter precedence and command identity. Actual
+paired-asset DXBC models are keyed by complete SPIR-V SHA-256/size, independently
+of input semantics. Model correspondence asserts no original hash, declarations or
+assembly. Unknown models and pattern-dependent groups needing executable patch
+translation refuse explicitly. DX11 deferred lifetime, hazard tracking and context
+order remain supplied by the prepared Vulkan ownership/admission path.
+
+The corpus builder admits 18,715 model identities and excludes 751 unpaired-only
+modules. CPU root 39/interpreter 582, reader 24/parser 15, production regex GPU 16
+and resource GPU 395 pass. The initial Core fixture lacked source facts for the
+sandbox vertex shader; explicit synthetic metadata fixes that fixture. A later
+Core gate check used Texture1D.Load(200), which also selected mip 200; specifying
+int2(200,0) fixes the check. Core enable/disable now proves both GPU parameters and
+actual call suppression (12 checks). No game verification. Native-only direct IB
+entry and patterned shader patches are separate remaining compatibility work.
+
 ## BUG-171: Original cached Core shaders lack negotiated device capabilities (D-332 fixed)
 
 The first full installed-Core production fixture fails initialization and bone

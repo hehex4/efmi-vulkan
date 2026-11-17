@@ -1,6 +1,7 @@
 """Execute installed Core command lists/shaders through one original configuration."""
 from pathlib import Path
 import json
+import hashlib
 import struct
 import subprocess
 import sys
@@ -9,13 +10,15 @@ from harness import Checks, Sandbox, ROOT
 from native_compute_test import compile_shader, read_compute_result
 from efmi_vk.hashes import crc32c
 from efmi_vk.probe_client import ProbeClient
+sys.path.insert(0,str(Path(ROOT)/'scripts'))
+from build_shader_model_index import encode
 
 CORE = Path("D:/XXMI-Launcher-Portable-v2.1.6/EFMI/Core/EFMI")
 
 
 def main():
     case = sys.argv[1] if len(sys.argv) > 1 else "constant"
-    if case not in ("constant", "rolling"):
+    if case not in ("constant", "rolling", "gate_enabled", "gate_disabled"):
         raise ValueError("Unknown Core execution case")
     checks = Checks("native original Core execution")
     root = Path(ROOT) / "build/native-core-execution"
@@ -38,6 +41,15 @@ def main():
     source.write_text("[[vk::binding(0,0)]] RWStructuredBuffer<uint4> output;\n"
                       "[numthreads(1,1,1)] void main() { output[0] = uint4(7,0,0,0); }\n", encoding="ascii")
     shader = compile_shader(source, root / "compiled", "12345678", "cs")
+    # The sandbox's generated vertex program has an explicit synthetic source
+    # model for this fixture. Real-game correspondence comes from paired assets.
+    vertex=root/'sandbox-vertex.spv'
+    reader=Path(ROOT)/'build/shader-input-test/shader_input_test.exe'
+    if not reader.is_file():raise RuntimeError('Build the shader model reader fixture first')
+    subprocess.run([str(reader),'--sandbox-vertex',str(vertex)],check=True)
+    vertex_code=vertex.read_bytes();models=root/'shader-models.bin'
+    models.write_bytes(encode([(hashlib.sha256(vertex_code).digest(),len(vertex_code),0x10050)]))
+    gate=case.startswith('gate_')
     values = [0.0] * 4096
     values[1], values[2] = 0, 12
     for row in range(6):
@@ -61,7 +73,8 @@ def main():
         "ok &= all(merged[p]==float4(1,0,0,0)) && all(merged[p+1]==float4(0,1,0,0)) && all(merged[p+2]==float4(0,0,1,0)); }\n"
         "for(uint r=0;r<6;++r) { ok &= all(merged[1536+r]==float4((10+r)*2,4,6,8));\n"
         "ok &= all(merged[1542+r]==float4((30+r)*2,10,12,14)); }\n"
-        "output[0]=uint4(ok, (uint)merged[1536].x, (uint)merged[1542].x, (uint)IniParams.Load(0).x); }\n", encoding="ascii")
+        "output[0]=uint4(ok, (uint)merged[1536].x, (uint)merged[1542].x, (uint)IniParams.Load(int2("+
+        ("200" if gate else "0")+",0)).x); }\n", encoding="ascii")
     importer = "RollingBuffer" if case == "rolling" else "ConstantBuffer"
     bone_binding = ("Resource\\EFMIv1\\Input_ComponentBoneMatrices = ref ResourceBones\n" if case == "rolling" else "")
     bone_declaration = ("[ResourceBones]\ntype = StructuredBuffer\nstride = 16\nfilename = bones.buf\n" if case == "rolling" else "")
@@ -80,10 +93,16 @@ def main():
         "run = CustomShader\\EFMIv1\\_MergedSkeleton_BonesImporter_" + importer + "\n" +
         "cs-u0 = ref ResourceCaller\ncs-t7 = ref ResourceMerged\nrun = CustomShaderVerify\n"
         "[CustomShaderVerify]\ncs = verify.hlsl\ndispatch = 1,1,1\n" + bone_declaration, encoding="ascii")
+    if gate:
+        with (mods/'execution.ini').open('a',encoding='ascii') as file:
+            file.write('[Constants]\n$\\EFMIv1\\enable_mods = '+('1' if case=='gate_enabled' else '0')+'\nx200 = 0\n'
+                       '[TextureOverrideGate]\nmatch_type = Buffer\nmatch_bind_flags = +index_buffer\n'
+                       'x200 = 1\nhandling = skip\n')
     settings = root / "settings"
     settings.mkdir(exist_ok=True)
     result = root / "result.raw"
-    env = dict(EFMI_VK_CONFIGURATION=str(root), EFMI_VK_M2_SETTINGS=str(settings), EFMI_VK_M2_ENABLED="1")
+    env = dict(EFMI_VK_CONFIGURATION=str(root), EFMI_VK_M2_SETTINGS=str(settings), EFMI_VK_M2_ENABLED="1",
+               EFMI_VK_SHADER_MODELS=str(models))
     with Sandbox(threads=0, seconds=6, validation=True, env_extra=env,
                  extra_args=["--compute-shader", str(shader), "--compute-output", str(result), "--compute-capture"]) as sb:
         time.sleep(2)
@@ -95,9 +114,11 @@ def main():
         checks.equal(sb.proc.returncode, 0, "original Core sandbox exits normally")
     data = read_compute_result(result)
     words = struct.unpack_from("<4I", data) if len(data) == 16 else None
-    checks.equal(words, (1, 20, 60, 41), "original Core initializes 512 bones, imports both skeletons, and restores IniParams")
+    last=(1 if case=='gate_enabled' else 0) if gate else 41
+    checks.equal(words, (1, 20, 60, last), "original Core initializes/imports bones and preserves the expected parameter or conditional IB result")
     hooks = status.get("shader_overrides", {})
     checks.check(hooks.get("executed", 0) > 0 and not hooks.get("last_reason"), "original Core execution reaches native admission")
+    if gate:checks.equal(hooks.get('skipped',0)>0,case=='gate_enabled','original Core condition controls actual indexed call suppression')
     layer_log = (root / (case + "-layer.log")).read_text(encoding="utf-8")
     checks.check("does nothing:" not in layer_log and "Unrecognised entry:" not in layer_log,
                  "Core commands and cached shaders execute without unsupported-command fallbacks")

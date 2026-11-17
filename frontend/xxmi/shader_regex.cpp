@@ -14,9 +14,9 @@ constexpr size_t max_source_bytes=64u<<20;
 // restore the live nodes unchanged so local/static variable pointers stay valid.
 struct OverrideIsolation {
     ShaderOverrideMap saved;
-    explicit OverrideIsolation(uint64_t hash){
+    explicit OverrideIsolation(uint64_t hash,bool copy_filter=true){
         saved.swap(G->mShaderOverrideMap);const auto old=saved.find(hash);
-        if(old!=saved.end()){
+        if(copy_filter && old!=saved.end()){
             try{auto& fresh=G->mShaderOverrideMap[hash];fresh.filter_index=old->second.filter_index;
                 fresh.backup_filter_index=old->second.backup_filter_index;
                 fresh.command_list.ini_section=old->second.command_list.ini_section;
@@ -116,5 +116,26 @@ void SourceShaderRegex::apply(Preparation prepared,DrawPlanAdapter& adapter){
         if(entry->identity.code)retained_bytes_+=entry->identity.code->bytes().size();
         linked_.emplace(entry->hash,std::move(entry->identity));
     }
+}
+ShaderOverride* SourceShaderRegex::model_commands(const std::string& source,DrawPlanAdapter& adapter){
+    require_regex(G && initialized_,"Original model links require an active generation");
+    const auto cached=model_links_.find(source);if(cached!=model_links_.end())return cached->second.get();
+    require_regex(source.size()==6 && std::string("vhdgpc").find(source[0])!=std::string::npos &&
+        source[1]=='s' && source[2]=='_' && (source[3]=='4' || source[3]=='5') && source[4]=='_' &&
+        (source[5]=='0' || source[5]=='1'),"ShaderRegex requires a proven DXBC source model");
+    require_regex(!G->SHADER_CACHE_PATH[0] && !G->CACHE_SHADERS && !G->EXPORT_FIXED,"Original model links require an owned shader cache adapter");
+    std::shared_ptr<ShaderOverride> result;
+    {
+        OverrideIsolation isolated(0,false);bool needs_code=false;std::string model=source;
+        const wchar_t stage[]={wchar_t(source[0]),L's',0};
+        link_shader_regex_groups_without_patterns(stage,&model,0,&needs_code);
+        require_regex(!needs_code,"Original patterned ShaderRegex requires paired DXBC and executable patch translation");
+        const auto found=G->mShaderOverrideMap.find(0);
+        if(found!=G->mShaderOverrideMap.end()){
+            result=std::make_shared<ShaderOverride>(std::move(found->second));
+            adapter.adapt(result->command_list);adapter.adapt(result->post_command_list);
+        }
+    }
+    auto* value=result.get();model_links_.emplace(source,std::move(result));return value;
 }
 }

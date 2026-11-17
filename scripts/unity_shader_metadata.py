@@ -124,14 +124,17 @@ class Smolv:
                                             ctypes.c_void_p, ctypes.c_size_t]
         self.library.smolv_decode.restype = ctypes.c_bool
 
-    def vertex(self, code):
-        offset, size = struct.unpack('<2I', span(code, 4, 8))
-        data = span(code, offset, size)
+    def decode(self, data):
         decoded_size = self.library.smolv_size(data, len(data))
         require(20 <= decoded_size <= 64 * 1024 * 1024, 'Invalid SMOL-V decoded size')
         output = ctypes.create_string_buffer(decoded_size)
         require(self.library.smolv_decode(data, len(data), output, decoded_size), 'SMOL-V decode failed')
-        return output.raw, vertex_locations(output.raw)
+        return output.raw
+
+    def vertex(self, code):
+        offset, size = struct.unpack('<2I', span(code, 4, 8))
+        module = self.decode(span(code, offset, size))
+        return module, vertex_locations(module)
 
 
 def vertex_locations(data):

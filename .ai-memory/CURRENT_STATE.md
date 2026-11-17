@@ -10,46 +10,52 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
-Active D-332: D-331 is committed as ed02efb and root main fast-forwarded. The new
-native_core_execution_test.py reads installed Core via a project-owned junction,
-with all mutable files/settings in build/native-core-execution. Original Include
-needs root-relative backslash paths; two early fixture attempts used incompatible
-absolute/forward-slash paths. Correct paths reveal BUG-171: cached Core DXBC needs
-float controls not negotiated for Vulkan 1.1, and Core GUI needs depthClamp.
-core-execution-original-paths.out fails the real GPU initializer/import output.
-Source is 3.4.8. Matching capability DLLs build; original Core constant/rolling
-GPU values pass, then enabling supported geometryShader removes the Core text
-renderer fallback too. core-execution-regression.out passes Core 10, declarations
-12, production 5, backend 13, tracker 1015, ABI 9 and text 744, but Present fails
-80/82: F10 removing the include causes two waits in Present in both entries.
-BUG-172 is ResourceInitialization destroying its producer submission on the last
-owner's thread. Active core-retirement-build.out builds a nonblocking retirement
-fix: device ledger retains producer/packet until producer and consumer fences
-complete, including semaphore-free uploads. Five tracker assertions added. This
-changes the shared ABI; rebuild all matching DLLs and tracker. No C++ edits during
-build. Next run the exact F10 case, Core/Present/scoped regression and resource GPU
-checks, review, sync memory and commit. Then continue ShaderRegex entry, prepared
-graphics/current Store and remaining compatibility/native work. No game action.
+Active D-333: D-332 committed as 408eb0f and root main fast-forwarded. Source now
+3.4.9, verified original patternless ShaderRegex entry work. Original
+HackerContext BeforeDraw/AfterDraw stage lists and ShaderRegex.cpp 721+ prove that
+Core's CheckTextureOverride condition must control IB lists. The old production
+path inserted matches unconditionally. Parse original groups, link by proven model
+in an isolated map, preserve native explicit filter precedence and stage ordering;
+missing models and patterned groups requiring DXBC/translation refuse explicitly.
 
-Build follow-up: core-retirement-build.out exposed a missing direct <functional>
-include in shared state.h; corrected. Active build is core-retirement-build-fixed.out,
-source 3.4.8 / ABI e4b3f2f85954669e, exec session 46932. No test has yet validated
-the BUG-172 fix. Run the exact removed_with_present_work fixture for layer/inject
-first, then current Core and fresh configuration GPU/prepared checks. Keep this
-work active through verification/commit and the next compatibility gap.
+New build_shader_model_index.py validates combined paired-API payloads from all
+232 previously surveyed assets. It derives actual SPIR-V stages and DXBC models,
+not serialized slot order. First strict flag check rejected a valid 0x21 flag;
+version-2 header flags are opaque while all ranges and actual executables validate.
+build/shader-model-index/report.json: 19,628 vertex and pixel pairs each, 1,025
+compute pairs; 18,715 admitted exact module identities, zero model conflicts,
+751 unpaired-only modules excluded. Cache is 748,648 bytes, no names/assets.
+No runtime cache is deployed. Source index reader/production model projection and
+CPU conditional/stage-order regressions now pass 39 and the full interpreter 582
+(shader-regex-model-cpu-reviewed/interpreter-reviewed.out). The first header build
+needed a ShaderOverride forward declaration/shared owner; the new CPU fixture
+needed an explicit native IB resource before CheckTextureOverride could match it.
+Production model entry is restricted to native_calls; the older file-plan/library
+diagnostic entry keeps its existing hooks. Source model reader 24 and parser 15
+pass in shader-model-reader.out; independent spirv-val validates vertex/pixel/
+compute representative modules. Do not claim independent validation of all 18,715.
+Matching binaries 3.4.9 / unchanged ABI e4b3f2f85954669e build in
+shader-regex-model-binaries.out. Production regex four modes pass 16; backend 13,
+production transaction 5, tracker 1020 and ABI 9 pass. Core initially lacks the
+sandbox vertex's model facts; adding synthetic fixture metadata fixes it. Its new
+IB gate readback used Load(200), accidentally selecting mip 200 too; int2(200,0)
+fixes the test. shader-regex-core-final.out passes imports 10 and real original
+Core enable/disable gate 12, including GPU observations and actual suppression.
+Fresh resource GPU 395 passes with zero validation diagnostics. Globals 952 and
+final text 748 pass. Diff reviewed; commit/main fast-forward next, then continue
+prepared graphics stage/pass/restoration support and remaining compatibility work.
+Patterned source patches, original-only entry without native IB convenience,
+current Store, broader source/queue contracts and capture migration remain. No game.
 
-D-332 verification follow-up: matching 3.4.8 / e4b3f2f85954669e binaries build in
-core-retirement-build-fixed.out. The exact F10 regression passes 12/12 for layer
-and injection. Fresh resource GPU 395 and prepared GPU 155 pass, validation clean.
-core-retirement-regression.out passes Core constant/rolling 10, backend 13,
-production transaction 5, tracker 1020, ABI 9 and text 744. Publication two-queue
-and module-swap cases pass 13 in core-retirement-publication.out. Diff reviewed;
-commit and main fast-forward follow. Earlier pending-build notes are historical.
-Next fix the original ShaderRegex entry: the production path still substitutes
-unconditional IB matches for Core's conditional CheckTextureOverride command.
-Source model/hash/code evidence must be explicit; missing Vulkan declarations do
-not establish original DXBC facts. Continue remaining compatibility work after
-the commit, then native work. No real-game action.
+## D-332 verified checkpoint (2026-11-17)
+
+Committed as 408eb0f; root main fast-forwarded. Source/four DLLs 3.4.8 / ABI
+e4b3f2f85954669e. Original cached Core shader capability negotiation and nonblocking
+upload producer/packet retirement are verified. Exact F10 layer/inject 12, resource
+GPU 395, prepared GPU 155, Core 10, backend 13, production 5, tracker 1020, ABI 9,
+publication 13 and text 744 pass; validation clean. Earlier build and fixture
+failures are recorded in SESSION_LOG.md. No game action. Continued immediately
+with original ShaderRegex entry (D-333 above).
 
 ## D-330: original cached source queries verified (2026-11-17)
 

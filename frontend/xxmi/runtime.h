@@ -145,6 +145,9 @@ struct RuntimeDraw {
     // name a module act at the draw (docs/vulkan-native-mods.md).
     uint32_t stage_hashes[6] = {};
     uint32_t stage_hash_mask = 0;
+    // Exact paired-asset evidence. Empty means unknown; SPIR-V execution model
+    // alone does not prove an original DXBC model or its hash/bytecode.
+    std::array<std::string,6> source_models;
     // The application's call, as the original's DRAW_TYPE takes it: indexed or not, direct or indirect.
     bool indexed = true, indirect = false, compute = false;
     // Bit N: the pipeline's vertex input reads binding N, DX11's input slot N (D-161: a buffer the lists
@@ -225,6 +228,7 @@ public:
     // The SPIR-V module hashes the generation's ShaderOverride sections name (below 2^32; the others are DX11
     // shaders' and stay as the compatibility route keeps them), ascending.
     std::vector<uint32_t> shader_hashes() const;
+    unsigned shader_regex_stages() const;
     // Original DepthBufferFilter values: 1 needs a depth target, 2 needs no depth target.
     std::map<uint32_t, int> shader_depth_filters() const;
     const std::vector<NativeBinding>& native_bindings() const;

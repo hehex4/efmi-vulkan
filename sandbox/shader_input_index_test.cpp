@@ -19,6 +19,20 @@ int wmain(int argc,wchar_t** argv){
             file.write(reinterpret_cast<const char*>(code.data()),code.size()*4);return file?0:1;
         }
         int passed=0;auto check=[&](bool ok,const char* label){if(!ok)throw std::runtime_error(label);++passed;};
+        if(argc==3 && std::wstring(argv[1])==L"--models"){
+            const fs::path root=argv[2];const auto code=code_at(root/L"fixture.spv");std::string reason,model;
+            ShaderModelIndex index;
+            check(index.load(root/L"good.bin",reason) && index.size()==1,"Valid source model cache loads");
+            check(index.lookup(code,model) && model=="vs_5_0","Exact source model identity resolves");
+            auto changed=code;changed[2]^=1;
+            check(!index.lookup(changed,model) && model.empty(),"Changed shader clears earlier model facts");
+            check(!index.lookup({},model),"Absent source bytes cannot prove a model");
+            for(const auto& file:fs::directory_iterator(root))if(file.path().filename().wstring().find(L"bad-")==0){
+                check(!index.load(file.path(),reason) && !reason.empty(),"Malformed source model cache refuses");
+                check(index.size()==1 && index.lookup(code,model) && model=="vs_5_0","Refusal preserves the previous complete model index");
+            }
+            printf("Shader model index: %d checks passed\n",passed);return 0;
+        }
         if(argc==5 && std::wstring(argv[1])==L"--corpus"){
             ShaderInputIndex index;std::string reason;check(index.load(argv[2],reason),"Corpus cache loads");
             std::set<std::vector<uint32_t>> seen;size_t accepted=0;

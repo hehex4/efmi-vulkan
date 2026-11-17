@@ -260,6 +260,7 @@ struct IniRuntime::Impl {
     ModTextures mod_textures; // what the loader makes of the Mods' image files, for the property queries (D-170)
     SourceShaderContext source_shaders;
     SourceShaderRegex source_regex;
+    std::array<ShaderOverride*,6> model_links{};
     std::unique_ptr<FilePlanCompiler> files;
     HackerDevice device;
     HackerContext context;
@@ -499,9 +500,18 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
                 if(draw.source_declaration(target.shader_type,slot,query,value,unknown))return true;
                 why.assign(unknown.begin(),unknown.end());return false;
             }
+            bool explicit_filter=false;
             if(draw.stage_hash_mask&bit){
                 const auto match=G->mShaderOverrideMap.find(uint64_t(draw.stage_hashes[index]));
-                if(match!=G->mShaderOverrideMap.end())value=match->second.filter_index==FLT_MAX?1.0f:match->second.filter_index;
+                if(match!=G->mShaderOverrideMap.end()){
+                    explicit_filter=match->second.filter_index!=FLT_MAX;
+                    value=explicit_filter?match->second.filter_index:1.0f;
+                }
+            }
+            if(const auto* linked=p.model_links[index]){
+                // Original explicit filters precede the first matching regex filter.
+                if(!explicit_filter && linked->filter_index!=FLT_MAX)value=linked->filter_index;
+                else if(!explicit_filter && value==0)value=1.0f;
             }
             return true;
         });
@@ -662,6 +672,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
                     p.shader_depth_filters[uint32_t(entry.first)] = int(entry.second.depth_filter);
             }
             std::sort(p.shader_hashes.begin(), p.shader_hashes.end());
+            HostParseShaderRegex();
         }
         HostParseTextureOverrides();HostParseResourceMatching(); RuntimeCompilePresent(); RuntimeParseKeys();
         std::wstring validation;
@@ -710,7 +721,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
         G->iniParams.assign(G->iniParamsReserved, DirectX::XMFLOAT4(0, 0, 0, 0));
         phase = "original command optimization";
         optimise_command_lists(nullptr);
-        if(config.shader_hooks)p.source_regex.initialize(p.adapter);
+        p.source_regex.initialize(p.adapter);
         // Includes key-owned activation/post lists as well as Present and the
         // original hash matcher lists; do not adapt only named callbacks.
         phase = "Vulkan command adaptation";
@@ -799,7 +810,7 @@ bool IniRuntime::run_draw(const RuntimeDraw& input, assets::FilePlan& output, st
         auto phase = [](const char*) {};
 #endif
         auto& p = *impl_; Scope scope(p.state); phase("phase scope");
-        struct Current {Impl& p; Current(Impl& owner, const RuntimeDraw& draw):p(owner){p.current_draw=&draw;} ~Current(){p.current_draw=nullptr;}} current(p, input);
+        struct Current {Impl& p; Current(Impl& owner, const RuntimeDraw& draw):p(owner){p.current_draw=&draw;p.model_links.fill(nullptr);} ~Current(){p.current_draw=nullptr;p.model_links.fill(nullptr);}} current(p, input);
         G->frame_no = unsigned(input.frame); G->gTime = input.seconds; G->gFrameTime = input.frame_seconds;
         // DRAW_NUMBER: the Core's identification tells a second identifier call within one draw by it.
         if (input.compute) ++p.context.dispatch_number; else ++p.context.draw_number;
@@ -821,6 +832,13 @@ bool IniRuntime::run_draw(const RuntimeDraw& input, assets::FilePlan& output, st
         // The ShaderOverride entries of the draw's modules (docs/vulkan-native-mods.md), by stage: vs, hs, ds, gs, ps.
         ShaderOverride* shaders[6] = {};
         bool shader_lists = false;
+        const bool regex_entry=input.native_calls && p.source_regex.stages()!=0;
+        if(regex_entry && !input.hunting_skip)for(unsigned i=input.compute?5:0;i<(input.compute?6:5);++i){
+            if(!(p.source_regex.stages() & input.shader_stages & (1u<<i)))continue;
+            const auto& model=input.source_models[i];
+            if(model.empty() || model[0]!="vhdgpc"[i])throw std::runtime_error("Original ShaderRegex requires a verified source shader model");
+            p.model_links[i]=p.source_regex.model_commands(model,p.adapter);shader_lists|=p.model_links[i]!=nullptr;
+        }
         if (!p.shader_hashes.empty())
             for (unsigned i = 0; i < 6; ++i) {
                 if (!(input.stage_hash_mask >> i & 1u)) continue;
@@ -841,29 +859,31 @@ bool IniRuntime::run_draw(const RuntimeDraw& input, assets::FilePlan& output, st
             // stage's lists ahead of them (the Core's check of `ib` is a later group of the same stage), the
             // pixel stage's after them, all before the application's draw.
             DrawHooks& hooks = p.draw_hooks; hooks.before.clear(); hooks.between.clear(); hooks.after.clear();
-            if (p.extension && !matches.empty()) p.extension->draw_hooks(input, hooks);
+            if (p.extension && !matches.empty() && !regex_entry) p.extension->draw_hooks(input, hooks);
             std::vector<CommandList*>& pre = p.draw_pre; std::vector<CommandList*>& post = p.draw_post; pre.clear(); post.clear();
             DrawStages& stages = p.draw_stages; stages.pre_starts.assign(1, 0); stages.post_starts.assign(1, 0);
             // The vertex stage: its entry's own commands, then what ShaderRegex links into it (the library's vertex
             // groups, the Core's `CheckTextureOverride = ib` and with it the matched sections).
             if (shaders[0]) { pre.push_back(&shaders[0]->command_list); post.push_back(&shaders[0]->post_command_list); }
+            if(p.model_links[0]){pre.push_back(&p.model_links[0]->command_list);post.push_back(&p.model_links[0]->post_command_list);}
             pre.insert(pre.end(), hooks.before.begin(), hooks.before.end());
-            stages.check_index = texture_overrides;stages.checked_first = post.size();
-            for(auto* match:matches){pre.push_back(&match->command_list);post.push_back(&match->post_command_list);}
+            stages.check_index = texture_overrides && !regex_entry;stages.checked_first = post.size();
+            if(!regex_entry)for(auto* match:matches){pre.push_back(&match->command_list);post.push_back(&match->post_command_list);}
             stages.checked_last = post.size();
             // The hull, domain, geometry and pixel stages, each a list of its own; the library's pixel groups are linked
             // into the pixel stage's.
             for (unsigned i = 1; i < 6; ++i) {
-                if (!shaders[i]) continue;
+                if (!shaders[i] && !p.model_links[i]) continue;
                 stages.pre_starts.push_back(pre.size()); stages.post_starts.push_back(post.size());
-                pre.push_back(&shaders[i]->command_list); post.push_back(&shaders[i]->post_command_list);
+                if(shaders[i]){pre.push_back(&shaders[i]->command_list);post.push_back(&shaders[i]->post_command_list);}
+                if(p.model_links[i]){pre.push_back(&p.model_links[i]->command_list);post.push_back(&p.model_links[i]->post_command_list);}
             }
             if (!hooks.between.empty() && !shaders[4] && shader_lists) stages.pre_starts.push_back(pre.size());
             pre.insert(pre.end(), hooks.between.begin(), hooks.between.end());
             DrawPlan& plan = p.draw_plan;
             const auto began = std::chrono::steady_clock::now();
             // Without an acting ShaderOverride the matched sections run exactly as before route 2.
-            const bool executed = (shader_lists || !texture_overrides) ? p.adapter.execute_stages(pre,post,stages,s,plan,why) : p.adapter.execute_matches(pre,post,s,plan,why);
+            const bool executed = (shader_lists || !texture_overrides || regex_entry) ? p.adapter.execute_stages(pre,post,stages,s,plan,why) : p.adapter.execute_matches(pre,post,s,plan,why);
             const auto ran = std::chrono::steady_clock::now();
             const bool compiled = executed && p.files->compile(plan,result,why);
             p.stats.draw_execute_us += uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(ran - began).count());
@@ -942,6 +962,7 @@ void RuntimePublishTransitionParameters()
 }
 bool IniRuntime::replayable() const { return impl_->replayable; }
 std::vector<uint32_t> IniRuntime::shader_hashes() const { return impl_->shader_hashes; }
+unsigned IniRuntime::shader_regex_stages() const {return impl_->source_regex.stages();}
 std::map<uint32_t, int> IniRuntime::shader_depth_filters() const { return impl_->shader_depth_filters; }
 const std::vector<NativeBinding>& IniRuntime::native_bindings() const { return impl_->native_bindings; }
 HuntingSettings IniRuntime::hunting() const { return impl_->hunting; }
