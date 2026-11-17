@@ -296,8 +296,12 @@ overrides. A production INI graphics -> texture -> compute -> application chain
 produces GPU 23; unknown stage/state/sampler variants preserve original 7. Five
 modes pass 20 checks. General inherited source facts still need integration.
 
+D-337 removes automatic native IB command entry even without ShaderRegex. Only
+executed original stage commands enter TextureOverrides; conditions cannot be
+bypassed by native matching. Geometry, IA and backend fixtures supply explicit
+CheckTextureOverride commands using actual sandbox shader identities.
+
 These are scoped sandbox/GPU results. Compatibility is not complete: patterned
-ShaderRegex patches, original-only entry without native IB conveniences,
-production graphics CustomShaders, current GPU Store boundaries, broader queue/source
+ShaderRegex patches, general inherited graphics CustomShaders, current GPU Store boundaries, broader queue/source
 contracts and obsolete capture fixture migration remain. No game acceptance is
 implied and native-route work follows completion of this compatibility rewrite.

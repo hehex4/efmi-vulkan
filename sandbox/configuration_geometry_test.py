@@ -9,7 +9,7 @@ import sys
 import time
 
 from harness import Checks, DIST, ROOT, Sandbox, configuration_root, test_dir
-from runtime_test import band_pixels
+from runtime_test import band_pixels, sandbox_shader_hashes
 from efmi_vk.hashes import crc32c
 from efmi_vk.probe_client import ProbeClient
 
@@ -60,7 +60,9 @@ def scene(checks, case, emitter=None):
                 'post vb0 = ref ResourceSavedVertex\npost ib = ref ResourceSavedIndex\n')
     if case == 'gpu':
         body = 'x0 = 0.70\nrun = CustomShaderMesh\n' + body
+    vertex, _ = sandbox_shader_hashes()
     (mods / 'rules.ini').write_text(
+        '[ShaderOverrideEntry]\nhash = %08x\nchecktextureoverride = ib\n' % vertex +
         '[TextureOverrideMesh]\nhash = %08x\nmatch_first_index = 6\nmatch_index_count = 3\n' %
         crc32c(struct.pack('<3I', 14, 15, 16)) + ('' if case == 'implicit_layout' else 'handling = skip\n') + body +
         ('[ResourceSavedVertex]\n[ResourceSavedIndex]\n' if case == 'restore' else '') +
@@ -121,7 +123,10 @@ def scene(checks, case, emitter=None):
     expected = case not in ('bounds', 'unknown', 'numeric')
     checks.equal(band_pixels(screen), 5516 if expected else 6418, case + ': original geometry changes only after complete preflight')
     checks.equal(band_pixels(source), 902, case + ': independent original output remains intact')
-    checks.equal(status.get('shader_overrides', {}).get('executed', 0) > 0, expected, case + ': generic geometry plan executes')
+    hooks = status.get('shader_overrides', {})
+    checks.check(hooks.get('executed', 0) > 0 and not hooks.get('last_reason') if expected else
+                 bool(hooks.get('last_reason')) and hooks.get('kept', 0) + hooks.get('refused', 0) > 0,
+                 case + ': matched geometry admission agrees with independent pixels')
     meta = json.loads(Path(str(screen) + '.json').read_text())
     data = screen.read_bytes(); width, height = meta['width'], meta['height']
     clear = data[4 * ((height - 2) * width + width - 2):][:3]

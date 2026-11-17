@@ -40,6 +40,7 @@ STEPS = [
     ("original INI runtime", [os.path.join(ROOT, "scripts", "build_xxmi_runtime.py")]),
     ("original root configuration", [os.path.join(ROOT, "scripts", "check_configuration.py")]),
     ("configuration backend", [os.path.join(HERE, "configuration_backend_test.py")]),
+    ("native original command entry", [os.path.join(HERE, "native_original_entry_test.py")]),
     ("configuration geometry", [os.path.join(HERE, "configuration_geometry_test.py")]),
     ("configuration IA facts", [os.path.join(HERE, "configuration_ia_test.py")]),
     ("native prepared pass insertion", [os.path.join(HERE, "native_prepared_test.py")]),

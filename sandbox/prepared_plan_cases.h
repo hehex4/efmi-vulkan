@@ -64,6 +64,7 @@ run = CustomShaderGraphics
 [ShaderOverrideBefore]
 hash = 1234abd2
 post $post = 9
+checktextureoverride = ib
 [ShaderOverrideAfter]
 hash = 1234abd3
 post $stage_post = $post
@@ -71,6 +72,10 @@ post $stage_post = $post
 hash = 1234abd4
 $clear_ib = 1
 post $post = 9
+checktextureoverride = ib
+[ShaderOverrideRematch]
+hash = 1234abd5
+checktextureoverride = ib
 [TextureOverrideOriginal]
 hash = abcdef01
 if $clear_ib
@@ -141,7 +146,7 @@ post $observed_ib = ib->size
         resources.discard();plan={};
     }
     check(ini->status().variables.at("$after_failure")==1,"Original scalar commands continue after a refused source call");
-    draw.stage_hash_mask=0;
+    draw.stage_hash_mask=1;draw.stage_hashes[0]=0x1234abd5;
     // Prove post matching against the new IB, including an override absent from pre.
     auto original=app.create(12,VK_BUFFER_USAGE_INDEX_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     auto changed=app.create(12,VK_BUFFER_USAGE_INDEX_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);

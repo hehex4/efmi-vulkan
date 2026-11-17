@@ -5,6 +5,7 @@ import struct
 import time
 
 from harness import Checks, Sandbox, configuration_root, test_dir
+from runtime_test import sandbox_shader_hashes
 from efmi_vk.hashes import crc32c
 from efmi_vk.probe_client import ProbeClient
 
@@ -22,8 +23,10 @@ def scene(checks, region_hashes):
             'ib = ref ResourceSaved\n$restored_match = ib\n'
             'if $active == 1\n$nested_calls = $nested_calls + 1\nelse\n'
             '$active = 1\nchecktextureoverride = ib\n$active = 0\nendif\n')
+    vertex, _ = sandbox_shader_hashes()
     (mods / 'queries.ini').write_text(
         'namespace = ia\n[Constants]\n' + constants + 'global $active = 0\nglobal $nested_calls = 0\n' +
+        '[ShaderOverrideEntry]\nhash = %08x\nchecktextureoverride = ib\n' % vertex +
         '[TextureOverrideQueries]\nhash = %08x\nmatch_first_index = 6\nmatch_index_count = 3\nfilter_index = 7\n' %
         crc32c(struct.pack('<3I', 14, 15, 16)) + body + '[ResourceSaved]\n', encoding='ascii')
     env = dict(EFMI_VK_CONFIGURATION=configuration_root(mods), EFMI_VK_M2_SETTINGS=str(root / 'settings'), EFMI_VK_M2_ENABLED='1')

@@ -7,7 +7,17 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
-Active D-336 follows committed D-335 (09315e4), root main fast-forwarded. Source
+Active D-337 follows committed D-336 (54f8c27), root main fast-forwarded. Source
+3.5.3 removes implicit native IB list execution; only original explicit stage
+commands enter matching TextureOverrides. CPU regression reproduces old behavior;
+fixtures are migrated to explicit original entry. Fresh CPU 47/interpreter 590,
+production entry 16, prepared GPU 155, geometry positives 45/negatives 21, vertex
+semantics 20, classic passes 23 and scoped Core/host checks pass. Matching DLLs
+retain ABI a3f16e583590c2cd. See CURRENT_STATE for corrected fixture assumptions.
+Diff reviewed; commit/fast-forward, then
+continue inherited source graphics, patterned shaders, Store and capture work.
+
+D-336 follows committed D-335 (09315e4), root main fast-forwarded. Source
 3.5.2 replaces blanket prepared-graphics refusal with explicit source stage/state
 facts, including nested restoration and unknown sampler/scissor guards. The new
 production fixture reproduces old 7 instead of 23; CPU 39 passes and matching

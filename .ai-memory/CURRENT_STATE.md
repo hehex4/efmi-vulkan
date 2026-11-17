@@ -10,7 +10,27 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
-Active D-336: D-335 committed as 09315e4 and main fast-forwarded. Source 3.5.2
+Active D-337: D-336 committed as 54f8c27 and main fast-forwarded. Source 3.5.3
+removes native automatic IB command-list entry even without ShaderRegex groups.
+Original HackerContext BeforeDraw enters stage ShaderOverrides; only executed
+CheckTextureOverride commands enter matching IB lists. The added CPU regression
+reproduces the old unconditional entry in original-entry-before.out. Explicit
+source entry replaces the assumption in geometry, IA, backend and vertex fixtures;
+query CPU fixtures enter through proven original regex models. Fresh CPU 47 and
+interpreter 590 pass; four matching DLLs/tracker build at unchanged ABI
+a3f16e583590c2cd. Native entry initially passes pixels but its variable assertions
+omit the original Include namespace; the corrected explicit namespace passes all
+16 checks. Backend 13, IA 34, transaction 5, Core 22, regex 16, tracker 1042,
+ABI 15 and text 755 pass. Geometry scope passes 51/52: the unknown-input negative
+has correct original pixels/reason but its executed counter includes valid empty
+entries on other draws. Use target refusal plus independent pixels instead.
+Fresh prepared GPU 155 passes with zero validation diagnostics. Final targeted
+geometry negatives 21, vertex semantics 20 and classic passes 23 pass; the earlier
+positive geometry scope passes 45. Diff reviewed; commit/main fast-forward next.
+Continue after commit into inherited source graphics, patterned shader
+execution, current Store and capture contracts. No game or deployment.
+
+D-336 checkpoint: D-335 committed as 09315e4 and main fast-forwarded. Source 3.5.2
 admits original graphics only with proven shader stages and blend/depth/raster/
 topology state; explicit full CustomShader overrides establish facts, nested calls
 restore them, unknown inherited state/samplers/scissors refuse. Constructor defaults

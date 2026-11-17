@@ -790,9 +790,8 @@ EngineLockStats engine_lock_stats()
 
 bool IniRuntime::draw(const RuntimeDraw& input, assets::FilePlan& output, std::string& reason) { return run_draw(input, output, reason, true); }
 bool IniRuntime::shader_draw(const RuntimeDraw& input, assets::FilePlan& output, std::string& reason) { return run_draw(input, output, reason, false); }
-// A draw as the original's BeforeDraw, the application's call and AfterDraw see it. `texture_overrides`: the sections of
-// the draw's index region run (the Core's ShaderRegex link in the vertex stage, D-097), else only the ShaderOverride
-// entries of its modules (docs/vulkan-native-mods.md).
+// Original BeforeDraw/application/AfterDraw ordering. Only the non-native
+// file-plan diagnostic API can request direct index-region command entry.
 bool IniRuntime::run_draw(const RuntimeDraw& input, assets::FilePlan& output, std::string& reason, bool texture_overrides)
 {
     struct Completion {RuntimeExtension* extension;bool compute;~Completion(){if(extension){if(compute)extension->after_dispatch();else extension->after_draw();}}} completion{impl_->extension.get(),input.compute};
@@ -828,7 +827,11 @@ bool IniRuntime::run_draw(const RuntimeDraw& input, assets::FilePlan& output, st
         }
         if (input.indirect) call.VertexCount = call.IndexCount = call.InstanceCount = 0;
         TextureOverrideMatches& matches = p.draw_matches; matches.clear();
-        if (texture_overrides) find_texture_override_for_hash(input.hash, &matches, &call);
+        // Native draws enter only the original stage command lists. IB lists
+        // run when those commands explicitly execute CheckTextureOverride.
+        // The non-native file-plan diagnostic retains its direct-match API.
+        const bool automatic_index = texture_overrides && !input.native_calls;
+        if (automatic_index) find_texture_override_for_hash(input.hash, &matches, &call);
         // The ShaderOverride entries of the draw's modules (docs/vulkan-native-mods.md), by stage: vs, hs, ds, gs, ps.
         ShaderOverride* shaders[6] = {};
         bool shader_lists = false;
@@ -859,7 +862,7 @@ bool IniRuntime::run_draw(const RuntimeDraw& input, assets::FilePlan& output, st
             // stage's lists ahead of them (the Core's check of `ib` is a later group of the same stage), the
             // pixel stage's after them, all before the application's draw.
             DrawHooks& hooks = p.draw_hooks; hooks.before.clear(); hooks.between.clear(); hooks.after.clear();
-            if (p.extension && !matches.empty() && !regex_entry) p.extension->draw_hooks(input, hooks);
+            if (p.extension && !matches.empty() && automatic_index) p.extension->draw_hooks(input, hooks);
             std::vector<CommandList*>& pre = p.draw_pre; std::vector<CommandList*>& post = p.draw_post; pre.clear(); post.clear();
             DrawStages& stages = p.draw_stages; stages.pre_starts.assign(1, 0); stages.post_starts.assign(1, 0);
             // The vertex stage: its entry's own commands, then what ShaderRegex links into it (the library's vertex
@@ -867,8 +870,8 @@ bool IniRuntime::run_draw(const RuntimeDraw& input, assets::FilePlan& output, st
             if (shaders[0]) { pre.push_back(&shaders[0]->command_list); post.push_back(&shaders[0]->post_command_list); }
             if(p.model_links[0]){pre.push_back(&p.model_links[0]->command_list);post.push_back(&p.model_links[0]->post_command_list);}
             pre.insert(pre.end(), hooks.before.begin(), hooks.before.end());
-            stages.check_index = texture_overrides && !regex_entry;stages.checked_first = post.size();
-            if(!regex_entry)for(auto* match:matches){pre.push_back(&match->command_list);post.push_back(&match->post_command_list);}
+            stages.check_index = automatic_index;stages.checked_first = post.size();
+            for(auto* match:matches){pre.push_back(&match->command_list);post.push_back(&match->post_command_list);}
             stages.checked_last = post.size();
             // The hull, domain, geometry and pixel stages, each a list of its own; the library's pixel groups are linked
             // into the pixel stage's.
@@ -882,8 +885,7 @@ bool IniRuntime::run_draw(const RuntimeDraw& input, assets::FilePlan& output, st
             pre.insert(pre.end(), hooks.between.begin(), hooks.between.end());
             DrawPlan& plan = p.draw_plan;
             const auto began = std::chrono::steady_clock::now();
-            // Without an acting ShaderOverride the matched sections run exactly as before route 2.
-            const bool executed = (shader_lists || !texture_overrides || regex_entry) ? p.adapter.execute_stages(pre,post,stages,s,plan,why) : p.adapter.execute_matches(pre,post,s,plan,why);
+            const bool executed = (shader_lists || !automatic_index) ? p.adapter.execute_stages(pre,post,stages,s,plan,why) : p.adapter.execute_matches(pre,post,s,plan,why);
             const auto ran = std::chrono::steady_clock::now();
             const bool compiled = executed && p.files->compile(plan,result,why);
             p.stats.draw_execute_us += uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(ran - began).count());

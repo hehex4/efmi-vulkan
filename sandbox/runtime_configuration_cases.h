@@ -80,7 +80,7 @@ global $unexpected = 1
     std::string shaders="[Constants]\nglobal $tail = 0\n";
     const char* names[]={"vs","hs","ds","gs","ps","cs"};
     for(unsigned i=0;i<6;++i)shaders+="global $"+std::string(names[i])+" = 99\n";
-    shaders+="[TextureOverrideQuery]\nhash = 11223344\n";
+    shaders+="[ShaderRegexQuery]\nshader_model = vs_5_0\nfilter_index = 0\n";
     for(const auto* name:names)shaders+="$"+std::string(name)+" = "+name+"\n";
     shaders+="$tail = $tail + 1\n";
     for(unsigned i=0;i<6;++i){
@@ -91,6 +91,7 @@ global $unexpected = 1
     runtime=IniRuntime::load(config,{},reason);
     if(!runtime)throw std::runtime_error("Native shader query load: "+reason);
     draw={};draw.hash=0x11223344;draw.native_calls=true;draw.shader_stages=63;draw.stage_hash_mask=63;
+    draw.source_models[0]="vs_5_0";
     for(unsigned i=0;i<6;++i)draw.stage_hashes[i]=i+1;
     check(runtime->draw(draw,plan,reason),"All six native shader filter queries execute in the original registry");
     auto values=runtime->status().variables;
@@ -128,15 +129,38 @@ global $unexpected = 1
     check(declaration_ran && plan.skip_original && queries==2,
         "Verified source declaration facts reach original conditional command execution");
     draw.stage_hashes[5]=9;draw.stage_hash_mask=0;queries=0;
-    // Name this override through its index trigger because the current source
-    // hash is intentionally unknown. Original evaluation returns before args.
-    shaders+="[TextureOverrideEarlyDeclaration]\nhash = aabbccdd\n"
+    // A proven model can enter commands without a known shader hash. Original
+    // declaration evaluation still returns before invalid arguments are read.
+    draw.source_models[5]="cs_5_0";
+    shaders+="[ShaderRegexEarlyDeclaration]\nshader_model = cs_5_0\n"
         "if vs->srv_stride(-1) == 0 && cs->cb_size(-1) == 0\nhandling = skip\nendif\n";
     write(root/"d3dx.ini",shaders.c_str());runtime=IniRuntime::load(config,{},reason);
     if(!runtime)throw std::runtime_error(reason);
     draw.hash=0xaabbccdd;
     check(runtime->draw(draw,plan,reason) && plan.skip_original && queries==0,
         "Unbound and unknown-hash source shaders return zero before evaluating declaration arguments");
+
+    // A matching IB is data, not a command-list entry point. This also holds
+    // when the configuration has no ShaderRegex groups at all.
+    for(unsigned mode=0;mode<4;++mode){
+        std::string ini="[Constants]\nglobal $hit = 0\n[TextureOverrideInert]\nhash = aabbccdd\n"
+            "$hit = $hit + 1\npost $hit = $hit + 100\nhandling = skip\n";
+        if(mode)ini+="[ShaderOverrideEntry]\nhash = 1\n";
+        if(mode>=2)ini+="if "+std::to_string(mode-2)+"\nchecktextureoverride = ib\nendif\n";
+        write(root/"d3dx.ini",ini.c_str());runtime=IniRuntime::load(config,{},reason);
+        if(!runtime)throw std::runtime_error(reason);
+        draw={};draw.native_calls=true;draw.hash=0xaabbccdd;draw.shader_stages=1;draw.stage_hash_mask=1;
+        draw.stage_hashes[0]=1;draw.count=3;
+        draw.native_resource=[](const NativeBinding& address,NativeResource& resource,std::string&){
+            resource={};if(address.kind!=NativeBinding::Index)return true;
+            resource.bound=true;resource.dimension=1;resource.format_known=true;resource.format=42;
+            resource.identity=1;resource.buffer=1;resource.size=64;resource.range=64;resource.index_size=4;
+            resource.descriptor_type=0x7fffffffu;return true;
+        };
+        check(runtime->draw(draw,plan,reason),"Original explicit entry without regex executes");
+        check(runtime->status().variables.at("$hit")==float(mode==3?101:0) && plan.skip_original==(mode==3),
+            "Only an executed CheckTextureOverride enters IB lists exactly once");
+    }
 
     // The original Core enters TextureOverrides through a conditional regex
     // command, not by eagerly inserting all matching IB lists.

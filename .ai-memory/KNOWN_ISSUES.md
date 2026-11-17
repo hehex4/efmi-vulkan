@@ -1,5 +1,17 @@
 # EFMI Vulkan - Known issues
 
+## BUG-177: Native IB lists run without original command entry (D-337)
+
+D-333 corrected entry when ShaderRegex exists but left automatic matching when
+it does not. A matching IB alone can execute commands, bypass a false condition,
+or duplicate an explicit CheckTextureOverride. original-entry-before.out
+reproduces the failure. Native calls now enter only original stage lists; direct
+IB execution remains limited to the non-native diagnostic API. Fresh CPU 47 and
+interpreter 590, production entry 16, prepared GPU 155, original Core/regex and
+geometry/semantics/classic pass regressions pass. Fixture namespace and per-target
+counter assumptions were corrected; actual pixel results were already correct.
+Fixed offline at 3.5.3 with clean validation. No game action.
+
 ## BUG-176: Failed prepared scopes hide their first source refusal (D-336)
 
 The original command model distinguishes skipped source commands from host draw

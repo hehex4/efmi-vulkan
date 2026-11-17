@@ -1,5 +1,15 @@
 # EFMI Vulkan - Architecture
 
+D-332 through D-337 connect installed Core initialization/bone import, exact
+paired shader models, original patternless regex entry, retained prepared graphics
+and core application graphics state restoration. Original CustomShader graphics
+currently requires proven explicit stages/state; unknown inheritance refuses.
+Production IB lists run only through an executed original CheckTextureOverride,
+including configurations without ShaderRegex. Direct matching belongs only to
+the non-native file-plan diagnostic API. Source 3.5.3 keeps ABI a3f16e583590c2cd.
+Patterned patch execution, broader inherited source facts, current Store and
+capture migration still remain; these are offline results, not game acceptance.
+
 D-330/331 (3.4.6/3.4.7) restore original CPU cache-view queries and current shader
 declaration queries. CPU observations retain original ref/copy provenance and
 rollback. Shader facts follow the same current explicit aliases as source bindings;

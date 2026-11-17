@@ -39,7 +39,8 @@ def scene(checks, case, emitter):
         edits = edits.replace('drawindexed', 'vb0->ElementFormat(POSITION, 0) = R8G8B8A8_UINT\ndrawindexed')
     if case == 'ordered':
         edits += 'vb0->ElementOffset(POSITION, 0) = 16\ndrawindexed = 3,0,0\n'
-    ini = ('namespace = vertex_identity\n[TextureOverrideMesh]\nhash = %08x\nmatch_first_index = 6\n'
+    ini = ('namespace = vertex_identity\n[ShaderOverrideEntry]\nhash = %08x\nchecktextureoverride = ib\n' % vertex +
+           '[TextureOverrideMesh]\nhash = %08x\nmatch_first_index = 6\n'
            'match_index_count = 3\nhandling = skip\nvb0 = ResourceVertex\nib = ResourceIndex\n' %
            crc32c(struct.pack('<3I', 14, 15, 16))) + edits
     ini += ('[ResourceVertex]\ntype = Buffer\nstride = 24\nfilename = vertex.buf\n'
@@ -86,7 +87,10 @@ def scene(checks, case, emitter):
                  case + ': unsupported input identity or format reports an admission refusal')
     checks.equal(band_pixels(screen), 5516 if expected else 6418, case + ': original mesh hidden only after a proven replacement')
     checks.equal(band_pixels(source), 902, case + ': independent source color remains intact')
-    checks.equal(status.get('shader_overrides', {}).get('executed', 0) > 0, expected, case + ': replacement actually recorded')
+    hooks = status.get('shader_overrides', {})
+    checks.check(hooks.get('executed', 0) > 0 and not hooks.get('last_reason') if expected else
+                 bool(hooks.get('last_reason')) and hooks.get('kept', 0) + hooks.get('refused', 0) > 0,
+                 case + ': matched geometry admission agrees with independent pixels')
     meta = json.loads(Path(str(screen) + '.json').read_text())
     data = screen.read_bytes(); width, height = meta['width'], meta['height']
     clear = data[4 * ((height - 2) * width + width - 2):][:3]

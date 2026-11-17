@@ -13,6 +13,20 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-337: Original-only production command entry (2026-11-17)
+
+Original HackerContext.cpp 1031-1070 enters per-stage ShaderOverride lists in
+VS/HS/DS/GS/PS order. TextureOverride matching supplies data and runs commands
+only through executed CheckTextureOverride. Remove the native automatic IB
+matching/list insertion even when no ShaderRegex exists. Otherwise conditions
+are bypassed and an explicit check can execute the same list twice. Keep direct
+matching only in the explicitly non-native file-plan diagnostic API. Production
+fixtures use actual sandbox shader identities and explicit INI commands; do not
+add a hidden fixture-wide entry or change Core enable gates. DX11 supplies
+reference-counted lifetime with deferred destruction, hazard tracking and one
+context's order. This entry correction changes none of the explicit Vulkan
+retention, prepared transaction or synchronization requirements.
+
 ## D-336: Admit original graphics from explicit source facts (2026-11-17)
 
 Original CustomShader overrides replace selected shaders and replace/merge state;

@@ -4148,3 +4148,29 @@ Diff reviewed and memory synchronized; commit/main fast-forward follow. Continue
 original-only command entry, inherited source graphics, patterned patch execution,
 current Store and capture contracts before the native I-01/I-04/I-05 work. This is
 explicit-state graphics admission, not general inherited-state or game completion.
+
+## 2026-11-17: D-337 original-only native IB entry
+
+Continued after 54f8c27/main fast-forward. Original HackerContext stage entries
+and explicit CheckTextureOverride establish the source behavior; the no-regex
+native convenience still violated it. original-entry-before.out reproduces the
+unconditional list execution. Remove native direct matching/insertion; preserve
+the explicitly non-native file-plan diagnostic API. Update affected fixtures to
+use actual shader identities and original commands, including explicit post order.
+
+Fresh CPU 47/interpreter 590 pass. Four DLLs/tracker build at 3.5.3, unchanged
+ABI a3f16e583590c2cd. Production entry pixels pass immediately; initial variable
+assertions use the wrong Include namespace. The corrected fixture passes 16.
+Scoped backend 13, IA 34, transaction 5, Core 22, regex 16, tracker 1042, ABI 15
+and text 755 pass. Geometry scope passes 51/52, with correct unknown-input pixels
+but an obsolete whole-program executed-counter assumption; other draws correctly
+execute empty shader entries. Use refusal and independent pixels for the target.
+Final geometry negatives 21, vertex semantics 20, classic passes 23 and fresh
+prepared GPU 155 pass; earlier positive geometry coverage passes 45. All GPU
+validation is clean. Evidence: build/original-entry-{before,cpu,interpreter,
+binaries,regression,production,geometry,prepared,geometry-final}.out.
+
+Diff reviewed and memory synchronized; commit/main fast-forward follows. Continue
+paired original shader evidence, inherited graphics, patterned execution, current
+Store and capture migration before the native queue/access/readiness route. No
+game, deployment or compatibility-completion claim.
