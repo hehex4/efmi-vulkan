@@ -309,6 +309,8 @@ struct App {
     VkDescriptorSetLayout material_layout = VK_NULL_HANDLE;
     VkPipelineLayout layout = VK_NULL_HANDLE;
     VkPipeline pipeline = VK_NULL_HANDLE;
+    VkPipeline native_target_pipeline = VK_NULL_HANDLE;
+    bool native_target_unique_vertex = false, native_target_solid = false;
     VkDescriptorPool desc_pool = VK_NULL_HANDLE;
     VkDescriptorSet desc_set = VK_NULL_HANDLE;
     VkDescriptorSet material_set = VK_NULL_HANDLE;
@@ -1031,6 +1033,19 @@ static bool create_pipeline()
     if(g.native_output_stencil){rendering.depthAttachmentFormat=g.native_output_stencil==2?VK_FORMAT_D32_SFLOAT_S8_UINT:VK_FORMAT_UNDEFINED;rendering.stencilAttachmentFormat=g.native_output_stencil==2?VK_FORMAT_D32_SFLOAT_S8_UINT:VK_FORMAT_S8_UINT;}
     if(g.dynamic_rendering){info.renderPass=VK_NULL_HANDLE;info.pNext=&rendering;}
     CHECK(vkCreateGraphicsPipelines(g.device, VK_NULL_HANDLE, 1, &info, nullptr, &g.pipeline));
+    if(g.native_target_unique_vertex){
+        const auto tagged=spv::vertex_shader(true);VkShaderModule module=VK_NULL_HANDLE;
+        sm.codeSize=tagged.size()*4;sm.pCode=tagged.data();
+        CHECK(vkCreateShaderModule(g.device,&sm,nullptr,&module));modules.extra.push_back(module);
+        stages[0].module=module;
+        if(g.native_target_solid){
+            const auto solid=spv::solid_fragment_shader();sm.codeSize=solid.size()*4;sm.pCode=solid.data();
+            CHECK(vkCreateShaderModule(g.device,&sm,nullptr,&module));modules.extra.push_back(module);
+            stages[1].module=module;
+        }
+        CHECK(vkCreateGraphicsPipelines(g.device,VK_NULL_HANDLE,1,&info,nullptr,&g.native_target_pipeline));
+        stages[0].module=vs;stages[1].module=fs;
+    }
     if(g.native_output_no_color){rendering.colorAttachmentCount=0;rendering.pColorAttachmentFormats=nullptr;
         cb.attachmentCount=0;cb.pAttachments=nullptr;
         CHECK(vkCreateGraphicsPipelines(g.device,VK_NULL_HANDLE,1,&info,nullptr,&g.depth_only_pipeline));
@@ -2067,6 +2082,7 @@ static void cleanup()
     read_compute_scene();
     destroy_compute_scene();
     destroy_capture_target();
+    if(g.native_target_pipeline)vkDestroyPipeline(g.device,g.native_target_pipeline,nullptr);
     destroy_native_output();
     destroy_dynamic_depth();
     destroy_submit_scene();
@@ -2195,6 +2211,10 @@ int wmain(int argc, wchar_t** argv)
             g.dynamic_rendering = _wtoi(argv[++i]);
         else if (a == L"--imageless")
             g.imageless = true;
+        else if (a == L"--native-target-solid")
+            g.native_target_solid = true;
+        else if (a == L"--native-target-unique-vertex")
+            g.native_target_unique_vertex = true;
         else if (a == L"--native-target")
             capture_target.enabled = capture_target.draw = true;
         else if (a == L"--unused-attachments")

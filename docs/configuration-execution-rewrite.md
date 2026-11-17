@@ -323,9 +323,14 @@ D-342 executes direct compute ShaderRegex patches at the prepared caller boundar
 preserving skip, no-match and pre/post behavior (16 production checks). Translation
 failure leaves original links/filter state unchanged. D-343 extends this to indirect
 compute with retained GPU argument buffers; direct/indirect variants pass 32.
-Graphics patch execution remains pending.
+D-344 through D-347 add exact graphics stage/IA inheritance, retained application
+image provenance, current graphics state/viewport and single indirect callers.
+D-348 executes original graphics ShaderRegex in CustomShaders and at direct or
+single-indirect caller boundaries. Actual vertex/pixel output, skip, unmatched,
+nested restore and unknown-stage guards pass 40 checks; owned graphics 334 and
+prepared 155 remain validation-clean.
 
 These are scoped sandbox/GPU results. Compatibility is not complete:
-graphics ShaderRegex patches, general inherited graphics CustomShaders, current GPU Store boundaries, broader queue/source
+inherited samplers/comparison operations, indirect root this, current GPU Store boundaries, broader queue/source
 contracts and obsolete capture fixture migration remain. No game acceptance is
 implied and native-route work follows completion of this compatibility rewrite.

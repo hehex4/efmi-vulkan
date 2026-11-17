@@ -3006,3 +3006,7 @@ snapshot for CB size and SRV type/stride/dimension. A uint-word buffer is not en
 to distinguish raw from structured; absent Vulkan variables can still exist in DXBC.
 Keep those queries unknown with diagnostics. SPIR-V CB extent does not establish
 original indexing mode. This is shared shader/resource behavior, never character data.
+
+## D-348: Execute original graphics ShaderRegex programs through inherited state
+
+Original ShaderRegex.cpp 763-810 applies stage-model patterns and links command lists; CommandList.cpp 2872-2897 overrides only explicit CustomShader stages and restores them afterward. DX11 retains shader/resource references, defers destruction, tracks hazards and orders one context. Vulkan translates exact patched DXBC into retained programs and uses immutable prepared commands/access records, including the caller boundary. Preserve original VS input signature rather than interpreting the existing IA layout as a new patched declaration. Missing stages, samplers and unsupported state still refuse the call; graphics patch admission alone does not prove the whole native caller is executable.

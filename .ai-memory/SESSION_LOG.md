@@ -4367,3 +4367,30 @@ D-346 verified: 3.6.1 / ca3dfae1e8932a4d. Old DLL state fixture 3/5 with unknown
 D-346 committed as d0d3ffb; main fast-forwarded. Original indirect draw/from_caller implementation reviewed. Old indexed production fixture fails 3/5 at imported indirect state. Source 3.6.2 retains same-handle arguments for single indexed/nonindexed calls, refuses multi-draw/count-buffer semantics, and enables supported first-instance features for original graphics. Matching build session 22790; verification pending. No game action.
 
 D-347 verified: matching 3.6.2 / ca3dfae1e8932a4d. Indexed/nonindexed/count-buffer negative pass 15; full inherited graphics 50, explicit graphics 20, indirect compute regex 16, transaction 5, Core 22, tracker 1042, ABI 16, text 761. Owned graphics 334/prepared 155 validation clean. Diff reviewed; commit/main fast-forward, continue remaining compatibility. No game action.
+
+## 2026-11-17: D-348 executable graphics regex (in progress)
+
+Active D-348 follows 02ea90e/main fast-forward. Source 3.6.3 adds graphics
+ShaderRegex patch admission to inherited programs and the prepared original caller
+gate. Preserve original input-layout signature and nested stage restoration.
+Production patch fixture moves an offscreen resource triangle into view; large
+native caller intentionally lacks original PS evidence and must refuse separately.
+Old fixture 4/5 with graphics patch rejection (graphics-regex-before.out).
+Matching build session 88512 in graphics-regex-binaries.out. No C++ edits until
+complete. Then verify original graphics regex variants, affected graphics/compute/
+Core and prepared checks, review/commit/main FF, continue samplers/indirect this/
+current Store. No game action; compatibility remains incomplete.
+
+D-348 verified: source 3.6.3 / ABI ca3dfae1e8932a4d executes original
+graphics ShaderRegex through retained inherited programs and the prepared caller.
+Original VS signature still defines IA semantics. Patch/nested/unmatched/unknown,
+direct/indirect/skip and vertex+pixel caller variants pass 40 checks. Missing
+source/model evidence remains refused. Affected inherited graphics 50, explicit
+graphics 20, indirect compute regex 16, transaction 5, Core 22, tracker 1042,
+ABI 16 and text 761 pass. The pixel case initially lacked display-stage model
+evidence; supplying its matching original program makes its five checks pass.
+Fresh owned graphics 334 and prepared 155 pass, validation clean. Logs:
+graphics-regex-{binaries,regression,pixel,owned,prepared}.out. Diff reviewed;
+commit/main FF, then fix false image self-reference output rebind, followed by
+sampler inheritance, indirect this/current Store. No game action or completion
+claim. No active process.

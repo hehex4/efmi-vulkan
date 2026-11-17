@@ -123,7 +123,7 @@ private:
 // layout(location = 0) in vec2 inPos;
 // layout(set = 0, binding = 0) uniform U { vec4 offset; vec4 color; } u;
 // void main() { gl_Position = vec4(inPos, 0.0, 1.0) + u.offset; }
-inline std::vector<uint32_t> vertex_shader()
+inline std::vector<uint32_t> vertex_shader(bool tagged = false)
 {
     Builder b;
     uint32_t main = b.id(), in_pos = b.id(), per_vertex = b.id(), pv_var = b.id(), u_type = b.id(), u_var = b.id();
@@ -136,7 +136,7 @@ inline std::vector<uint32_t> vertex_shader()
     b.op(OpCapability, {CapabilityShader});
     b.op(OpMemoryModel, {AddressingLogical, MemoryGLSL450});
     b.entry_point(ModelVertex, main, "main", {in_pos, pv_var});
-    b.name(u_var, "instance_config");
+    b.name(u_var, tagged ? "tagged_instance_config" : "instance_config");
 
     b.op(OpDecorate, {in_pos, DecorationLocation, 0});
     b.op(OpMemberDecorate, {per_vertex, 0, DecorationBuiltIn, BuiltInPosition});
@@ -188,6 +188,20 @@ inline std::vector<uint32_t> vertex_shader()
 // layout(set = 1, binding = 2) readonly buffer S { vec4 tint; } materials[2];
 // layout(set = 1, binding = 5) uniform sampler2D albedo;
 // void main() { outColor = u.color * materials[0].tint * texture(albedo, vec2(0)); }
+inline std::vector<uint32_t> solid_fragment_shader()
+{
+    Builder b;const auto main=b.id(),output=b.id(),t_void=b.id(),t_fn=b.id(),t_float=b.id(),t_vec=b.id();
+    const auto pointer=b.id(),zero=b.id(),one=b.id(),color=b.id(),label=b.id();
+    b.op(OpCapability,{CapabilityShader});b.op(OpMemoryModel,{AddressingLogical,MemoryGLSL450});
+    b.entry_point(ModelFragment,main,"main",{output});b.op(OpExecutionMode,{main,ModeOriginUpperLeft});
+    b.op(OpDecorate,{output,DecorationLocation,0});b.op(OpTypeVoid,{t_void});b.op(OpTypeFunction,{t_fn,t_void});
+    b.op(OpTypeFloat,{t_float,32});b.op(OpTypeVector,{t_vec,t_float,4});b.op(OpTypePointer,{pointer,StorageOutput,t_vec});
+    b.op(OpConstant,{t_float,zero,0});b.op(OpConstant,{t_float,one,0x3f800000});
+    b.op(OpConstantComposite,{t_vec,color,zero,one,one,one});b.op(OpVariable,{pointer,output,StorageOutput});
+    b.op(OpFunction,{t_void,main,0,t_fn});b.op(OpLabel,{label});b.op(OpStore,{output,color});
+    b.op(OpReturn,{});b.op(OpFunctionEnd,{});return b.finish();
+}
+
 inline std::vector<uint32_t> fragment_shader(bool mrt=false)
 {
     Builder b;

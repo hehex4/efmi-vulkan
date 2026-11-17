@@ -7,6 +7,20 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
+D-348 verified: source 3.6.3 / ABI ca3dfae1e8932a4d executes original
+graphics ShaderRegex through retained inherited programs and the prepared caller.
+Original VS signature still defines IA semantics. Patch/nested/unmatched/unknown,
+direct/indirect/skip and vertex+pixel caller variants pass 40 checks. Missing
+source/model evidence remains refused. Affected inherited graphics 50, explicit
+graphics 20, indirect compute regex 16, transaction 5, Core 22, tracker 1042,
+ABI 16 and text 761 pass. The pixel case initially lacked display-stage model
+evidence; supplying its matching original program makes its five checks pass.
+Fresh owned graphics 334 and prepared 155 pass, validation clean. Logs:
+graphics-regex-{binaries,regression,pixel,owned,prepared}.out. Diff reviewed;
+commit/main FF, then fix false image self-reference output rebind, followed by
+sampler inheritance, indirect this/current Store. No game action or completion
+claim. No active process.
+
 D-347 verified at 3.6.2 / ca3dfae1e8932a4d. Indexed/nonindexed indirect
 from_caller and count-buffer refusal pass 15/15; affected production and owned
 GPU/prepared regressions pass. Commit/main fast-forward, then sampler inheritance,

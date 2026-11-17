@@ -23,7 +23,7 @@ std::vector<std::wstring> GpuShaderRuntime::install(DrawPlanAdapter& adapter){
     require(!adapter_,"GPU shader runtime cannot belong to two generations");adapter_=&adapter;
     resources_.draw_commands([this](auto& c,auto& s,auto& why){return draw(c,s,why);});
     auto boundaries=resources_.install(adapter);
-    adapter.prepared_original([this]{return patched_compute_;},[this](auto& state,auto& why){return execute_original(state,why);});
+    adapter.prepared_original([this]{return patched_original_;},[this](auto& state,auto& why){return execute_original(state,why);});
     adapter.draw_prepare([this](auto& s,auto& why){try{apply_input_layout(s);return true;}catch(const std::exception& e){why=widen(e.what());return false;}});
     adapter.shader_commands([this](auto& c,auto& s,auto& why){return run(c,s,why);});
     RuntimeParseCustomShaders([this](const auto& declaration){compile(declaration);});return boundaries;
@@ -110,7 +110,7 @@ void GpuShaderRuntime::set_programs(const std::vector<gpu::HlslProgram>& program
     for(unsigned i=0;i<5;++i)stages_[i]=std::move(next[i]);stages_known_=31;compute_=std::move(compute);compute_known_=true;
 }
 void GpuShaderRuntime::application_compute(const RuntimeDraw& draw){
-    compute_.reset();source_compute_.reset();compute_known_=false;patched_compute_=false;
+    compute_.reset();source_compute_.reset();compute_known_=false;patched_original_=false;
     indirect_arguments_=draw.indirect_arguments;
     stages_.fill(nullptr);source_graphics_.fill(nullptr);stages_known_=0;graphics_known_=0;
     scissor_known_=pixel_samplers_known_=false;known_samplers_.clear();samplers_.clear();
@@ -154,9 +154,15 @@ void GpuShaderRuntime::inherit_graphics(){
     }
 }
 void GpuShaderRuntime::source_patch(unsigned stage,std::shared_ptr<const SourceShaderCode> code){
-    require(stage==5 && code && adapter_ && adapter_->planning_prepared(),"Source graphics patch requires inherited graphics execution");
-    source_compute_=std::move(code);compute_known_=false;inherit_compute();
-    patched_compute_=true;
+    require(stage<6 && code && adapter_ && adapter_->planning_prepared(),"Source shader patch requires prepared inherited execution");
+    if(stage==5){source_compute_=std::move(code);compute_known_=false;inherit_compute();}
+    else{
+        // Keep the original VS signature for the application's input layout.
+        // Nested CustomShaders save/restore the patched stage like any bound shader.
+        auto program=inherited_graphics_program(code,stage);
+        stages_[stage]=std::move(program);stages_known_|=uint8_t(1u<<stage);
+    }
+    patched_original_=true;
 }
 void GpuShaderRuntime::inherit_compute(){
     if(compute_known_ || !source_compute_)return;

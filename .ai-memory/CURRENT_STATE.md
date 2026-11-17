@@ -10,6 +10,20 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
+D-348 verified: source 3.6.3 / ABI ca3dfae1e8932a4d executes original
+graphics ShaderRegex through retained inherited programs and the prepared caller.
+Original VS signature still defines IA semantics. Patch/nested/unmatched/unknown,
+direct/indirect/skip and vertex+pixel caller variants pass 40 checks. Missing
+source/model evidence remains refused. Affected inherited graphics 50, explicit
+graphics 20, indirect compute regex 16, transaction 5, Core 22, tracker 1042,
+ABI 16 and text 761 pass. The pixel case initially lacked display-stage model
+evidence; supplying its matching original program makes its five checks pass.
+Fresh owned graphics 334 and prepared 155 pass, validation clean. Logs:
+graphics-regex-{binaries,regression,pixel,owned,prepared}.out. Diff reviewed;
+commit/main FF, then fix false image self-reference output rebind, followed by
+sampler inheritance, indirect this/current Store. No game action or completion
+claim. No active process.
+
 D-347 verified: source 3.6.2 / ABI ca3dfae1e8932a4d retains single native
 indirect graphics arguments for indexed/nonindexed draw=from_caller. Old DLL
 reproduces 3/5; new indexed/nonindexed/count-buffer refusal cases pass 15/15.

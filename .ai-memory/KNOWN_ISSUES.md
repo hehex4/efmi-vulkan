@@ -2079,3 +2079,7 @@ runtime semantic integration remain open. 512 ProceduralSky pairs share a Vulkan
 empty-input module with incompatible DXBC signatures; that identity is excluded
 globally. None of the 101 historical matches has the ambiguity. Compute programs
 can occupy the serialized vertex-program container; inspect actual entry points.
+
+## 2026-11-17: Original image self-reference emits a false output rebind
+
+During D-348, adding o0 = ref set_viewport o0 to the original patched caller reproduces a prepared-image phase-handoff refusal. The original UsableRefView keeps the same typed view; GpuResourceRuntime fills format/stride query metadata, while native_configuration::equal also compares those buffer-style fields for images. Next isolate physical image view equality from metadata without weakening genuine output phase checks. Omitting the redundant output assignment allows the direct/indirect caller fixture to pass.

@@ -94,7 +94,7 @@ private:
     std::map<CustomShader*,Entry> shaders_;
     gpu::Compute compute_;
     bool compute_known_=false; // Null differs from an unimported application stage.
-    bool patched_compute_=false;
+    bool patched_original_=false;
     NativeResource indirect_arguments_;
     std::shared_ptr<const SourceShaderCode> source_compute_;
     struct InheritedCompute {gpu::Compute pipeline;size_t bytes=0;};

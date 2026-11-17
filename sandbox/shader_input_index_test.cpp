@@ -37,8 +37,8 @@ int wmain(int argc,wchar_t** argv){
             std::ofstream output(argv[3],std::ios::binary);output.write(static_cast<const char*>(code->GetBufferPointer()),code->GetBufferSize());code->Release();
             return output?0:1;
         }
-        if(argc==3 && (std::wstring(argv[1])==L"--fixture" || std::wstring(argv[1])==L"--sandbox-vertex")){
-            const auto code=std::wstring(argv[1])==L"--fixture"?material_fixture::shader(true):spv::vertex_shader();
+        if(argc==3 && (std::wstring(argv[1])==L"--fixture" || std::wstring(argv[1])==L"--sandbox-vertex" || std::wstring(argv[1])==L"--sandbox-tagged-vertex" || std::wstring(argv[1])==L"--sandbox-solid-fragment" || std::wstring(argv[1])==L"--sandbox-fragment")){
+            const auto code=std::wstring(argv[1])==L"--fixture"?material_fixture::shader(true):std::wstring(argv[1])==L"--sandbox-fragment"?spv::fragment_shader():std::wstring(argv[1])==L"--sandbox-solid-fragment"?spv::solid_fragment_shader():spv::vertex_shader(std::wstring(argv[1])==L"--sandbox-tagged-vertex");
             std::ofstream file(argv[2],std::ios::binary);
             file.write(reinterpret_cast<const char*>(code.data()),code.size()*4);return file?0:1;
         }

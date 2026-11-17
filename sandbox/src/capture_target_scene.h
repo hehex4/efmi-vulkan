@@ -102,7 +102,9 @@ static void record_capture_target(VkCommandBuffer command, bool after_graphics)
                 vkCmdPipelineBarrier(command,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,0,0,nullptr,0,nullptr,1,&resolved);}
             dynamic_begin_rendering(command,&rendering);
         }else vkCmdBeginRenderPass(command, &begin, VK_SUBPASS_CONTENTS_INLINE);
-        if(s.draw){record_setup(command);record_draw(command,0); }
+        if(s.draw){record_setup(command);
+            if(g.native_target_pipeline)vkCmdBindPipeline(command,VK_PIPELINE_BIND_POINT_GRAPHICS,g.native_target_pipeline);
+            record_draw(command,0); }
         if(g.dynamic_rendering){
             dynamic_end_rendering(command);
             barrier.oldLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;barrier.newLayout=s.draw?VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:VK_IMAGE_LAYOUT_GENERAL;
