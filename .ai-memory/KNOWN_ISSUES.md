@@ -1,5 +1,35 @@
 # EFMI Vulkan - Known issues
 
+## BUG-170: Imported application cache queries return UNKNOWN (D-330 fixed)
+
+gpu_resources.cpp evaluates RegionHash/SpatialHash arguments but returns UNKNOWN
+for every buffer. That was valid for untracked owned Mod allocations before native
+application imports existed. It is wrong for imported CPU-cached game buffers and
+the original CustomResource cache views made by ref/copy. Core SpatialIdentification
+queries ResourceOriginal_VS_CB with SpatialHash and therefore loses identification.
+
+Original CommandList.cpp 6374-6395 retains shared cached data with an offset/size in
+CustomResource::SetHandleInfo. Query functions at 10905-11014 apply original source
+offsets, CRC32C/float encoding and packed spatial quantization. ResourceHash.cpp
+2303-2395 clamps region reads; 2531-2610 has a strict spatial upper bound. DX11
+provides reference lifetime/deferred destruction, hazards and context ordering;
+the Vulkan adapter must retain proven CPU observations and journal named cache
+views without submitting uncompleted application commands. A focused regression
+is building before the fix. No game action.
+
+cached-source-before.out reproduces the direct application CB spatial hash failure.
+The first query/cache-view implementation still fails in cached-source-fixed.out:
+HostParseResourceMatching omitted the original cache_resource_data parser and the
+IB/VB/CB flags forced by track_region_hashes. Add those original settings as well.
+The first settings build used a chained enum OR unsupported by the pinned SENSIBLE_ENUM
+operators; separate original-style |= assignments fix the compile error. The reviewed
+fixture initially used the unsupported RegionHash spelling instead of HashRegion.
+After correcting it, GPU registry 395 passes cleanly in cached-source-reviewed.out.
+Source and four matching DLLs are 3.4.6 / ABI 3462dd23d7bf741b. Production cached
+queries pass 4 with independent GPU values after moving output out of the sandbox's
+reserved alternate-buffer readback word. Root 27, interpreter 570, prepared 155,
+production transaction 5, backend 13, tracker 1015, ABI 9 and text 742 pass. No game action.
+
 ## BUG-169: Pending preflight ownership could be detached before recording (D-329 fixed)
 
 A target plan retains an unused CommandOwner while descriptor preflight asks for

@@ -16,6 +16,7 @@
 #include "gpu_application_bindings.h"
 
 void FrontendBufferViewElements(UINT,UINT,DXGI_FORMAT,UINT,UINT&,UINT&);
+uint32_t PackCellCoords(float,float,float,float);
 
 namespace efmi::frontend {
 namespace {
@@ -266,7 +267,7 @@ void GpuResourceRuntime::identify_resource(const GpuResourceBinding& binding,Sou
     require(!prepared_state_,"Source identities are published outside a prepared registry transaction");
     require(bool(binding),"Resource identity requires a live owned allocation");
     require(identity.hash_known || !identity.hash,"Unknown original resource hash has an asserted value");
-    require(identity.tracking==SourceResourceIdentity::Tracking::Tracked || (!identity.hash_known && !identity.region_hash),
+    require(identity.tracking==SourceResourceIdentity::Tracking::Tracked || (!identity.hash_known && !identity.region_hash && !identity.cached_data),
             "Untracked resource has asserted source hash facts");
     const std::weak_ptr<void> key=resource_owner(binding);
     if(identity.tracking==SourceResourceIdentity::Tracking::Untracked){source_identities_.erase(key);return;}
@@ -275,6 +276,55 @@ void GpuResourceRuntime::identify_resource(const GpuResourceBinding& binding,Sou
         require(source_identities_.size()<65536,"Original resource identity budget exceeded");
     }
     source_identities_[key]=std::move(identity);
+}
+SourceResourceIdentity::CachedData GpuResourceRuntime::cached_source(const GpuResourceBinding& source) const {
+    if(!source.buffer || !(source.description.BindFlags&UINT(G->cache_resource_data)))return {};
+    const auto found=source_identities_.find(std::weak_ptr<void>(source.buffer));
+    if(found==source_identities_.end() || !found->second.cached_data)return {};
+    auto data=found->second.cached_data();
+    require(!data || (!data->empty() && data->size()==source.description.ByteWidth && data->size()<=max_bytes),
+        "Original cached source observation does not cover its allocation");
+    return data;
+}
+void GpuResourceRuntime::cache_source(CustomResource* custom,const GpuResourceBinding& source,UINT offset,UINT size){
+    if(!custom || G->cache_resource_data==DataCacheBindFlags::INVALID)return;
+    auto data=cached_source(source);if(!data)return; // Original SetHandleInfo preserves an earlier cache on failure.
+    require(cached_sources_.count(custom) || cached_sources_.size()<65536,"Original cached source budget exceeded");
+    remember(*custom);const auto length=size?size:data->size();cached_sources_[custom]={std::move(data),offset,length};
+}
+float GpuResourceRuntime::cached_query(ResourceCopyTarget& target,CommandListState& state,const GpuResourceBinding& source,CustomResource* custom){
+    const bool spatial=target.evaluation_mode==Mode::RESOURCE_SPATIAL_HASH;
+    require(state.call_info || (target.type!=Target::VERTEX_BUFFER && target.type!=Target::INDEX_BUFFER),
+        "GPU buffer hash query requires a draw context");
+    UINT base=0;
+    if(target.type==Target::VERTEX_BUFFER)base=GetVertexBufferRegionOffset(source.stride,state.call_info,source.offset);
+    else if(target.type==Target::INDEX_BUFFER)base=GetIndexBufferRegionOffset(source.format,state.call_info,source.offset);
+    else if(target.type==Target::CONSTANT_BUFFER)base=spatial?source.offset/4:source.offset;
+    float args[4]{};const size_t count=spatial?4:2;
+    for(size_t i=0;i<count;++i){require(target.member_args[i].expression!=nullptr,"GPU buffer hash query arguments incomplete");
+        args[i]=target.member_args[i].GetValue(&state);}
+    CachedSource cache;
+    if(custom){const auto found=cached_sources_.find(custom);if(found!=cached_sources_.end())cache=found->second;}
+    else{cache.data=cached_source(source);if(cache.data)cache.size=cache.data->size();}
+    if(!cache.data || !cache.size || cache.offset>cache.data->size())return -1;
+    if(!spatial){
+        const UINT offset=base+uint_value(args[0]);const UINT size=uint_value(args[1]);
+        if(!size || offset>=cache.size)return -1;
+        const auto length=std::min<size_t>(size,cache.size-offset);
+        if(offset>cache.data->size()-cache.offset || length>cache.data->size()-cache.offset-offset)return -1;
+        const auto hash=crc32c_hw(0,cache.data->data()+cache.offset+offset,length);
+        return hash?EncodeFloat30(HashUnsigned32(hash)):-1;
+    }
+    UINT indices[3];for(unsigned i=0;i<3;++i)indices[i]=base+uint_value(args[i]);
+    const uint64_t minimum=uint64_t(std::max({indices[0],indices[1],indices[2]}))*4+4;
+    // Preserve the pinned original's strict upper bound, including an XYZ value
+    // whose final byte would otherwise be exactly the cache window's end.
+    if(minimum>=cache.size || minimum>cache.data->size()-cache.offset)return -1;
+    require(std::isfinite(args[3]) && args[3]>0,"Spatial cell size must be positive and finite");
+    float xyz[3];for(unsigned i=0;i<3;++i){memcpy(&xyz[i],cache.data->data()+cache.offset+uint64_t(indices[i])*4,4);
+        const auto cell=std::floor(xyz[i]/args[3]);
+        require(std::isfinite(cell) && double(cell)>=INT_MIN && double(cell)<=INT_MAX,"Spatial coordinate exceeds original quantization range");}
+    const auto hash=PackCellCoords(xyz[0],xyz[1],xyz[2],args[3]);return hash?BitCastToFloat(hash):-1;
 }
 bool GpuResourceRuntime::match_source(ResourceCopyTarget& target,CommandListState& state,SourceResourceMatch& result,std::wstring& reason){
     const uint64_t mark=commands_.recorded();
@@ -427,6 +477,7 @@ void GpuResourceRuntime::copy_to(ResourceCopyOperation& op,ResourceCopyTarget& d
             value.view_offset=cache.view_offset;value.view_size=cache.view_size;value.image_view=cache.image_view;}
     };
     if(!(op.options&ResourceCopyOptions::COPY_MASK)){
+        cache_source(custom,source,source.offset,source.visible_size);
         // UsableRefView retains a source view on a custom resource. If the
         // source has none, the original may reuse its old compatible view.
         if(custom && source.view==GpuResourceBinding::View::None)reuse_view(source);
@@ -480,6 +531,7 @@ void GpuResourceRuntime::copy_to(ResourceCopyOperation& op,ResourceCopyTarget& d
     // MONO has no implementation upstream; buffer SET_VIEWPORT returns as well.
     if(!(op.options&ResourceCopyOptions::COPY_DESC) && !(op.options&ResourceCopyOptions::RESOLVE_MSAA)){
         if(destination_size){
+            cache_source(custom,source,source.offset,destination_size);
             // SpecialCopyBufferRegion treats source size as an end boundary.
             const uint64_t end=std::min<uint64_t>(source_end,uint64_t(source.offset)+destination_size);
             // A box that ends before it starts (an end boundary below the offset, a region past the buffer) is
@@ -490,6 +542,7 @@ void GpuResourceRuntime::copy_to(ResourceCopyOperation& op,ResourceCopyTarget& d
             if(bytes)commands_.copy(source.buffer,source.offset,out.buffer,0,bytes);
             out.offset=0;
         }else{
+            cache_source(custom,source,0,0);
             require(out.description.ByteWidth==source.description.ByteWidth,"GPU whole copy has incompatible allocation sizes");
             commands_.copy(source.buffer,0,out.buffer,0,source.description.ByteWidth);
         }
@@ -700,19 +753,7 @@ bool GpuResourceRuntime::query(ResourceCopyTarget& input,CommandListState& state
         if(!b){result=mode==Mode::RESOURCE_IDENTITY || mode==Mode::RESOURCE_BIND_FLAGS?0.0f:-2.0f;return true;}
         if(mode==Mode::RESOURCE_REGION_HASH || mode==Mode::RESOURCE_SPATIAL_HASH){
             if(b.image){result=-3.0f;return true;}
-            // GetResourceRegionHash/GetResourceSpatialHash: the region offset of a vertex or index
-            // buffer reads the draw call, then the arguments are evaluated.
-            require(state.call_info || (input.type!=Target::VERTEX_BUFFER && input.type!=Target::INDEX_BUFFER),
-                    "GPU buffer hash query requires a draw context");
-            const size_t arguments=mode==Mode::RESOURCE_REGION_HASH?2:4;
-            for(size_t i=0;i<arguments;++i){
-                require(input.member_args[i].expression!=nullptr,"GPU buffer hash query arguments incomplete");
-                input.member_args[i].GetValue(&state);
-            }
-            // The original hashes its CPU copy of application buffers (cache_resource_data) and of
-            // resources copied from them. An owned buffer holds Mod data, which the original never
-            // caches, so the hash is zero and the result stays UNKNOWN.
-            result=-1.0f;return true;
+            result=cached_query(input,state,b,custom);return true;
         }
         switch(mode){
         case Mode::RESOURCE_SIZE:result=b.visible_size?float(b.visible_size):b.image?-3.0f:float(b.description.ByteWidth);break;

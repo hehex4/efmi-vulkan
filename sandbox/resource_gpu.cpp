@@ -1490,6 +1490,7 @@ vb0 = ref ResourceVertex->Region(12, 48)
 #include "prepared_plan_cases.h"
 #include "prepared_host_cases.h"
 #include "prepared_application_cases.h"
+#include "prepared_cached_source_cases.h"
 #include "prepared_application_image_cases.h"
 #include "prepared_pool_cases.h"
 // The layer's side of the original as the judge (D-150, scripts/check_dx11_judge.py): an INI folder's
@@ -1580,6 +1581,7 @@ int wmain(int argc,wchar_t** argv){
             configuration_resource_cases(device,std::filesystem::absolute(argv[2]));
             prepared_registry_cases(device,std::filesystem::absolute(argv[2])/"prepared-registry");
             prepared_application_cases(device,std::filesystem::absolute(argv[2])/"prepared-application");
+            prepared_cached_source_cases(device,std::filesystem::absolute(argv[2])/"prepared-cached-source");
             prepared_application_image_cases(device,std::filesystem::absolute(argv[2])/"prepared-application-images");
             prepared_registry_segment_cases(device,std::filesystem::absolute(argv[2])/"prepared-registry-segments");
             prepared_limit_cases(device,std::filesystem::absolute(argv[2])/"prepared-limits");

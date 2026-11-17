@@ -42,6 +42,7 @@ std::unique_ptr<PreparedConfigurationDraw> OwnedRuntime::prepare_native_draw(std
             if(!identity){auto value=std::make_shared<SourceResourceIdentity>();value->tracking=(r.identity&3)==3?
                 SourceResourceIdentity::Tracking::Untracked:SourceResourceIdentity::Tracking::Tracked;
                 value->hash_known=r.hash_known;value->hash=r.hash_known?r.hash:0;
+                value->cached_data=entry.cached_data;
                 if(entry.region_hash)value->region_hash=[read=entry.region_hash](UINT offset,UINT size,uint32_t& hash,std::wstring& why){
                     if(read(offset,size,hash))return true;why=L"Native application buffer region has no completed readable contents";return false;};
                 identity=std::move(value);}

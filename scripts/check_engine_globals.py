@@ -72,6 +72,8 @@ RULES = [
      "function statics initialized once (thread-safe statics); GetOrigSwapChain1's is never called"),
     (r"WICTextureLoader", r"s_initOnce|g_WIC2", "once", "DirectXTK's factory, created under InitOnce"),
     (r"shader_cache", r"algorithm", "once", "the hash algorithm handle (a thread-safe static)"),
+    (r"shader_input_index", r"provider", "once",
+     "const SHA-256 provider initialized by a thread-safe static; each digest creates its own mutable hash handle"),
     (r"shader_cache", r"mutex|pruned", "lock", "the folders a cache pruned, under the cache's static mutex"),
     (r"util", r"init_done|fnGetDpiForMonitor|fnGetProcessDpiAwareness|fnSetThreadDpiAwarenessContext", "once",
      "the original's DPI query; the host answers EFFECTIVE_DPI before it (host_values)"),

@@ -7,7 +7,15 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
+## D-330 cached source integration verified (2026-11-17)
+
+- BUG-170 repaired at 3.4.6 / ABI 3462dd23d7bf741b. GPU registry 395, native cached-query output 4, production transaction 5, backend 13, tracker 1015, ABI 9, text 742, root 27, interpreter 570 and prepared GPU 155 pass; GPU validation clean. Globals audit passes 952 classifications. Commit/root fast-forward, then continue immediately.
+- Next: wire verified source shader declaration queries into native original execution; then prepared graphics CustomShaders/current Store, broader queue/source contracts and obsolete capture entry migration. Only after compatibility completion return to native I-01/I-04/I-05. No game action.
+
 ## D-329 production integration verified (2026-11-17)
+
+- Committed as a8021dd and root main fast-forwarded. The cache-query follow-up is
+  verified in D-330 above.
 
 - Source and four matching DLLs are 3.4.5 / ABI 3462dd23d7bf741b. Original source projection, ordered execution, call/final bindings, image-layout handoff, virtual-register retention and resource-retained upload publication are connected. BUG-169 is fixed; new tracker lifetime assertions pass. Final scoped regression passes backend 13, pass GPU 73, production chain 5, tracker 1015, ABI 9, native calls 60 and text 740. Geometry/two-queue/swap/reload pass 33; file publication/exchange pass 13.
 - Final images 20 / application images 22 / root 27 / GPU registry 384 / prepared GPU 155 / original interpreter 570 pass cleanly. The new cross-generation fixture needed a test-only compile correction to use actual host commands. Commit/root fast-forward now. Immediately repair imported application RegionHash/SpatialHash queries and CPU-cache provenance through original resource references/copies; the current UNKNOWN sentinel affects Core spatial identification. Then prepared graphics CustomShaders, current Store, broader source/queue contracts and capture migration, followed by native queue/access/readiness work. Do not stop at this commit. No real-game authorization.

@@ -2,6 +2,8 @@
 #include "CommandList.h"
 #include <functional>
 #include <variant>
+#include <memory>
+#include <vector>
 
 namespace efmi::frontend {
 struct SourceResourceIdentity {
@@ -13,6 +15,10 @@ struct SourceResourceIdentity {
     // region. A successful zero is native fallback; false means unknown data.
     using RegionHash=std::function<bool(UINT offset,UINT size,uint32_t&,std::wstring&)>;
     RegionHash region_hash;
+    // Original CPU-cache contents, retained independently of the GPU resource.
+    // Empty means no completed CPU observation; never initiates GPU submission.
+    using CachedData=std::shared_ptr<const std::vector<uint8_t>>;
+    std::function<CachedData()> cached_data;
 };
 using SourceResourceDescription=std::variant<std::monostate,D3D11_BUFFER_DESC,
     D3D11_TEXTURE1D_DESC,D3D11_TEXTURE2D_DESC,D3D11_TEXTURE3D_DESC>;

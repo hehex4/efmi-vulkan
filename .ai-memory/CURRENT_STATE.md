@@ -10,7 +10,18 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
+## D-330: original cached source queries verified (2026-11-17)
+
+- Source and four development DLLs are 3.4.6 / ABI 3462dd23d7bf741b. BUG-170 is fixed: original cache_resource_data policy, imported CPU observations, named ref/copy cache windows and cancellation rollback now feed HashRegion/SpatialHash. No GPU submission/readback is initiated by these CPU queries.
+- cached-source-before.out reproduces the original failure. cached-source-reviewed.out passes GPU registry 395 with zero validation errors/warnings. cached-source-regression.out passes production cached queries 4, production transaction 5, configuration backend 13, tracker 1015, ABI 9 and text 742. Fresh root 27, interpreter 570 and prepared GPU 155 pass in cached-source-root/interpreter/prepared.out. Writable globals audit passes 952 classifications after classifying the existing immutable SHA-256 provider.
+- Production fixture initially placed spatial output in readback word 1, which the sandbox deliberately overwrites with its alternate-buffer result. Moving the assertion to word 2 makes both independent hash expectations pass. This is a fixture correction, not an IniParams upload fix. Earlier parser spelling and enum-operator fixture/build failures remain recorded in SESSION_LOG.md.
+- Commit and root fast-forward follow this update. Continue compatibility work immediately: native declaration queries still refuse verified source facts, prepared graphics CustomShaders and current Store remain incomplete, and old capture entries require migration. Then finish native I-01/I-04/I-05. No real-game action is authorized or performed.
+
 ## D-329: production original resource execution verified (2026-11-17)
+
+Historical checkpoint: D-329 is committed as a8021dd and root main was fast-forwarded.
+The imported cache-query gap is repaired in D-330 above. Continue remaining
+compatibility work without ending at either milestone.
 
 - Work continues in .worktrees/fix, engine-work. Source and four development DLLs are 3.4.5 / ABI 3462dd23d7bf741b. D-329 verification is complete; commit and root fast-forward follow this update. No game action is authorized. Complete the compatibility connections and continue the native route in this task.
 - Production hooks project retained application sources, execute the original prepared registry, translate call/final bindings and admit only after full native preflight. Whole application-image layouts are handed off around classic/dynamic pass breaks. Unknown source facts remain unknown; saved unbound application images require fresh observations.

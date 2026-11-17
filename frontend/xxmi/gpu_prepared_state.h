@@ -67,6 +67,7 @@ struct GpuResourceRuntime::PreparedState {
     std::map<CustomResource*,Declaration> declarations;
     std::map<CustomShader*,std::pair<unsigned,int>> shader_limits;
     ResourceMapUndo<decltype(resources_)> resources;
+    ResourceMapUndo<decltype(cached_sources_)> cached_sources;
     ResourceMapUndo<decltype(copies_)> copies;
     ResourceMapUndo<decltype(resource_copy_pools_)> resource_pools;
     ResourceMapUndo<decltype(command_copy_pools_)> command_pools;
@@ -90,6 +91,7 @@ void GpuResourceRuntime::remember(CustomResource& r){
     undo.declarations.try_emplace(&r,PreparedState::Declaration{r.is_null,bool(substantiated_.count(&r)),r.bind_flags,r.misc_flags,
         r.stride,r.offset,r.buf_size,r.source_stride,r.frame_no,r.format,r.copies_this_frame});
     undo.resources.remember(resources_,&r);undo.resource_pools.remember(resource_copy_pools_,&r);
+    undo.cached_sources.remember(cached_sources_,&r);
     undo.resource_images.remember(resource_image_pools_,&r);
 }
 void GpuResourceRuntime::remember(CustomShader& shader){
@@ -135,6 +137,7 @@ void GpuResourceRuntime::rollback_prepared() noexcept {
     for(const auto& value:undo.shader_limits){value.first->frame_no=value.second.first;value.first->executions_this_frame=value.second.second;}
     if(undo.pools)undo.pools->restore_metadata();
     undo.resources.restore(resources_);undo.copies.restore(copies_);
+    undo.cached_sources.restore(cached_sources_);
     undo.resource_pools.restore(resource_copy_pools_);undo.command_pools.restore(command_copy_pools_);undo.range_views.restore(range_views_);
     undo.resource_images.restore(resource_image_pools_);undo.command_images.restore(command_image_pools_);
     slots_=std::move(undo.slots);viewport_=undo.viewport;backbuffer_targeted_=undo.backbuffer_targeted;

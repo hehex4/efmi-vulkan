@@ -2722,3 +2722,20 @@ The pinned VVL 1.4.321 incorrectly applies VUID 09506 to ordinary immutable samp
 Backport the upstream YCbCr-conversion condition into a separate owned installation,
 restore the pinned source after building, and select it only for the affected child
 test. Do not suppress validation diagnostics or change correct null-resource behavior.
+
+## D-330: Preserve original CPU-cache views (2026-11-17)
+
+Restore the original cache_resource_data settings, including IB/VB/CB caching forced
+by track_region_hashes. Source identities may provide retained CPU observations;
+these callbacks never submit or wait for application GPU commands. Named ref/copy
+destinations retain an original cache window independently of GPU allocation lifetime.
+Journal those views with prepared registry state. Copying an untracked owned resource
+does not invent original cached data, and failure to acquire a new cache preserves
+the earlier named cache, as CustomResource::SetHandleInfo does.
+
+Use the pinned CRC32C, HashUnsigned32, EncodeFloat30 and PackCellCoords functions.
+Preserve source binding offsets, requested region clamping and the pinned strict
+spatial upper bound. Check actual retained byte bounds and finite quantization before
+CPU reads. No per-character identity, synthetic position, delayed Store result or
+package substitution is introduced. Current-value GPU-only readback remains a
+separate execution boundary.

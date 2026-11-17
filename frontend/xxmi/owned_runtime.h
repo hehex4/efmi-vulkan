@@ -16,6 +16,7 @@ struct NativeApplicationBinding {
     uint32_t structure_stride=0;
     bool raw=false;
     std::function<bool(uint32_t,uint32_t,uint32_t&)> region_hash;
+    std::function<std::shared_ptr<const std::vector<uint8_t>>()> cached_data;
     gpu::ApplicationImage image;
 };
 struct NativeApplicationState {

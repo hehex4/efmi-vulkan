@@ -228,6 +228,11 @@ private:
     // the next original flush boundary even if that list changes no component.
     bool parameter_republish_=false;
     std::map<CustomResource*,GpuResourceBinding> resources_;
+    struct CachedSource {SourceResourceIdentity::CachedData data;size_t offset=0,size=0;};
+    std::map<CustomResource*,CachedSource> cached_sources_;
+    SourceResourceIdentity::CachedData cached_source(const GpuResourceBinding&) const;
+    void cache_source(CustomResource*,const GpuResourceBinding&,UINT offset,UINT size);
+    float cached_query(ResourceCopyTarget&,CommandListState&,const GpuResourceBinding&,CustomResource*);
     // CustomResource::Substantiate runs once per resource: the declarations already substantiated (D-151).
     std::set<CustomResource*> substantiated_;
     std::map<std::weak_ptr<void>,SourceResourceIdentity,std::owner_less<std::weak_ptr<void>>> source_identities_;

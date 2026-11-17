@@ -3946,3 +3946,30 @@ for application data, which affects original Core spatial identification. Prepar
 graphics CustomShaders, current Store, broader source/queue contracts and remaining
 capture migration remain engineering work. No real game, deployment, launcher,
 system registration, historical artifact deletion or remote action.
+
+## 2026-11-17: D-330 original cached source query restoration
+
+Reproduced BUG-170 in cached-source-before.out: imported CB SpatialHash returned
+UNKNOWN. Original CustomResource::SetHandleInfo retains global CPU-cache ownership,
+view offsets and lengths for ref/region/whole copies; queries use original CRC32C,
+float encoding and packed spatial coordinates. DX11 supplies reference lifetime,
+deferred destruction, hazards and context order. The Vulkan adapter now retains
+proven CPU observations and journals named cache views without submitting pending
+application GPU work. Restore the original cache_resource_data parser and IB/VB/CB
+flags forced by track_region_hashes. Uncached private/chained resources stay UNKNOWN.
+
+The first policy build used unsupported chained enum OR; separate original-style
+assignments fix it. The test used RegionHash instead of original HashRegion; correct
+it and assert zero parser diagnostics. GPU registry 395 passes in
+cached-source-reviewed.out with zero validation errors/warnings. Matching binaries
+build at 3.4.6 / ABI 3462dd23d7bf741b in cached-source-binaries.out. Production test
+initially wrote spatial bits into the sandbox's reserved alternate-buffer readback
+word. A constant-value diagnostic confirmed the fixture error; use word 2. Scoped
+cached-source-regression.out passes queries 4, transaction 5, backend 13, tracker
+1015, ABI 9 and text 742. Fresh root 27, interpreter 570 and prepared GPU 155 pass
+in cached-source-root/interpreter/prepared.out. The writable-globals audit passes
+952 entries after classifying the existing thread-safe immutable SHA-256 provider.
+
+Diff reviewed; commit/root fast-forward next, then continue compatibility declaration
+queries, prepared graphics/current Store and capture migration before native
+I-01/I-04/I-05. No game load, deployment, launcher or installation change.

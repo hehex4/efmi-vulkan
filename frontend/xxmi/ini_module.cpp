@@ -139,8 +139,19 @@ bool HostSectionRuns(const wchar_t* section, const wchar_t* target)
 }
 void HostParseTextureOverrides() { ParseTextureOverrideSections(); }
 void HostParseResourceMatching() {
+    wchar_t setting[MAX_PATH];
+    if(GetIniStringAndLog(L"Rendering",L"cache_resource_data",nullptr,setting,MAX_PATH)){
+        if(!wcscmp(setting,L"none"))G->cache_resource_data=DataCacheBindFlags::INVALID;
+        else G->cache_resource_data=parse_enum_option_string<const wchar_t*,DataCacheBindFlags,wchar_t*>(DataCacheBindFlagNames,setting,nullptr);
+    }
     G->track_region_hashes=GetIniBool(L"Rendering",L"track_region_hashes",false,nullptr);
-    if(G->track_region_hashes)BuildTextureOverrideDrawMaps();
+    if(G->track_region_hashes){
+        // Pinned ParseRenderingSettings forces all three source cache classes.
+        G->cache_resource_data|=DataCacheBindFlags::INDEX_BUFFER;
+        G->cache_resource_data|=DataCacheBindFlags::VERTEX_BUFFER;
+        G->cache_resource_data|=DataCacheBindFlags::CONSTANT_BUFFER;
+        BuildTextureOverrideDrawMaps();
+    }
 }
 void HostParseShaderOverrides() { ParseShaderOverrideSections(); }
 void HostCompileNamedList(const wchar_t* name)

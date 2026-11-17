@@ -46,6 +46,16 @@ inline bool native_application_state(Device* device,CmdBuf* cb,const DrawRec& dr
             }
             if(r.buffer && (r.identity&3)==0){
                 const auto handle=VkBuffer(r.buffer);const auto id=r.identity;
+                entry.cached_data=[device,handle,id]()->std::shared_ptr<const std::vector<uint8_t>>{
+                    std::shared_lock<std::shared_mutex> guard(device->res_mx);
+                    const auto found=device->bufs.find(handle);
+                    if(found==device->bufs.end() || (uint64_t(found->second.id)<<2)!=id ||
+                       !found->second.size || found->second.size>(64u<<20))return {};
+                    auto bytes=std::make_shared<std::vector<uint8_t>>(size_t(found->second.size));
+                    const auto source=read_buffer_locked(device,found->second,0,found->second.size,bytes->data());
+                    if(source!=SRC_MAPPED && source!=SRC_SHADOW)return {};
+                    return bytes;
+                };
                 entry.region_hash=[device,handle,id](uint32_t offset,uint32_t size,uint32_t& hash){
                     if(size>(64u<<20))return false;
                     std::shared_lock<std::shared_mutex> guard(device->res_mx);

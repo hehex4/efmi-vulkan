@@ -13,6 +13,7 @@ struct ComputeScene {
     VkDeviceMemory writable_memory = VK_NULL_HANDLE;
     VkCommandBuffer command = VK_NULL_HANDLE;
     unsigned repeat = 1;
+    uint32_t input_word = 7;
     Buffer data, arguments;
     Buffer alternate, input;
     VkDescriptorSetLayout set_layout = VK_NULL_HANDLE;
@@ -42,7 +43,7 @@ static bool create_compute_scene()
         if(!make_buffer(c.alternate,16,VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|(c.capture_usage?VK_BUFFER_USAGE_TRANSFER_SRC_BIT:0),true,true) ||
            !make_buffer(c.input,16,(c.constant_input?VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT:VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)|(c.capture_usage?VK_BUFFER_USAGE_TRANSFER_SRC_BIT:0),true,true))return false;
         memset(c.alternate.map,0,16);memset(c.input.map,0,16);
-        *static_cast<uint32_t*>(c.input.map)=7;
+        *static_cast<uint32_t*>(c.input.map)=c.input_word;
     }
     if(c.storage_image){
         VkImageCreateInfo image{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};image.imageType=VK_IMAGE_TYPE_2D;image.format=VK_FORMAT_R32_UINT;image.extent={4,4,1};
@@ -144,7 +145,7 @@ static void record_compute_scene(VkCommandBuffer cmd)
     // The preceding submission has finished. Resetting here makes a skipped dispatch observable.
     memset(c.data.map, 0, 16);
     if(c.binding_scene){
-        memset(c.alternate.map,0,16);*static_cast<uint32_t*>(c.input.map)=7;
+        memset(c.alternate.map,0,16);*static_cast<uint32_t*>(c.input.map)=c.input_word;
         if(g.descriptor_mode==1){
             VkDescriptorBufferInfo buffers[3]={{c.data.buf,0,16},{c.alternate.buf,0,16},{c.uniform_alias?c.data.buf:c.input.buf,0,16}};
             vkUpdateDescriptorSetWithTemplate(g.device,c.set,c.update_template,buffers);

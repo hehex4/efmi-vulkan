@@ -2280,6 +2280,8 @@ int wmain(int argc, wchar_t** argv)
         else if (a == L"--compute-uniform-alias") { compute_scene.uniform_alias = compute_scene.binding_scene = compute_scene.constant_input = true; }
         else if (a == L"--compute-bindings")
             compute_scene.binding_scene = true;
+        else if (a == L"--compute-input-word" && i + 1 < argc)
+            compute_scene.input_word = uint32_t(wcstoul(argv[++i],nullptr,0));
         else if (a == L"--compute-late-data")
             compute_scene.late_update = true;
         else if (a == L"--compute-buffer-barriers")
