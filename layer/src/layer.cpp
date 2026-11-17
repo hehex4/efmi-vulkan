@@ -1775,10 +1775,11 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
     VkPhysicalDevicePageableDeviceLocalMemoryFeaturesEXT pageable_feature{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PAGEABLE_DEVICE_LOCAL_MEMORY_FEATURES_EXT};
     bool null_descriptors = false, null_descriptors_added = false, robustness_requested = false;
     bool draw_parameters = false, draw_parameters_added = false;
-    bool float_controls_requested=false,float_controls_added=false,depth_clamp_added=false,geometry_added=false;
+    bool float_controls_requested=false,float_controls_added=false,depth_clamp_added=false,geometry_added=false,indirect_instance_added=false;
     VkPhysicalDeviceFeatures owned_core_features{};
     VkBool32* app_depth_clamp=nullptr;
     VkBool32* app_geometry=nullptr;
+    VkBool32* app_indirect_instance=nullptr;
     if(info->pEnabledFeatures)owned_core_features=*info->pEnabledFeatures;
     // D-095: timeline semaphores publish the characters' textures to every graphics queue; memory
     // priority and pageable device-local memory let the driver page the layer's textures before the
@@ -1802,6 +1803,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
         if(p->sType==VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2){
             auto* features=const_cast<VkPhysicalDeviceFeatures2*>(reinterpret_cast<const VkPhysicalDeviceFeatures2*>(p));
             owned_core_features=features->features;app_depth_clamp=&features->features.depthClamp;app_geometry=&features->features.geometryShader;
+            app_indirect_instance=&features->features.drawIndirectFirstInstance;
         }
         if (p->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES) {
             auto* features = const_cast<VkPhysicalDeviceVulkan12Features*>(reinterpret_cast<const VkPhysicalDeviceVulkan12Features*>(p));
@@ -1881,6 +1883,11 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
             owned_core_features.geometryShader=VK_TRUE;
             if(app_geometry)*app_geometry=VK_TRUE;else modified.pEnabledFeatures=&owned_core_features;
             geometry_added=changed=true;
+        }
+        if(!owned_core_features.drawIndirectFirstInstance && features.features.drawIndirectFirstInstance){
+            owned_core_features.drawIndirectFirstInstance=VK_TRUE;
+            if(app_indirect_instance)*app_indirect_instance=VK_TRUE;else modified.pEnabledFeatures=&owned_core_features;
+            indirect_instance_added=changed=true;
         }
         void* chain = const_cast<void*>(info->pNext);
         if (robustness_supported && robust_query.nullDescriptor) {
@@ -1962,6 +1969,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
     if (pageable_added && app_pageable) *app_pageable = VK_FALSE;
     if(depth_clamp_added && app_depth_clamp)*app_depth_clamp=VK_FALSE;
     if(geometry_added && app_geometry)*app_geometry=VK_FALSE;
+    if(indirect_instance_added && app_indirect_instance)*app_indirect_instance=VK_FALSE;
     if (r != VK_SUCCESS)
         return r;
     info = requested;
@@ -2024,6 +2032,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
                 character_device_setup(dev, &execution, inst->handle, inst->gipa);
                 if(depth_clamp_added)dev->enabled_features.depthClamp=VK_TRUE;
                 if(geometry_added)dev->enabled_features.geometryShader=VK_TRUE;
+                if(indirect_instance_added)dev->enabled_features.drawIndirectFirstInstance=VK_TRUE;
                 m2_create(dev, props, memory);
             }
         }
@@ -2036,6 +2045,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
     if (dev->draw_parameters) logf("shader draw parameters %s", dev->draw_parameters_added ? "added" : "enabled by the application");
     if(float_controls_added || depth_clamp_added || geometry_added)logf("original shader execution: float controls %s, depth clamp %s, geometry %s",
         float_controls_added?"added":"unchanged",depth_clamp_added?"added":"unchanged",geometry_added?"added":"unchanged");
+    if(indirect_instance_added)logf("original indirect graphics: first-instance feature added");
     logf("timeline semaphores %s, memory priority %s, pageable device memory %s",
          dev->timeline_semaphores ? (dev->timeline_semaphores_added ? "added" : "enabled by the application") : "off",
          dev->memory_priority ? (dev->memory_priority_added ? "added" : "enabled by the application") : "off",

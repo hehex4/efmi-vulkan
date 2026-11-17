@@ -13,6 +13,18 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-347: Preserve indirect graphics caller arguments (2026-11-17)
+
+Original CommandList.cpp 1565-1593 and 1668 onward issue indirect calls with the
+resource and byte offset. DX11 provides deferred reference lifetime, hazard
+tracking and one-context order. Retain the same native buffer/allocation and
+record its indirect read in the prepared graphics packet. Do not read arguments
+on CPU or convert them into stale direct counts. A DX11 indirect call has one
+argument record; native multi-draw/count-buffer calls need separate semantics and
+are refused explicitly. Enable supported drawIndirectFirstInstance for original
+graphics execution, restoring temporarily changed caller Features2 fields after
+device creation. Lack of the device feature remains an execution refusal.
+
 ## D-346: Inherit representable current graphics state (2026-11-17)
 
 Original RunCustomShader (CommandList.cpp 2898-2935) reads and merges only the

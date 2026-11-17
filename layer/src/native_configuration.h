@@ -13,7 +13,8 @@ inline bool native_application_state(Device* device,CmdBuf* cb,const DrawRec& dr
     std::shared_lock<std::shared_mutex> lock(device->res_mx);
     const auto pipeline=device->pipes.find(draw.pipeline);
     if(pipeline==device->pipes.end()){why="Original context projection needs the current pipeline";return false;}
-    if(draw.kind==DK_DISPATCH_INDIRECT){
+    if(draw.kind==DK_DISPATCH_INDIRECT ||
+       ((draw.kind==DK_INDIRECT || draw.kind==DK_INDEXED_INDIRECT) && !draw.indirect_count && draw.count==1)){
         auto& args=next.indirect_arguments;args.bound=bool(draw.indirect);args.buffer=uint64_t(draw.indirect);args.offset=draw.indirect_off;
         const auto found=device->bufs.find(draw.indirect);
         if(found!=device->bufs.end()){

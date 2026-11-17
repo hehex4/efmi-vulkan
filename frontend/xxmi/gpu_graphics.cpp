@@ -213,6 +213,15 @@ bool GpuShaderRuntime::draw_graphics(DrawCommand& command,CommandListState& stat
         if(c->type==DrawCall::Invalid)return true;
         if(c->type==DrawCall::Draw || c->type==DrawCall::DrawInstanced){draw.count=c->VertexCount;draw.first=c->FirstVertex;}
         else if(c->type==DrawCall::DrawIndexed || c->type==DrawCall::DrawIndexedInstanced){draw.indexed=true;draw.count=c->IndexCount;draw.first=c->FirstIndex;memcpy(&draw.vertex_offset,&c->FirstVertex,4);}
+        else if(c->type==DrawCall::DrawInstancedIndirect || c->type==DrawCall::DrawIndexedInstancedIndirect){
+            draw.indexed=c->type==DrawCall::DrawIndexedInstancedIndirect;const auto& args=indirect_arguments_;
+            const uint64_t bytes=draw.indexed?sizeof(VkDrawIndexedIndirectCommand):sizeof(VkDrawIndirectCommand);
+            require(adapter_ && adapter_->planning_prepared() && args.bound && args.buffer && args.keep &&
+                (args.usage&VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT) && args.offset%4==0 && args.offset<=args.size && args.size-args.offset>=bytes,
+                "Source indirect graphics caller lacks one retained argument range/usage; multi-draw and count buffers require another adapter");
+            draw.arguments=resources_.commands().import_buffer(VkBuffer(args.buffer),args.size,args.usage,VkDeviceMemory(args.memory),
+                args.memory_offset,args.memory_size,args.keep);draw.argument_offset=args.offset;
+        }
         else throw std::runtime_error("Source caller requires stream-output or imported indirect/dispatch state");
         if(c->type==DrawCall::DrawInstanced || c->type==DrawCall::DrawIndexedInstanced){draw.instances=c->InstanceCount;draw.first_instance=c->FirstInstance;}break;}
     default:throw std::runtime_error("Source DrawAuto requires a stream-output count adapter");}

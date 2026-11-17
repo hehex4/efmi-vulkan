@@ -19,7 +19,8 @@ from build_shader_model_index import encode_sources
 
 def main():
     case = sys.argv[1] if len(sys.argv) > 1 else 'enabled'
-    if case not in ('enabled', 'unknown_source', 'unknown_layout', 'nested', 'reference', 'state', 'state_nested'):
+    if case not in ('enabled', 'unknown_source', 'unknown_layout', 'nested', 'reference', 'state', 'state_nested',
+                    'indirect', 'indirect_nonindexed', 'indirect_count'):
         raise ValueError('Unknown inherited graphics fixture')
     checks = Checks('native inherited graphics ' + case)
     root = Path(ROOT) / 'build/native-inherited-graphics'
@@ -70,7 +71,11 @@ def main():
                EFMI_VK_SHADER_SOURCES=str(root / 'sources.bin'), EFMI_VK_SHADER_INPUTS=str(root / 'inputs.bin'),
                EFMI_VK_TEST_NOTICE='> inherited graphics',
                EFMI_VK_TEST_NOTICES_READBACK=str(pixels), EFMI_VK_TEST_NOTICES_READBACK_TRIGGER=str(trigger))
-    with Sandbox(seconds=6, threads=0, validation=True, env_extra=env, extra_args=['--readable-swapchain', '--native-target']) as sb:
+    args = ['--readable-swapchain', '--native-target']
+    if case.startswith('indirect'):
+        args.append('--non-indexed-indirect' if case == 'indirect_nonindexed' else
+                    '--indexed-indirect-count' if case == 'indirect_count' else '--indexed-indirect')
+    with Sandbox(seconds=6, threads=0, validation=True, env_extra=env, extra_args=args) as sb:
         time.sleep(.75)
         with ProbeClient(sb.pid) as probe:
             status = probe.status().get('replacement', {})
@@ -79,11 +84,12 @@ def main():
         checks.equal(sb.proc.returncode, 0, 'Inherited graphics sandbox exits normally')
         (root / (case + '-stdout.txt')).write_text(sb.output(), encoding='utf-8')
         (root / (case + '-layer.log')).write_text(sb.log(), encoding='utf-8')
-    accepted = case in ('enabled', 'nested', 'reference', 'state', 'state_nested')
+    accepted = case in ('enabled', 'nested', 'reference', 'state', 'state_nested', 'indirect', 'indirect_nonindexed')
     checks.check(pixels.exists(), 'This process produced a fresh completed image')
     checks.equal(colored_pixels(pixels, (255, 255, 0)) > 200, accepted, 'Inherited VS/IA produce actual replacement pixels; unknown proof preserves the caller')
     reason = status.get('shader_overrides', {}).get('last_reason', '')
-    checks.check(not reason if accepted else ('unknown application graphics' in reason if case == 'unknown_source' else 'input layout' in reason), 'Admission reports the precise source limitation')
+    expected = 'unknown application graphics' if case == 'unknown_source' else 'argument' if case == 'indirect_count' else 'input layout'
+    checks.check(not reason if accepted else expected in reason, 'Admission reports the precise source limitation')
     checks.check('VUID-' not in sb.output() and 'Validation Error' not in sb.output(), 'Vulkan and synchronization validation clean')
     (root / (case + '-status.json')).write_text(json.dumps(status, indent=2), encoding='ascii')
     return checks.finish()

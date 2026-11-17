@@ -10,7 +10,18 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
-Active D-346: D-345 committed as b8e2594 and main fast-forwarded. Verified
+D-347 verified: source 3.6.2 / ABI ca3dfae1e8932a4d retains single native
+indirect graphics arguments for indexed/nonindexed draw=from_caller. Old DLL
+reproduces 3/5; new indexed/nonindexed/count-buffer refusal cases pass 15/15.
+Affected inherited graphics 50, explicit graphics 20, indirect compute regex 16,
+transaction 5, Core 22, tracker 1042, ABI 16 and text 761 pass. Owned graphics
+334 and prepared 155 pass with zero validation errors/warnings. Logs:
+inherited-graphics-indirect-{binaries,regression,owned,prepared}.out.
+Diff reviewed; commit/main fast-forward, then continue sampler inheritance,
+graphics regex, indirect this and current Store. No game action; compatibility
+remains incomplete. No active process.
+
+D-346: D-345 committed as b8e2594 and main fast-forwarded. Verified
 source 3.6.1 adds pointer-free NativeGraphicsState, current static/core-dynamic
 blend/depth/raster/topology capture, guarded source-state conversion, and exact
 native viewport/scissor inheritance. Positive native viewports use a winding
