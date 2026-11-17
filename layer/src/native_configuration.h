@@ -13,6 +13,16 @@ inline bool native_application_state(Device* device,CmdBuf* cb,const DrawRec& dr
     std::shared_lock<std::shared_mutex> lock(device->res_mx);
     const auto pipeline=device->pipes.find(draw.pipeline);
     if(pipeline==device->pipes.end()){why="Original context projection needs the current pipeline";return false;}
+    if(draw.kind==DK_DISPATCH_INDIRECT){
+        auto& args=next.indirect_arguments;args.bound=bool(draw.indirect);args.buffer=uint64_t(draw.indirect);args.offset=draw.indirect_off;
+        const auto found=device->bufs.find(draw.indirect);
+        if(found!=device->bufs.end()){
+            const auto& buffer=found->second;args.size=buffer.size;args.usage=buffer.usage;
+            args.identity=uint64_t(buffer.id)<<2;args.dimension=1;
+            args.memory=uint64_t(buffer.mem);args.memory_offset=buffer.mem_off;args.memory_size=buffer.mem_size;
+            if(buffer.lifetime && !buffer.lifetime->dependencies.empty())args.keep=buffer.lifetime;
+        }
+    }
     auto append=[&](B address,const S* declaration){
         const DeclarationAddress declaration_key{address.stage,address.kind,address.slot};
         declarations.erase(declaration_key);

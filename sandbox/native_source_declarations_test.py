@@ -17,7 +17,8 @@ def main():
     if case not in ("known", "missing", "words", "exact", "exact_unknown", "exact_slot",
                     "exact_inherit", "exact_inherit_unknown", "exact_inherit_nested",
                     "exact_inherit_source_fnv", "exact_inherit_source_embedded", "exact_inherit_source_bytecode", "exact_inherit_source_unknown", "exact_inherit_source_slots", "exact_inherit_source_regex",
-                    "exact_inherit_source_regex_skip", "exact_inherit_source_regex_prepost", "exact_inherit_source_regex_nomatch"):
+                    "exact_inherit_source_regex_skip", "exact_inherit_source_regex_prepost", "exact_inherit_source_regex_nomatch", "exact_inherit_source_regex_indirect",
+                    "exact_inherit_source_regex_indirect_skip", "exact_inherit_source_regex_indirect_prepost", "exact_inherit_source_regex_indirect_nomatch"):
         raise ValueError("Unknown declaration fixture case")
     checks = Checks("native source declarations")
     regex_case='_regex' in case
@@ -101,7 +102,7 @@ def main():
                 ini.write_text('[ShaderRegexCompute]\nshader_model = cs_5_0\n'+commands+'[ShaderRegexCompute.Pattern]\n'+pattern+'\n[ShaderRegexCompute.Pattern.Replace]\nl(9, 0, 0, 0)\n'+tail,encoding='ascii')
     with Sandbox(threads=0, seconds=4, validation=True, env_extra=env,
                  extra_args=["--compute-shader", str(shader), "--compute-output", str(result),
-                             "--compute-constant-buffer", "--compute-capture"]) as sb:
+                             "--compute-constant-buffer", "--compute-capture"]+(['--compute-indirect'] if '_indirect' in case else [])) as sb:
         time.sleep(1.2)
         with ProbeClient(sb.pid) as probe:
             status = probe.status().get("replacement", {})

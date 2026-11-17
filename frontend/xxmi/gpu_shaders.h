@@ -92,6 +92,7 @@ private:
     gpu::Compute compute_;
     bool compute_known_=false; // Null differs from an unimported application stage.
     bool patched_compute_=false;
+    NativeResource indirect_arguments_;
     std::shared_ptr<const SourceShaderCode> source_compute_;
     struct InheritedCompute {gpu::Compute pipeline;size_t bytes=0;};
     std::map<std::shared_ptr<const SourceShaderCode>,InheritedCompute,std::owner_less<std::shared_ptr<const SourceShaderCode>>> inherited_compute_;

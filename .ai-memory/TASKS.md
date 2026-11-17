@@ -7,7 +7,14 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
-Active D-342 follows 04054ba/main fast-forward. Complete executable compute
+Active D-343 follows 6398e40/main fast-forward. Complete patched indirect compute
+with retained same-handle argument buffers; reproduce old refusal, build matching
+3.5.8 binaries, verify actual GPU output and affected prepared/Core checks. Then
+continue graphics inheritance and the remaining compatibility contracts.
+Indirect/direct production variants pass 32, prepared 155, CPU 57/interpreter 602,
+transaction 5, tracker 1042, ABI 16 and text 758. Commit/fast-forward next.
+
+D-342 follows 04054ba/main fast-forward. Complete executable compute
 ShaderRegex through exact DXBC, original links and the prepared caller boundary.
 New exact_inherit_source_regex fixture reproduces the unsupported patch path in
 original-regex-compute-before.out; it expects 16 instead of original 8. Do not

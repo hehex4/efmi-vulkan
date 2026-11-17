@@ -82,6 +82,7 @@ std::unique_ptr<PreparedConfigurationDraw> OwnedRuntime::prepare_native_draw(std
             }
         }
         auto observed=draw;if(input.source_declaration)observed.source_declaration=input.source_declaration;
+        observed.indirect_arguments=input.indirect_arguments;
         auto pending=prepare_draw(std::move(registry),observed,application,shader_only,reason);if(!pending)return {};
         auto& state=*pending->impl_;auto previous=state.initial;
         assets::FilePlan result;result.skip_original=state.plan.skip_original;

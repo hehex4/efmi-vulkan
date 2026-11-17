@@ -10,7 +10,21 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
-Active D-342: D-341 committed as 04054ba and main fast-forwarded. Matching 3.5.6
+Active D-343: D-342 committed as 6398e40 and main fast-forwarded. Source 3.5.8
+adds retained native indirect arguments to the per-call snapshot. Patched compute
+imports the same buffer/offset, records dispatch_indirect with existing access/
+lifetime machinery, and never reads GPU parameters on CPU. Original CommandList.cpp
+1565-1593 passes buffer/offset to the context then releases its reference; Vulkan
+must retain the buffer/allocation until completion explicitly. A production
+exact_inherit_source_regex_indirect reproduction against old 3.5.7 DLLs is running
+in original-regex-indirect-before.out reproduces original 8 instead of 16 (2/4).
+Matching 3.5.8 DLLs build at ABI 066579482492ab7d. Indirect/direct patch, skip,
+prepost and unmatched cases pass 32; transaction 5, tracker 1042, ABI 16, text 758
+pass with clean validation (original-regex-indirect-regression.out). Prepared GPU
+155 and fresh CPU 57/full interpreter 602 pass. Diff reviewed; commit/fast-forward
+then continue graphics inheritance. No process remains active and no game action.
+
+D-342: D-341 committed as 04054ba and main fast-forwarded. Matching 3.5.6
 binaries remain deployed only in project dist. A new production compute regex
 fixture replaces l(1) with l(9) in exact paired DXBC; expected GPU 16 versus
 original 8. Reproduction is in original-regex-compute-before.out. It is intentionally

@@ -111,6 +111,7 @@ void GpuShaderRuntime::set_programs(const std::vector<gpu::HlslProgram>& program
 }
 void GpuShaderRuntime::application_compute(const RuntimeDraw& draw){
     compute_.reset();source_compute_.reset();compute_known_=false;patched_compute_=false;
+    indirect_arguments_=draw.indirect_arguments;
     if(!draw.compute || !(draw.shader_stages&32))return;
     source_compute_=draw.source_codes[5];
 }
@@ -146,6 +147,15 @@ void GpuShaderRuntime::inherit_compute(){
 }
 bool GpuShaderRuntime::execute_original(CommandListState& state,std::wstring& why){
     try{require(state.call_info!=nullptr,"Original operation lacks caller data");const auto& call=*state.call_info;
+        if(call.type==DrawCall::DispatchIndirect){
+            require(adapter_ && adapter_->planning_prepared() && compute_known_ && compute_,"Patched indirect dispatch needs a proven compute pipeline");
+            const auto& args=indirect_arguments_;
+            require(args.bound && args.buffer && args.keep && (args.usage&VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT) &&
+                args.offset%4==0 && args.offset<=args.size && args.size-args.offset>=12,"Patched indirect dispatch lacks retained argument range/usage");
+            auto buffer=resources_.commands().import_buffer(VkBuffer(args.buffer),args.size,args.usage,VkDeviceMemory(args.memory),
+                args.memory_offset,args.memory_size,args.keep);
+            commands_.dispatch_indirect(compute_,descriptors({&compute_->program()}),buffer,args.offset);++dispatches_;return true;
+        }
         if(call.type==DrawCall::Dispatch){
             if(compute_ && call.ThreadGroupCountX && call.ThreadGroupCountY && call.ThreadGroupCountZ){
                 commands_.dispatch(compute_,descriptors({&compute_->program()}),{call.ThreadGroupCountX,call.ThreadGroupCountY,call.ThreadGroupCountZ});++dispatches_;}

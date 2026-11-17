@@ -310,10 +310,11 @@ and production inherited/unknown/nested 12 pass with clean validation.
 D-341 connects original shader hash entry independently from explicit vk_hash.
 D-342 executes direct compute ShaderRegex patches at the prepared caller boundary,
 preserving skip, no-match and pre/post behavior (16 production checks). Translation
-failure leaves original links/filter state unchanged. Indirect compute and graphics
-patch execution remain pending.
+failure leaves original links/filter state unchanged. D-343 extends this to indirect
+compute with retained GPU argument buffers; direct/indirect variants pass 32.
+Graphics patch execution remains pending.
 
-These are scoped sandbox/GPU results. Compatibility is not complete: indirect and
+These are scoped sandbox/GPU results. Compatibility is not complete:
 graphics ShaderRegex patches, general inherited graphics CustomShaders, current GPU Store boundaries, broader queue/source
 contracts and obsolete capture fixture migration remain. No game acceptance is
 implied and native-route work follows completion of this compatibility rewrite.

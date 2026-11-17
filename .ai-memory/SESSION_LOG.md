@@ -4315,3 +4315,20 @@ be rebuilt after it to exercise the added assertion. No game.
 Prepared GPU 155 passes clean; fresh CPU 57/full interpreter 602 pass, including
 failed executable admission preserving original links/filter/storage. Diff
 reviewed. Commit/main fast-forward, then continue indirect and graphics paths.
+
+## 2026-11-17: D-343 retained indirect compute arguments
+
+D-342 committed as 6398e40 and main fast-forwarded. Original indirect execution
+(CommandList.cpp 1565-1593) gives the context a buffer/offset and releases its
+reference; DX11 supplies deferred lifetime, hazards and context ordering. Source
+3.5.8 carries the native argument allocation/owner/usage/offset into RuntimeDraw
+and imports it lazily for patched dispatch_indirect. Existing prepared access
+records and immutable invocations retain and synchronize it. No CPU read/count
+substitution or application usage mutation. Old-DLL production reproduction is
+running in original-regex-indirect-before.out; its helper rebuilds frontend code.
+Latest changes unverified; matching DLL build and GPU checks follow. No game.
+Old DLL reproduces GPU 8 versus expected 16 (2/4). Matching 3.5.8 binaries build
+at ABI 066579482492ab7d. Direct/indirect patch/skip/prepost/unmatched variants pass
+32, transaction 5, tracker 1042, ABI 16, text 758 clean. Prepared GPU 155 and fresh
+CPU 57/full interpreter 602 pass. Diff reviewed; commit/main fast-forward, then
+continue graphics inheritance. No game action.
