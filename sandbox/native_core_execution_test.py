@@ -81,7 +81,7 @@ def main():
     (mods / "execution.ini").write_text("[ResourceCaller]\n[ResourceMerged]\ntype = StructuredBuffer\n"
         "stride = 16\narray = 1548\nbind_flags = shader_resource unordered_access\n"
         "[ResourceConfig]\ntype = Buffer\nformat = R32G32B32A32_FLOAT\nbind_flags = constant_buffer\nfilename = config.buf\n"
-        "[ShaderOverrideCore]\nhash = %08x\n" % crc32c(shader.read_bytes()) +
+        "[ShaderOverrideCore]\nvk_hash = %08x\n" % crc32c(shader.read_bytes()) +
         "handling = skip\nResourceCaller = ref cs-u0\n"
         "Resource\\EFMIv1\\OutputMergedSkeleton_Template = ref ResourceMerged\n"
         "run = CommandList\\EFMIv1\\InitializeMergedSkeleton\n"

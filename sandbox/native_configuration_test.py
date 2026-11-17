@@ -23,7 +23,7 @@ def main():
                                          "Texture1D<float4> IniParams : register(t120);\n"
                                          "StructuredBuffer<uint4> virtualInput : register(t7);\n"
                                          "[numthreads(1,1,1)] void main() { value[0].x += uint(IniParams.Load(0).x) + virtualInput[0].x - 7; }\n", encoding="ascii")
-    (mods / "transaction.ini").write_text("[Constants]\nglobal $virtual_ready = 0\n[ShaderOverrideTransaction]\nhash = %08x\n" % crc32c(shader.read_bytes()) +
+    (mods / "transaction.ini").write_text("[Constants]\nglobal $virtual_ready = 0\n[ShaderOverrideTransaction]\nvk_hash = %08x\n" % crc32c(shader.read_bytes()) +
         "vk_binding = cs-t2, 0, 2\nhandling = skip\nResourceOriginal = ref cs-t2\n"
         "ResourceWork = copy cs-t2\nif $virtual_ready == 0\ncs-t7 = ref ResourceOriginal\n$virtual_ready = 1\nendif\n"
         "x0 = 5\nrun = CustomShaderIncrement\ncs-t2 = ref ResourceWork\ndraw = from_caller\n"

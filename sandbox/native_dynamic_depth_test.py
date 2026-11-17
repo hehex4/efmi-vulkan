@@ -15,7 +15,7 @@ def main():
         lists=case.startswith('lists');inactive=case.endswith('inactive') or case=='lists_null'
         mode=4 if case.startswith('reverse') else 2 if case.startswith('null') or case=='lists_null' else 3 if case.startswith('switch') else 1
         ini=mods/'test.ini'
-        def config(inactive):return 'namespace = dynamic_depth\n[ShaderOverrideDepth]\nhash = %08x\ndepth_filter = depth_%s\n'%(fragment,'inactive' if inactive else 'active')+('handling = skip\n' if lists else '')
+        def config(inactive):return 'namespace = dynamic_depth\n[ShaderOverrideDepth]\nvk_hash = %08x\ndepth_filter = depth_%s\n'%(fragment,'inactive' if inactive else 'active')+('handling = skip\n' if lists else '')
         ini.write_text(config(inactive),encoding='ascii')
         if not lists:(fixes/('%08x-ps_replace.spv'%fragment)).write_bytes(shader)
         keys=root/'keys.txt';keys.write_text('1\n',encoding='ascii');pixels=root/'pixels.raw';trigger=root/'capture.trigger'

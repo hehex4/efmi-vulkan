@@ -26,7 +26,7 @@ def scene(checks, region_hashes):
     vertex, _ = sandbox_shader_hashes()
     (mods / 'queries.ini').write_text(
         'namespace = ia\n[Constants]\n' + constants + 'global $active = 0\nglobal $nested_calls = 0\n' +
-        '[ShaderOverrideEntry]\nhash = %08x\nchecktextureoverride = ib\n' % vertex +
+        '[ShaderOverrideEntry]\nvk_hash = %08x\nchecktextureoverride = ib\n' % vertex +
         '[TextureOverrideQueries]\nhash = %08x\nmatch_first_index = 6\nmatch_index_count = 3\nfilter_index = 7\n' %
         crc32c(struct.pack('<3I', 14, 15, 16)) + body + '[ResourceSaved]\n', encoding='ascii')
     env = dict(EFMI_VK_CONFIGURATION=configuration_root(mods), EFMI_VK_M2_SETTINGS=str(root / 'settings'), EFMI_VK_M2_ENABLED='1')

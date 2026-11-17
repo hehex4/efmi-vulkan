@@ -36,7 +36,7 @@ def scene(checks, case, matched=False, output_only=False, merged_outputs=False, 
         ini=ini[:first]+body+ini[last:]+'\n[ResourceDepth]\n'
     ini = ini.replace('[Constants]\n', '[Constants]\nglobal $null_once = 0\n', 1)
     ini = ini.replace('[Present]\n', '[Present]\n$null_once = 0\n', 1)
-    if not merged_outputs:ini += '\n[ShaderOverrideNull]\nhash = %08x\n' % shader_hash
+    if not merged_outputs:ini += '\n[ShaderOverrideNull]\nvk_hash = %08x\n' % shader_hash
     if case != 'control' and not matched:
         ini += 'if $null_once == 0\n$null_once = 1\noD = null\nendif\n'
     (folder / 'mod.ini').write_text(ini, encoding='ascii')

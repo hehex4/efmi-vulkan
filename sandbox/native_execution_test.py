@@ -33,7 +33,7 @@ def compute(checks, case):
         "zero": ("handling = skip\ndispatch = 0, 1, 1\n", 0),
     }[case]
     mods = root / "Mods"; mods.mkdir()
-    (mods / "mod.ini").write_text("namespace = native_execution\n[ShaderOverrideCompute]\nhash = %08x\n" % crc32c(shader.read_bytes()) + commands, encoding="ascii")
+    (mods / "mod.ini").write_text("namespace = native_execution\n[ShaderOverrideCompute]\nvk_hash = %08x\n" % crc32c(shader.read_bytes()) + commands, encoding="ascii")
     settings = root / "settings"; settings.mkdir()
     output = root / "compute.raw"
     env = dict(EFMI_VK_CONFIGURATION=configuration_root(mods), EFMI_VK_M2_SETTINGS=str(settings), EFMI_VK_M2_ENABLED="1")
@@ -56,7 +56,7 @@ def graphics(checks, fragment, command, draw_kind, expected_max=None, zero_count
     root = Path(test_dir("native-execution-graphics-"))
     mods = root / "Mods"; mods.mkdir()
     if command:
-        (mods / "mod.ini").write_text("namespace = native_execution\n[ShaderOverridePixel]\nhash = %08x\nhandling = skip\n" % fragment + command, encoding="ascii")
+        (mods / "mod.ini").write_text("namespace = native_execution\n[ShaderOverridePixel]\nvk_hash = %08x\nhandling = skip\n" % fragment + command, encoding="ascii")
     settings = root / "settings"; settings.mkdir()
     pixels = root / "pixels.raw"
     env = dict(EFMI_VK_CONFIGURATION=configuration_root(mods), EFMI_VK_M2_SETTINGS=str(settings), EFMI_VK_M2_ENABLED="1",

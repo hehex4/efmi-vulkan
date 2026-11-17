@@ -62,7 +62,7 @@ def scene(checks, case, emitter=None):
         body = 'x0 = 0.70\nrun = CustomShaderMesh\n' + body
     vertex, _ = sandbox_shader_hashes()
     (mods / 'rules.ini').write_text(
-        '[ShaderOverrideEntry]\nhash = %08x\nchecktextureoverride = ib\n' % vertex +
+        '[ShaderOverrideEntry]\nvk_hash = %08x\nchecktextureoverride = ib\n' % vertex +
         '[TextureOverrideMesh]\nhash = %08x\nmatch_first_index = 6\nmatch_index_count = 3\n' %
         crc32c(struct.pack('<3I', 14, 15, 16)) + ('' if case == 'implicit_layout' else 'handling = skip\n') + body +
         ('[ResourceSavedVertex]\n[ResourceSavedIndex]\n' if case == 'restore' else '') +

@@ -620,6 +620,7 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
     }
     bool named = matched_index;
     if(hooks && hooks->program)named|=(hooks->program->runtime()->shader_regex_stages()&modules.stages)!=0;
+    if(hooks && hooks->program)named|=hooks->program->runtime()->has_source_shader_overrides() && modules.stages!=0;
     if (hooks && hooks->program)
         for (unsigned i = 0; i < 6 && !named; ++i)
             named = (modules.mask >> i & 1u) && std::binary_search(hooks->hashes.begin(), hooks->hashes.end(), modules.hashes[i]);

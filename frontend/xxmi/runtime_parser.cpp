@@ -104,37 +104,45 @@ float RuntimeVertexShaderFilter()
     }
     return std::numeric_limits<float>::quiet_NaN();
 }
-// docs/vulkan-native-mods.md: a ShaderOverride's hash read as the original's GetIniHash reads it (`%16llx`, the
-// whole value or nothing), without its warning. True for a SPIR-V module's hash, the CRC-32C the layer and the probe
-// show, which is below 2^32; a 3DMigoto shader hash (64-bit FNV-1a) is not but with a chance of 2^-32, so a larger
-// value is a DX11 shader's and stays as the compatibility route keeps it.
+// Native identity is explicit. Original BYTECODE hashes are also 32-bit values.
 static bool RuntimeSpirvShaderHash(const IniSection& section, uint64_t* value = nullptr)
 {
     for (const auto& line : section.kv_vec) {
-        if (_wcsicmp(line.first.c_str(), L"hash")) continue;
+        if (_wcsicmp(line.first.c_str(), L"vk_hash")) continue;
+        if(section.kv_map.count(L"hash"))throw std::runtime_error("ShaderOverride cannot combine hash and vk_hash");
         std::string text(line.second.begin(), line.second.end());
         unsigned long long hash = 0; int length = 0;
-        if (sscanf_s(text.c_str(), "%16llx%n", &hash, &length) != 1 || size_t(length) != text.length()) return false;
+        if (sscanf_s(text.c_str(), "%16llx%n", &hash, &length) != 1 || size_t(length) != text.length() || hash>UINT32_MAX)
+            throw std::runtime_error("vk_hash requires an exact 32-bit SPIR-V hash");
         if (value) *value = hash;
         return hash <= 0xFFFFFFFFull;
     }
     return false;
 }
-// The ShaderOverride sections with a SPIR-V hash, parsed by the original's ParseShaderOverrideSections with its rules
-// among themselves (merging, allow_duplicate_hash, filter_index, warnings). The DX11-hash sections stay out of it, as
-// in a generation before route 2: their lists are not compiled and say nothing new.
-void RuntimeParseSpirvShaderOverrides()
+// Parse both identity domains with original duplicate/list rules, independently.
+void RuntimeParseShaderOverrides(ShaderOverrideMap& native)
 {
-    std::vector<IniSections::node_type> aside;
+    IniSections source;
     for (auto it = ini_sections.begin(); it != ini_sections.end();) {
-        if (!_wcsnicmp(it->first.c_str(), L"ShaderOverride", 14) && !RuntimeSpirvShaderHash(it->second)) aside.push_back(ini_sections.extract(it++));
+        if (!_wcsnicmp(it->first.c_str(), L"ShaderOverride", 14)) source.insert(ini_sections.extract(it++));
         else ++it;
     }
     struct Restore {
-        std::vector<IniSections::node_type>& nodes;
-        ~Restore() { for (auto& node : nodes) ini_sections.insert(std::move(node)); }
-    } restore{aside};
+        IniSections& source;
+        static void clear(){for(auto it=ini_sections.begin();it!=ini_sections.end();)
+            if(!_wcsnicmp(it->first.c_str(),L"ShaderOverride",14))it=ini_sections.erase(it);else ++it;}
+        ~Restore(){clear();ini_sections.merge(source);}
+    } restore{source};
+    for(const auto& entry:source)if(RuntimeSpirvShaderHash(entry.second)){
+        auto section=entry.second;
+        auto value=section.kv_map.extract(L"vk_hash");value.key()=L"hash";section.kv_map.insert(std::move(value));
+        for(auto& line:section.kv_vec)if(!_wcsicmp(line.first.c_str(),L"vk_hash"))line.first=L"hash";
+        ini_sections.emplace(entry.first,std::move(section));
+    }
+    HostParseShaderOverrides();native.swap(G->mShaderOverrideMap);Restore::clear();
+    for(const auto& entry:source)if(!RuntimeSpirvShaderHash(entry.second))ini_sections.emplace(entry);
     HostParseShaderOverrides();
+    G->shader_hash_type=GetIniEnumClass(L"Rendering",L"shader_hash",ShaderHashType::FNV,nullptr,ShaderHashNames);
 }
 
 // Consume only the native metadata key before the original compiles the remaining commands.
@@ -218,32 +226,14 @@ void RuntimeValidateSections(const std::vector<std::wstring>& native_shaders,boo
         // Original regex parsing/linking remains active. Native calls supply
         // verified source models and refuse missing bytecode for patterned groups.
         if(!_wcsnicmp(section.first.c_str(),L"ShaderRegex",11))continue;
-        // ShaderOverride and ShaderRegex sections act on the game's shaders by their DX11 hash, which a
-        // Vulkan character generation cannot see (D-089). Without shader hooks they stay inert, as for
-        // shaders that never run: the original's overlay warning names each one that would act, and
-        // the rest of the Mod loads. Shader operands then read the game's shaders as named by none.
-        // Native files are compiled offline; their shader model is a compiler option, not a runtime INI option.
+        // Native files are compiled offline; source identities are resolved from
+        // exact retained DXBC when the application stage is intercepted.
         if (!shader_hooks && !_wcsnicmp(section.first.c_str(), L"ShaderOverride", 14) && RuntimeSpirvShaderHash(section.second)) {
             for (const auto& line : section.second.kv_vec)
                 if (!_wcsicmp(line.first.c_str(), L"model")) {
                     LayerGap(L"[%ls] model does nothing: compile the SPIR-V replacement with the required shader model", section.first.c_str());
                     break;
                 }
-            continue;
-        }
-        if (!shader_hooks && (!_wcsnicmp(section.first.c_str(), L"ShaderOverride", 14) || !_wcsnicmp(section.first.c_str(), L"ShaderRegex", 11))) {
-            const bool declaration = std::all_of(section.second.kv_vec.begin(), section.second.kv_vec.end(), [](const IniLine& line) {
-                return !_wcsicmp(line.first.c_str(), L"hash") || !_wcsicmp(line.first.c_str(), L"filter_index") ||
-                       !_wcsicmp(line.first.c_str(), L"allow_duplicate_hash");
-            });
-            // A ShaderOverride that acts is a difference the player sees (a shader hidden under DX11 is drawn
-            // here): said on the screen. ShaderRegex sections are the libraries' (RabbitFX, EFMITTL), whose
-            // effect the layer provides natively where it does (D-113, D-133): the original's warning only.
-            if (!declaration && !_wcsnicmp(section.first.c_str(), L"ShaderOverride", 14))
-                LayerGap(L"[%ls] acts on game shaders by their DX11 hash, which the Vulkan layer cannot see: inert", section.first.c_str());
-            else if (!declaration)
-                LogOverlayW(LOG_WARNING, const_cast<wchar_t*>(L"[%ls] acts on game shaders by their DX11 hash, which the Vulkan layer cannot see: inert\n"),
-                            section.first.c_str());
             continue;
         }
         // A CustomShader section in a generation without a shader executor (the owned GPU runtime not

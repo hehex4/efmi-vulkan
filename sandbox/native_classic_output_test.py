@@ -10,7 +10,7 @@ def scene(checks,case):
  command='' if case in ('control','owned_control') else 'post o0 = ref ResourceSource\n' if case=='post' else 'ResourceOriginal = ref o0\no0 = ref ResourceSource\npost o0 = ref ResourceOriginal\n' if case in ('restore','restore_once') else 'o0 = null\n' if case=='null' else 'o0 = ref ResourceSource\n'
  if case=='restore_once':command='if $once == 0\n$restore_now = 1\n$once = 1\nelse\n$restore_now = 0\nendif\nif $restore_now == 1\n'+command+'endif\n'
  body='if $saved == 0\nResourceSource = ref o0\n$saved = 1\n$source_draw = 1\nelse\n$source_draw = 0\nendif\nif $source_draw == 0\n'+command+'endif\n'
- (mods/'mod.ini').write_text('namespace = classic_outputs\n[Constants]\nglobal $saved = 0\nglobal $source_draw = 0\nglobal $once = 0\nglobal $restore_now = 0\n[Present]\n$saved = 0\n$once = 0\n[ResourceSource]\n[ResourceOriginal]\n[ShaderOverrideTarget]\nhash = %08x\n'%fragment+body,encoding='ascii')
+ (mods/'mod.ini').write_text('namespace = classic_outputs\n[Constants]\nglobal $saved = 0\nglobal $source_draw = 0\nglobal $once = 0\nglobal $restore_now = 0\n[Present]\n$saved = 0\n$once = 0\n[ResourceSource]\n[ResourceOriginal]\n[ShaderOverrideTarget]\nvk_hash = %08x\n'%fragment+body,encoding='ascii')
  settings=root/'settings';settings.mkdir();pixels=root/'screen.raw';owned=root/'owned.raw'
  env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> native classic outputs',EFMI_VK_TEST_NOTICES_READBACK=str(pixels),VK_LAYER_VALIDATE_SYNC='1')
  if case=='analysis':

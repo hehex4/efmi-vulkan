@@ -35,7 +35,7 @@ def scene(checks,case):
     shader=compile_shader(first,root/'compiled','12345678','cs');later=compile_shader(follow,root/'compiled','87654321','cs')
     mods=root/'Mods';mods.mkdir()
     (mods/'test.ini').write_text('namespace = application_shapes\n[Constants]\nglobal $loaded = 1\n[ResourceHeld]\n'
-        '[ShaderOverrideCompute]\nhash = %08x\nvk_binding = cs-t0, 0, 2\nvk_binding = cs-t1, 0, 3\n'
+        '[ShaderOverrideCompute]\nvk_hash = %08x\nvk_binding = cs-t0, 0, 2\nvk_binding = cs-t1, 0, 3\n'
         'ResourceHeld = ref cs-t0\ncs-t1 = ref ResourceHeld\n'%crc32c(shader.read_bytes()),encoding='ascii')
     def total(base,destination=False):
         return sum((base+(layer+partial)*3+mip+partial)*(1+layer*3+mip) for layer in range(1 if mismatch and destination else count) for mip in range(mips))

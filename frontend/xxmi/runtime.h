@@ -227,10 +227,10 @@ public:
     // stage modules (RuntimeDraw::stage_hashes) in the original's stage order around the application's draw.
     // `skip_original` in the output: a list set `handling = skip`.
     bool shader_draw(const RuntimeDraw&, assets::FilePlan&, std::string& reason);
-    // The SPIR-V module hashes the generation's ShaderOverride sections name (below 2^32; the others are DX11
-    // shaders' and stay as the compatibility route keeps them), ascending.
+    // Explicit vk_hash identities, independent of original hash values.
     std::vector<uint32_t> shader_hashes() const;
     unsigned shader_regex_stages() const;
+    bool has_source_shader_overrides() const;
     // Original DepthBufferFilter values: 1 needs a depth target, 2 needs no depth target.
     std::map<uint32_t, int> shader_depth_filters() const;
     const std::vector<NativeBinding>& native_bindings() const;

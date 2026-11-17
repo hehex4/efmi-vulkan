@@ -10,7 +10,7 @@ def scene(checks,case):
  body='if $saved == 0\nResourceSaved = ref o0\n$saved = 1\n'
  commands={'khr':'o0 = null\n','inject':'o0 = null\n','enabled':'o0 = null\n','once':'o0 = null\n','restore':'o0 = null\no0 = ref ResourceSaved\n','post':'post o0 = null\n','builtins':'run = BuiltInCommandListUnbindAllRenderTargets\n','disabled':'o0 = null\n'}[case]
  body+=('elif o0->bindflags == 32\n' if case=='once' else 'else\n')+commands+'endif\n'
- (mods/'mod.ini').write_text('namespace = native_output\n[Constants]\nglobal $saved = 0\n[ResourceSaved]\n[ShaderOverrideTarget]\nhash = %08x\n'%fragment+body,encoding='ascii')
+ (mods/'mod.ini').write_text('namespace = native_output\n[Constants]\nglobal $saved = 0\n[ResourceSaved]\n[ShaderOverrideTarget]\nvk_hash = %08x\n'%fragment+body,encoding='ascii')
  settings=root/'settings';settings.mkdir();pixels=root/'screen.raw';owned=root/'owned.raw'
  env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> native output destinations',EFMI_VK_TEST_NOTICES_READBACK=str(pixels),VK_LAYER_VALIDATE_SYNC='1')
  args=['--readable-swapchain','--api','1.3','--dynamic-rendering','2' if case=='khr' else '1','--native-output',str(owned)]

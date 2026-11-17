@@ -2,10 +2,13 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <array>
+#include <cstdint>
 
 struct ShaderBindings;
 
 namespace efmi::frontend {
+enum class SourceShaderHash : uint8_t { Fnv, Embedded, Bytecode };
 // Immutable original DXBC evidence. Construction validates the container and
 // derives the native model/declarations; callers cannot supply unrelated text.
 class SourceShaderCode {
@@ -14,11 +17,13 @@ public:
     const std::vector<uint8_t>& bytes() const {return bytes_;}
     const std::string& model() const {return model_;}
     const std::shared_ptr<const ShaderBindings>& declarations() const {return declarations_;}
+    uint64_t hash(SourceShaderHash mode) const {return hashes_.at(size_t(mode));}
 private:
     SourceShaderCode()=default;
     std::vector<uint8_t> bytes_;
     std::string model_;
     std::shared_ptr<const ShaderBindings> declarations_;
+    std::array<uint64_t,3> hashes_{};
 };
 std::string source_shader_disassembly(const SourceShaderCode&,bool patch_cb_offsets,bool custom_data);
 // Original signature-aware assembler. Parse notices are retained separately;

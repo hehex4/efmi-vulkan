@@ -55,7 +55,7 @@ def scene(checks,case,constants=False,buffers=False,images=False,null_images=Fal
   body=alias+(command+body if case=='before' else body+command)
  if input_only:
   body='vk_binding = ps-cb1, 1, 6\nif o0->bindflags == 40\nps-cb1 = ref ps-cb1\nendif\n' if case!='control' else ''
- (mods/'mod.ini').write_text('namespace = native_output\n[Constants]\nglobal $saved = 0\n[ResourceSaved]\n[ShaderOverrideTarget]\nhash = %08x\n'%fragment+body+declarations,encoding='ascii')
+ (mods/'mod.ini').write_text('namespace = native_output\n[Constants]\nglobal $saved = 0\n[ResourceSaved]\n[ShaderOverrideTarget]\nvk_hash = %08x\n'%fragment+body+declarations,encoding='ascii')
  settings=root/'settings';settings.mkdir();pixels=root/'screen.raw';owned=root/'owned.raw'
  if constants and case in ('file','file_before'):
   fixes=settings/'ShaderFixes';fixes.mkdir()

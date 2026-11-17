@@ -21,7 +21,7 @@ cs-u0 = ref ResourceOutput
 dispatch = 1,1,1
 cs-u0 = null
 [ShaderOverrideOrdered]
-hash = 1122aabb
+vk_hash = 1122aabb
 $calls = $calls + 1
 ResourceOutput = copy ResourceSource
 run = CustomShaderIncrement
@@ -30,11 +30,11 @@ draw = 3,0
 post ResourceOutput = copy ResourceSource
 post ps-t0 = null
 [ShaderOverrideBindingOnly]
-hash = 1122aabd
+vk_hash = 1122aabd
 handling = skip
 post ps-t1 = ref ResourceSource
 [ShaderOverrideRefused]
-hash = 1122aabc
+vk_hash = 1122aabc
 run = CustomShaderInherited
 [CustomShaderInherited]
 dispatch = 1,1,1

@@ -14,7 +14,7 @@ def main():
   source=root/'alias.hlsl';source.write_text('[[vk::binding(0,0)]] RWStructuredBuffer<uint> data;\n[[vk::binding(2,0)]] cbuffer Current { uint value; };\n[numthreads(1,1,1)] void main(){data[0]=value+1;}\n',encoding='ascii')
   shader=compile_shader(source,root/'compiled','12345678','cs');config='namespace = absent_outputs\n'
   if case!='original':
-   config+='[ShaderOverrideCompute]\nhash = %08x\nrun = BuiltInCommandListUnbindAllRenderTargets\n'%crc32c(shader.read_bytes())
+   config+='[ShaderOverrideCompute]\nvk_hash = %08x\nrun = BuiltInCommandListUnbindAllRenderTargets\n'%crc32c(shader.read_bytes())
    if case=='mixed':config+='vk_binding = cs-u0, 0, 0\ncs-u0 = ref cs-u0\n'
    config+='handling = skip\ndispatch = 1,1,1\ndispatch = 1,1,1\ndispatch = 1,1,1\n'
   (mods/'test.ini').write_text(config,encoding='ascii');output=root/'result.bin'

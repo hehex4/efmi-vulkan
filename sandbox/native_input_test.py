@@ -26,7 +26,7 @@ def main():
         shader = fixes / ("%08x-cs_replace.spv" % shader_hash); shader.write_bytes(replacement.read_bytes())
         config = ("[Include]\ninclude_recursive = Mods\n[Hunting]\nhunting = 1\nreload_config = F10\nmarking_mode = original\nmarking_actions = asm\n"
                   "next_computeshader = no_modifiers VK_NUMPAD8\nmark_computeshader = no_modifiers VK_NUMPAD9\n")
-        override = "[ShaderOverrideCompute]\nhash = %08x\nfilter_index = 29\nif cs == 29\nhandling = skip\nendif\n" % shader_hash
+        override = "[ShaderOverrideCompute]\nvk_hash = %08x\nfilter_index = 29\nif cs == 29\nhandling = skip\nendif\n" % shader_hash
         if case == "root_override": config += override
         (root / "d3dx.ini").write_text(config, encoding="ascii")
         keys, output = root / "keys.txt", root / "compute.raw"; keys.write_text("1\n", encoding="ascii")

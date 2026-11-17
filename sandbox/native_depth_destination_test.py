@@ -14,7 +14,7 @@ def scene(checks,case):
  'roundtrip':'ResourceOriginal = ref oD\noD = ref ResourceSource\npost oD = ref ResourceOriginal\n',
  'nullrestore':'oD = null\noD = ref ResourceSource\n'}[mode]
  body='if $saved == 0\nResourceSource = ref oD\n$saved = 1\n$source_draw = 1\nelse\n$source_draw = 0\nendif\nif $source_draw == 0\n'+commands+'endif\n'
- (mods/'mod.ini').write_text('namespace = depth_targets\n[Constants]\nglobal $saved = 0\nglobal $source_draw = 0\n[Present]\n$saved = 0\n[ResourceSource]\n[ResourceOriginal]\n[ShaderOverrideTarget]\nhash = %08x\n'%fragment+body,encoding='ascii')
+ (mods/'mod.ini').write_text('namespace = depth_targets\n[Constants]\nglobal $saved = 0\nglobal $source_draw = 0\n[Present]\n$saved = 0\n[ResourceSource]\n[ResourceOriginal]\n[ShaderOverrideTarget]\nvk_hash = %08x\n'%fragment+body,encoding='ascii')
  settings=root/'settings';settings.mkdir();pixels=root/'screen.raw';owned=root/'owned.raw'
  env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> native depth targets',EFMI_VK_TEST_NOTICES_READBACK=str(pixels),VK_LAYER_VALIDATE_SYNC='1')
  args=['--readable-swapchain','--api','1.3','--dynamic-rendering','2' if mode=='khr' else '1','--native-output',str(owned),'--native-depth-destination','--native-output-depth-stencil' if combined else '--native-output-stencil' if stencil else '--native-output-depth']

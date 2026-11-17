@@ -21,7 +21,7 @@ def main():
                '$hit = $hit + 1\npost $hit = $hit + 100\nhandling = skip\n' %
                crc32c(struct.pack('<3I', 14, 15, 16)))
         if mode != 'absent':
-            ini += '[ShaderOverrideEntry]\nhash = %08x\n' % vertex
+            ini += '[ShaderOverrideEntry]\nvk_hash = %08x\n' % vertex
         if mode in ('gated', 'enabled'):
             ini += 'if %d\nchecktextureoverride = ib\nendif\n' % (mode == 'enabled')
         (commands / 'entry.ini').write_text(ini, encoding='ascii')

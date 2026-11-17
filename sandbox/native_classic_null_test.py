@@ -26,8 +26,8 @@ def scene(checks,case):
    hlsl=root/'mrt.hlsl';hlsl.write_text('struct Output { float4 a : SV_Target0; float4 b : SV_Target1; }; Output main() { Output o; o.a=o.b=float4(1,0,1,1); return o; }',encoding='ascii')
    compile_shader(hlsl,fixes,'%08x'%fragment,'ps')
   else:(fixes/('%08x-ps_replace.spv'%fragment)).write_bytes(compile_pixel(root,'1,0,1'))
- ini='namespace = classic_null\n[Constants]\nglobal $saved = 0\nglobal $source_draw = 0\nglobal $once = 0\nglobal $restore_now = 0\n[Present]\n$saved = 0\n$once = 0\n[ResourceOriginal]\n[ShaderOverrideTarget]\nhash = %08x\n'%vertex+body
- if filtered:ini+='[ShaderOverrideFilter]\nhash = %08x\ndepth_filter = depth_'%fragment+mode+'\n'
+ ini='namespace = classic_null\n[Constants]\nglobal $saved = 0\nglobal $source_draw = 0\nglobal $once = 0\nglobal $restore_now = 0\n[Present]\n$saved = 0\n$once = 0\n[ResourceOriginal]\n[ShaderOverrideTarget]\nvk_hash = %08x\n'%vertex+body
+ if filtered:ini+='[ShaderOverrideFilter]\nvk_hash = %08x\ndepth_filter = depth_'%fragment+mode+'\n'
  (mods/'mod.ini').write_text(ini,encoding='ascii')
  env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> classic null',EFMI_VK_TEST_NOTICES_READBACK=str(screen),VK_LAYER_VALIDATE_SYNC='1')
  if hunting or mode=='swap':

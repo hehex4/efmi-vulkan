@@ -31,7 +31,7 @@ def run_compute(checks, case):
     if case == "retained":
         body = "if $saved == 0\nResourceSaved = ref cs-u0\n$saved = 1\nendif\n$size = ResourceSaved->size\n$width = ResourceSaved->width\nchecktextureoverride = ResourceSaved\n"
     text = ("namespace = native_resources\n[Constants]\nglobal $size = -99\nglobal $width = -99\nglobal $matched = 0\nglobal $saved = 0\n"
-            "[ResourceSaved]\n[ShaderOverrideCompute]\nhash = %08x\n" % crc32c(original.read_bytes()) + binding + body +
+            "[ResourceSaved]\n[ShaderOverrideCompute]\nvk_hash = %08x\n" % crc32c(original.read_bytes()) + binding + body +
             "if $size == 16 && $width == -4 && $matched == 1\nhandling = skip\nendif\n"
             "[TextureOverrideBuffer]\nmatch_type = Buffer\nmatch_byte_width = 16\n$matched = 1\n")
     if case.startswith("reference_stride"):
@@ -86,8 +86,8 @@ def run_graphics(checks, mode, vertex, fragment, srgb=False):
     mods = root / "Mods"; mods.mkdir()
     (mods / "mod.ini").write_text(
         "namespace = native_resources\n[Constants]\nglobal $matched = 0\nglobal $saved = 0\n"
-        "[ShaderOverrideVertex]\nhash = %08x\nvk_binding = vs-cb0, 0, 0\n"
-        "[ShaderOverridePixel]\nhash = %08x\nvk_binding = ps-t0, 1, 5\nvk_binding = ps-t2, 1, 2, 0\nvk_binding = ps-t3, 1, 2, 1\n"
+        "[ShaderOverrideVertex]\nvk_hash = %08x\nvk_binding = vs-cb0, 0, 0\n"
+        "[ShaderOverridePixel]\nvk_hash = %08x\nvk_binding = ps-t0, 1, 5\nvk_binding = ps-t2, 1, 2, 0\nvk_binding = ps-t3, 1, 2, 1\n"
         "checktextureoverride = ps-t0\n"
         "if vs-cb0->size == 96 && vs-cb0->stride == 16 && ps-t0->width == 4 && ps-t0->height == 4 && ps-t0->format == %d && ps-t0->mips == 1 && ps-t0->array == 1 && ps-t0->size == -3 && ps-t0->stride == -3 && ps-t0->offset == -3 && ps-t2->size == 16 && ps-t3->size == 16 && (ps-t2->offset + ps-t3->offset) %% 1280 == 256 && $matched == 1\nhandling = skip\nendif\n"
         "[TextureOverrideImage]\nmatch_type = Texture2D\nmatch_width = 4\nmatch_height = 4\nmatch_format = R8G8B8A8_UNORM\n$matched = 1\n" % (vertex, fragment, 29 if srgb else 28), encoding="ascii")

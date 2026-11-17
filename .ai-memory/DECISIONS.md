@@ -13,6 +13,20 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-341: Separate original and native shader identities (2026-11-17)
+
+HackerDevice.cpp 2488-2555 and util.h 112 define source hash modes: zero-seeded
+multiply-before-XOR FNV (Rendering shader_hash=3dmigoto/default), embedded big-endian
+digest prefix, or ordered CRC32C of whitelisted payloads with zero fallback.
+Original BYTECODE is 32-bit, so the former value-width heuristic is invalid.
+Keep hash exclusively original and vk_hash explicitly native. Parse each map with
+the original duplicate/list rules; reject sections mixing identity keys. Native
+fixtures and documentation migrate to vk_hash. Exact retained source evidence
+drives original command entry and explicit filter precedence; absent evidence
+cannot borrow a numerically equal native identity. DX11's lifetime/deferred
+destruction, hazard tracking and context order remain supplied by the existing
+retained source/resources and prepared execution machinery, not by hash matching.
+
 ## D-340: Lazy inherited compute execution (2026-11-17)
 
 Raw/structured DXBC SRVs use read-only scalar-word storage when inherited source

@@ -91,9 +91,9 @@ def main():
         mods = root / "Mods"; (mods / "native").mkdir(parents=True)
         ini = "namespace = native_compute\n[Constants]\nglobal $loaded = 1\nglobal $state = 0\n"
         if case in ("skip", "skip_indirect"):
-            ini += "[ShaderOverrideCompute]\nhash = %08x\nfilter_index = 29\nif draw_type == %d && cs == 29\nhandling = skip\nendif\n" % (shader_hash, 9 if case == "skip_indirect" else 8)
-        if case == "lists": ini += "[ShaderOverrideCompute]\nhash = %08x\nif $state == 3\nhandling = skip\nendif\npost $state = 3\n" % shader_hash
-        if case == "depth": ini += "[ShaderOverrideCompute]\nhash = %08x\ndepth_filter = depth_active\n" % shader_hash
+            ini += "[ShaderOverrideCompute]\nvk_hash = %08x\nfilter_index = 29\nif draw_type == %d && cs == 29\nhandling = skip\nendif\n" % (shader_hash, 9 if case == "skip_indirect" else 8)
+        if case == "lists": ini += "[ShaderOverrideCompute]\nvk_hash = %08x\nif $state == 3\nhandling = skip\nendif\npost $state = 3\n" % shader_hash
+        if case == "depth": ini += "[ShaderOverrideCompute]\nvk_hash = %08x\ndepth_filter = depth_active\n" % shader_hash
         (mods / "native/mod.ini").write_text(ini, encoding="ascii")
         (root / "d3dx.ini").write_text("[Include]\ninclude_recursive = Mods\n"
             "[Rendering]\nrecursive_include = 1\n[Hunting]\nhunting = 1\nreload_config = F10\nmarking_mode = " + ("skip" if case == "hunt_skip" else "pink" if case == "pink" else "original") +

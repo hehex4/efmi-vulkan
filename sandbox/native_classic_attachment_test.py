@@ -11,7 +11,7 @@ def scene(checks,case):
  depth=stencil or 'depth' in parts;mode=parts[-1];dsv=mode in ('dsv','dsvpost','dsvrestore');target='oD' if dsv else 'o1' if mrt else 'o0'
  command='' if mode=='control' else 'post '+target+' = ref ResourceSource\n' if mode in ('post','dsvpost') else 'ResourceOriginal = ref '+target+'\n'+target+' = ref ResourceSource\npost '+target+' = ref ResourceOriginal\n' if mode in ('restore','dsvrestore') else target+' = ref ResourceSource\n'
  body='if $saved == 0\nResourceSource = ref '+('oD' if dsv else 'o0')+'\n$saved = 1\n$source_draw = 1\nelse\n$source_draw = 0\nendif\nif $source_draw == 0\n'+command+'endif\n'
- (mods/'mod.ini').write_text('namespace = classic_attachments\n[Constants]\nglobal $saved = 0\nglobal $source_draw = 0\n[Present]\n$saved = 0\n[ResourceSource]\n[ResourceOriginal]\n[ShaderOverrideTarget]\nhash = %08x\n'%vertex+body,encoding='ascii')
+ (mods/'mod.ini').write_text('namespace = classic_attachments\n[Constants]\nglobal $saved = 0\nglobal $source_draw = 0\n[Present]\n$saved = 0\n[ResourceSource]\n[ResourceOriginal]\n[ShaderOverrideTarget]\nvk_hash = %08x\n'%vertex+body,encoding='ascii')
  settings=root/'settings';settings.mkdir();screen=root/'screen.raw';owned=root/'owned.raw'
  env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> classic attachments',EFMI_VK_TEST_NOTICES_READBACK=str(screen),VK_LAYER_VALIDATE_SYNC='1')
  args=['--readable-swapchain','--api','1.3','--native-output',str(owned),'--native-output-classic','2' if mode=='rp2' else '1']

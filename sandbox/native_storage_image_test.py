@@ -40,7 +40,7 @@ def scene(checks,case):
     if mode=='post':body='ResourceOld = ref cs-u1\n'+body+'post cs-u1 = ref ResourceOld\n'
     if mode=='dispatch':body+='dispatch = 1, 1, 1\n'
     (mods/'test.ini').write_text('namespace = storage_image\n[Constants]\nglobal $loaded = 1\n[ResourceHeld]\n[ResourceOld]\n'
-        '[ShaderOverrideFirst]\nhash = %08x\nvk_binding = cs-u0, 0, 2\nvk_binding = cs-u1, 0, 3\n'%crc32c(shader.read_bytes())+body,encoding='ascii')
+        '[ShaderOverrideFirst]\nvk_hash = %08x\nvk_binding = cs-u0, 0, 2\nvk_binding = cs-u1, 0, 3\n'%crc32c(shader.read_bytes())+body,encoding='ascii')
     output=root/'result.bin';env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_ENABLED='1',VK_LAYER_VALIDATE_SYNC='1')
     args=['--compute-shader',str(shader),'--compute-output',str(output),'--compute-image-reference',str(later),'--reference-storage']
     if formatless:args+=['--storage-formatless']

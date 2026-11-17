@@ -25,7 +25,7 @@ def buffers(checks, case):
     if case == "write_refusal": body = "vk_binding = cs-u0, 0, 0\ncs-u0 = ResourceInput\n"
     stride = 3 if case == "bad_stride" else 4
     (mods / "test.ini").write_text(
-        "namespace = native_file\n[Constants]\nglobal $flags = -1\n[ShaderOverrideCompute]\nhash = %08x\n" % crc32c(shader.read_bytes()) +
+        "namespace = native_file\n[Constants]\nglobal $flags = -1\n[ShaderOverrideCompute]\nvk_hash = %08x\n" % crc32c(shader.read_bytes()) +
         body + "$flags = ResourceInput->bindflags\n"
         "[ResourceInput]\ntype = Buffer\nstride = %d\nfilename = input.buf\n" % stride +
         ("bind_flags = shader_resource\n" if case == "write_refusal" else ""), encoding="ascii")

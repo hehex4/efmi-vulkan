@@ -34,7 +34,7 @@ def scene(checks, case):
     else: dds(file, (255, 0, 255, 255), 2 if case == "array" else 1)
     declaration = "format = R8G8B8A8_UNORM_SRGB\n" if case == "format" else "bind_flags = render_target\n" if case == "no_srv" else ""
     (mods / "test.ini").write_text(
-        "namespace = native_image\n[Constants]\nglobal $loaded = 1\n[ShaderOverridePixel]\nhash = %08x\n" % fragment +
+        "namespace = native_image\n[Constants]\nglobal $loaded = 1\n[ShaderOverridePixel]\nvk_hash = %08x\n" % fragment +
         "vk_binding = ps-t0, 1, 5\nps-t0 = " + ("null" if case == "null" else "ResourceTexture") +
         "\n[ResourceTexture]\nfilename = " + file.name + "\n" + declaration, encoding="ascii")
     settings = root / "settings"; fixes = settings / "ShaderFixes"; fixes.mkdir(parents=True)
@@ -101,7 +101,7 @@ def compute(checks, case):
     shader = compile_shader(source, root / "compiled", "12345678", "cs")
     mods = root / "Mods"; mods.mkdir(); dds(mods / "input.dds", (255, 0, 255, 255))
     (mods / "test.ini").write_text("namespace = native_image\n[Constants]\nglobal $loaded = 1\n"
-        "[ShaderOverrideCompute]\nhash = %08x\nvk_binding = cs-t0, 0, 2\ncs-t0 = ResourceTexture\n"
+        "[ShaderOverrideCompute]\nvk_hash = %08x\nvk_binding = cs-t0, 0, 2\ncs-t0 = ResourceTexture\n"
         "[ResourceTexture]\nfilename = input.dds\n" % crc32c(shader.read_bytes()), encoding="ascii")
     output = root / "result.bin"
     env = dict(EFMI_VK_CONFIGURATION=configuration_root(mods), EFMI_VK_M2_ENABLED="1")

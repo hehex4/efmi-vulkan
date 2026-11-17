@@ -10,7 +10,28 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
-Active D-340: D-339 committed as 65f2af0 and main fast-forwarded. Source 3.5.5
+Active D-341: D-340 committed as 27e3416 and main fast-forwarded. Original shader
+identity work starts with immutable source hashes matching HackerDevice.cpp:
+zero-seeded multiply/XOR FNV, big-endian embedded hash, and ordered CRC32C of the
+original whitelist with zero fallback. Metadata-only/chunk-order checks pass 16.
+Source 3.5.6 separates original hash and explicit vk_hash maps, preserving original
+parsing rules independently. Exact source code drives original entry/filter queries;
+missing evidence cannot match a numerically equal native hash. Native fixtures now
+declare vk_hash explicitly. CPU 57/full interpreter 600 pass after fixing a fixture
+namespace typo; use original setting name 3dmigoto for FNV. Matching DLLs build in
+original-hash-entry-binaries.out at ABI d3e682a6d592da0b. Source-only production
+FNV/embedded/bytecode/unknown/mismatched-slot cases pass 20 with clean validation
+(original-hash-entry-source.out). The first source-only fixture used t1/b2 rather
+than its native declaration ranks t0/b0 and correctly refused unavailable slots;
+the corrected pair passes and the mismatch remains an explicit negative case.
+Affected Core/graphics/host production checks pass; broader native/configuration
+regression passes in original-hash-entry-regression.out: CPU 57, registry GPU 395,
+backend 13, geometry 128, IA 34, prepared GPU 155 and native shader replacement.
+Diff reviewed; commit/main fast-forward next, then executable ShaderRegex. Depth/model source
+substitution remains explicitly refused; patterned execution and inherited graphics
+remain later work. No game action.
+
+D-340: D-339 committed as 65f2af0 and main fast-forwarded. Source 3.5.5
 adds lazy translation of the active original compute shader when a prepared
 CustomShader omits its CS override. A graphics call does not prove CS unbound.
 Decoded source and translated pipelines are retained with bounded caches; normal

@@ -11,7 +11,7 @@ def scene(checks,case):
            'both':'o0 = ref ResourceSaved\no1 = null\n','restore':'o1 = null\no1 = ref ResourceSaved\n',
            'post':'post o1 = ref ResourceSaved\n','alias':'o0 = ref o1\n'}[case]
  body='if $saved == 0\nResourceSaved = ref o0\n$saved = 1\nelif o1->width > 0\n'+commands+'endif\n'
- (mods/'mod.ini').write_text('namespace = mrt_outputs\n[Constants]\nglobal $saved = 0\n[ResourceSaved]\n[ShaderOverrideTarget]\nhash = %08x\n'%vertex+body,encoding='ascii')
+ (mods/'mod.ini').write_text('namespace = mrt_outputs\n[Constants]\nglobal $saved = 0\n[ResourceSaved]\n[ShaderOverrideTarget]\nvk_hash = %08x\n'%vertex+body,encoding='ascii')
  settings=root/'settings';settings.mkdir();pixels=root/'screen.raw';owned=root/'owned.raw'
  env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> native MRT outputs',EFMI_VK_TEST_NOTICES_READBACK=str(pixels),VK_LAYER_VALIDATE_SYNC='1')
  args=['--readable-swapchain','--api','1.3','--dynamic-rendering','2' if case=='khr' else '1','--native-output',str(owned),'--native-output-mrt']

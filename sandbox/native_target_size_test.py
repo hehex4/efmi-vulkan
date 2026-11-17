@@ -13,7 +13,7 @@ def scene(checks,case):
     owned=case in ('owned','mip','array');size=8 if case=='mip' else -1 if case=='array' else 4
     body=('if o0->width > 0 && o0->width < 32\n$seen = rt_width == %d && rt_height == %d\nhandling = skip\n'% (size,size)+'elif ' if owned else 'if ')
     body+='rt_width == o0->width && rt_height == o0->height && rt_width > 32 && $seen == 1\nhandling = skip\nendif\n'
-    (mods/'mod.ini').write_text('namespace = native_size\n[Constants]\nglobal $seen = %d\n[ShaderOverrideSize]\nhash = %08x\n'%(0 if owned else 1,fragment)+body,encoding='ascii')
+    (mods/'mod.ini').write_text('namespace = native_size\n[Constants]\nglobal $seen = %d\n[ShaderOverrideSize]\nvk_hash = %08x\n'%(0 if owned else 1,fragment)+body,encoding='ascii')
     settings=root/'settings';settings.mkdir();pixels=root/'pixels.raw'
     env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> native target size',EFMI_VK_TEST_NOTICES_READBACK=str(pixels))
     args=['--readable-swapchain']+(['--native-target'] if owned else [])

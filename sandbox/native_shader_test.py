@@ -71,10 +71,10 @@ def main():
             (mods / "native" / "mod.ini").write_text("namespace = native_test\n[Constants]\nglobal $loaded = 1\n", encoding="ascii")
         if case == "skip":
             with (mods / "native" / "mod.ini").open("a", encoding="ascii") as ini:
-                ini.write("[ShaderOverrideOriginalHash]\nhash = %08x\nhandling = skip\n" % fragment)
+                ini.write("[ShaderOverrideOriginalHash]\nvk_hash = %08x\nhandling = skip\n" % fragment)
         if case.startswith("depth_"):
             with (mods / "native" / "mod.ini").open("a", encoding="ascii") as ini:
-                ini.write("[ShaderOverrideDepth]\nhash = %08x\ndepth_filter = %s\n" % (fragment, case))
+                ini.write("[ShaderOverrideDepth]\nvk_hash = %08x\ndepth_filter = %s\n" % (fragment, case))
         (root / "d3dx.ini").write_text("[Include]\ninclude_recursive = Mods\n"
                                         "[Rendering]\nrecursive_include = 1\n[Hunting]\nhunting = 2\nreload_config = F10\n", encoding="ascii")
         settings = root / "settings"
@@ -170,7 +170,7 @@ def main():
                 elif change == "removed": path.unlink()
                 elif change == "depth_filter":
                     with (mods / "native" / "mod.ini").open("a", encoding="ascii") as ini:
-                        ini.write("[ShaderOverrideDepth]\nhash = %08x\ndepth_filter = depth_active\n" % fragment)
+                        ini.write("[ShaderOverrideDepth]\nvk_hash = %08x\ndepth_filter = depth_active\n" % fragment)
                 keys.write_text("1 121\n", encoding="ascii")
                 time.sleep(0.5)
                 keys.write_text("1\n", encoding="ascii")

@@ -27,7 +27,7 @@ def scene(checks, case):
     body="ResourceHeld = ref cs-t0\ncs-t0 = ref ResourceHeld\n"
     if case=="retained":body="if $saved == 0\nResourceHeld = ref cs-t0\n$saved = 1\nendif\ncs-t0 = ref ResourceHeld\n"
     (mods/"test.ini").write_text("namespace = application_image\n[Constants]\nglobal $saved = 0\n[ResourceHeld]\n"
-        "[ShaderOverrideCompute]\nhash = %08x\nvk_binding = cs-t0, 0, 2\n"%crc32c(shader.read_bytes())+body,encoding="ascii")
+        "[ShaderOverrideCompute]\nvk_hash = %08x\nvk_binding = cs-t0, 0, 2\n"%crc32c(shader.read_bytes())+body,encoding="ascii")
     output=root/"result.bin"
     env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_ENABLED="1",VK_LAYER_VALIDATE_SYNC="1")
     args=["--compute-shader",str(shader),"--compute-output",str(output),"--compute-image","--compute-repeat","2"]
@@ -62,7 +62,7 @@ def layout_scene(checks,case):
     later=compile_shader(followup,root/"compiled","87654321","cs")
     mods=root/"Mods";mods.mkdir()
     (mods/"test.ini").write_text("namespace = image_layout\n[Constants]\nglobal $loaded = 1\n[ResourceHeld]\n"
-        "[ShaderOverrideFirst]\nhash = %08x\nvk_binding = cs-t0, 0, 2\nvk_binding = cs-t1, 0, 3\nResourceHeld = ref cs-t0\ncs-t1 = ref ResourceHeld\n"%crc32c(shader.read_bytes()),encoding="ascii")
+        "[ShaderOverrideFirst]\nvk_hash = %08x\nvk_binding = cs-t0, 0, 2\nvk_binding = cs-t1, 0, 3\nResourceHeld = ref cs-t0\ncs-t1 = ref ResourceHeld\n"%crc32c(shader.read_bytes()),encoding="ascii")
     output=root/"result.bin"
     env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_ENABLED="1",VK_LAYER_VALIDATE_SYNC="1")
     args=["--compute-shader",str(shader),"--compute-output",str(output),"--compute-image-reference",str(later)]
@@ -87,7 +87,7 @@ def graphics_scene(checks,case):
     root=Path(test_dir("native-application-image-"+case+"-"));_,fragment=sandbox_shader_hashes()
     mods=root/"Mods";mods.mkdir()
     (mods/"test.ini").write_text("namespace = graphics_image\n[Constants]\nglobal $loaded = 1\n[ResourceHeld]\n"
-        "[ShaderOverridePixel]\nhash = %08x\nvk_binding = ps-t0, 1, 5\nResourceHeld = ref ps-t0\nps-t0 = ref ResourceHeld\n"%fragment,encoding="ascii")
+        "[ShaderOverridePixel]\nvk_hash = %08x\nvk_binding = ps-t0, 1, 5\nResourceHeld = ref ps-t0\nps-t0 = ref ResourceHeld\n"%fragment,encoding="ascii")
     settings=root/"settings";fixes=settings/"ShaderFixes";fixes.mkdir(parents=True)
     source=root/"sample.hlsl"
     source.write_text("[[vk::binding(5,1)]] [[vk::combinedImageSampler]] Texture2D<float4> tex;\n"

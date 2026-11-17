@@ -107,30 +107,24 @@ context until changed; not issuing a draw has no further consequence.
   pipeline (`VkShaderModuleCreateInfo` chained into a stage) were not seen; such a pipeline has no
   module hash here and no ShaderOverride acts on it.
 
-## 3. How a Vulkan-native Mod names a shader
+## 3. Explicit shader identity domains (D-341)
 
-- **The hash is the SPIR-V module's CRC-32C**: of the bytes the application gives
-  `vkCreateShaderModule` (`codeSize` of them), printed as 8 lowercase hex digits. It is exactly the
-  `hash` the layer already shows: the probe's `shader` and `pipeline` requests (`hash_algorithm:
-  crc32c`), the MCP tools `efvk_shader` and `efvk_pipeline`, the shader file names of capture bundles,
-  the shader catalogue and slot tables (docs/shader-catalogue.md, keyed by vertex and fragment shader
-  hash), the sandbox program's `expected.json`. A Mod writes it as 3DMigoto writes a shader hash:
-  `[ShaderOverrideOutline]` `hash = 8a1b2c3d`.
-- **Why not a 64-bit hash as 3DMigoto's.** The original's parser reads either width into one 64-bit
-  value. A 32-bit value is below 2^32, and a 3DMigoto shader hash (64-bit FNV-1a) is below 2^32 with a
-  chance of 2^-32: the value alone tells a Vulkan section from a DX11 one at load, which keeps the
-  compatibility route's notice exact (section 5), and the hash every existing tool prints stays the
-  one a Mod writes. The cost is the chance of two of the game's modules sharing a CRC-32C: about
-  1300 modules were alive at once in the 2.1.3 game session, so a pair among them is about 2 in 10000.
-  The layer checks it: a module whose hash an earlier module of other bytes already had is a
-  collision, logged and counted in the status (`shader_hash_collisions`), and a ShaderOverride on that
-  hash acts on both, as a 3DMigoto texture hash shared by two textures does.
+`hash` always names original DXBC according to `[Rendering] shader_hash`:
+`3dmigoto` (default, the pinned zero-seeded multiply/XOR FNV helper), `embedded` (big-endian first
+8 digest bytes), or `bytecode` (CRC32C of the original whitelist in chunk-table
+order, falling back to FNV when zero). An original hash can fit in 32 bits.
+
+A native section uses `vk_hash = 8a1b2c3d`, the SPIR-V module CRC32C printed by the
+probe and captures. Mixing `hash` and `vk_hash` in one section is rejected.
+Each domain independently uses original duplicate/command-list parsing rules.
+Exact paired source evidence is required for original matching; no value-width
+heuristic, character identity or guessed conversion connects the domains.
 
 ## 4. A ShaderOverride on a SPIR-V hash
 
-- **Loading.** The folder generation parses the ShaderOverride sections whose hash is below 2^32 with
+- **Loading.** The configuration generation parses explicit `vk_hash` sections with
   the original's parser and its rules (merging, `allow_duplicate_hash`, `filter_index`, warnings);
-  the others are DX11 hashes and stay as today (section 5). D-191 implements `depth_filter` for native
+  original `hash` sections use a separate map (section 5). D-191 implements `depth_filter` for native
   replacements: `depth_active` requires a depth attachment in the captured subpass, `depth_inactive`
   requires none. A mismatch uses the original stage; the section's command lists still run. `model`
   remains an offline HLSL compiler option, with a notice for the unused INI key.
@@ -159,36 +153,19 @@ context until changed; not issuing a draw has no further consequence.
 - **Cost.** With no acting hash in the generation a draw pays one atomic read. With some: per draw the
   pipeline's module hashes (kept per pipeline), and the lists only where one matches.
 
-## 5. Compatibility with the DX11 route
+## 5. Compatibility with the DX11 route (D-341)
 
-The installed Mods are DX11-written and are route 1's; this step must not change what any of them
-does (the user, 2026-11-12: consider the compatibility with the existing DX11 route). The rules:
+Original ShaderOverride commands are parsed with their original source identity.
+At an intercepted stage, exact retained DXBC selects the configured source hash.
+Matching source commands and native commands both execute in stage order; source
+explicit filters take precedence over native filters, followed by regex filters.
+Missing source evidence never falls back to a numerically equal native hash.
+Source depth/model substitution still requires its replacement adapter and refuses
+explicitly when encountered. This is not a claim of complete source replacement.
 
-- **A DX11-hash section stays exactly as today.** A section whose hash is 2^32 or more is a DX11 hash
-  (written for 3DMigoto under DX11: Xaihi's `ps skip.ini`, perlica's hair sections). It is not parsed
-  into the generation (as today: its lists are not compiled, so no new warning can come from them),
-  and the layer says once at load what it says today ("acts on game shaders by their DX11 hash, which
-  the Vulkan layer cannot see: inert"); one that only declares (`hash`, `filter_index`,
-  `allow_duplicate_hash`) is said nowhere. Only sections with a SPIR-V hash are parsed, with the
-  original's parser and its rules among themselves.
-- **Nothing else changes for a folder without a SPIR-V-hash section**, which is the installed folder
-  today: no list runs at a draw that did not run before, `vs` and `ps` read what they read (0, BUG-090's
-  value for `vs`), the order of a matched draw's lists is the same, and a draw pays one atomic read.
-  Checked by the plan digests of every installed Mod in every key state (`scripts/check_mod_states.py`:
-  the build before and this one on the same folder) and by the notices of the installed folder in the
-  sandbox (Xaihi's two lines and nothing new).
-- **Both in one Mod, or one Mod for each.** A DX11 Mod's TextureOverride that tells passes by a
-  ShaderOverride's `filter_index` (`if ps == 203`, its outline section by DX11 hash) reads 0 under
-  Vulkan today. A section with the Vulkan module's hash and the same `filter_index`, in the Mod or in an
-  INI of its own beside it, makes the same condition true at the same draws: the bridge from a DX11 Mod
-  to its Vulkan port is a few lines, not a rewrite. A DX11-hash and a SPIR-V-hash section in one Mod
-  never meet, so neither changes what the other does.
-- **Hunting keys.** The installed d3dx.ini registers its numpad keys under XXMI's DX11 (`hunting = 2`);
-  under the layer they now do what they do there (toggle on numpad 0; the player under DX11 has the
-  same keys). With hunting soft disabled, as installed, no draw is skipped and nothing is visited until
-  the toggle; `hunting = 0` in d3dx.ini switches them off for both routes.
-- **The compatibility route's own uses of shaders are untouched**: EFMITTL's groups and RabbitFX's gates
-  (D-171, D-133) stay native and keep their places in a matched draw's order (section 4, steps 2 and 4).
+D-304 and later retire package loading. The older delivery notes below describe
+historical milestones; current execution and verification are recorded in
+`configuration-execution-rewrite.md` and `.ai-memory/CURRENT_STATE.md`.
 
 ## 6. Hunting in the layer
 

@@ -28,7 +28,7 @@ cs-u0 = ref ResourceCopy
 dispatch = 1,1,1
 cs-u0 = null
 [ShaderOverrideOrdered]
-hash = 1234abcd
+vk_hash = 1234abcd
 $calls = $calls + 1
 ResourceCopy = copy ResourceA
 run = CustomShaderIncrement
@@ -40,7 +40,7 @@ post ps-t0 = null
 post draw = 3,1
 post ResourceCopy = copy ResourceA
 [ShaderOverrideSkip]
-hash = 1234abce
+vk_hash = 1234abce
 handling = skip
 draw = from_caller
 post dispatch = 2,3,4
@@ -52,29 +52,29 @@ dispatch = 1,1,1
 [CustomShaderGraphics]
 draw = 3,0
 [ShaderOverrideInherited]
-hash = 1234abcf
+vk_hash = 1234abcf
 run = CustomShaderInherited
 $after_failure = $after_failure + 1
 [ShaderOverrideNull]
-hash = 1234abd0
+vk_hash = 1234abd0
 run = CustomShaderNull
 [ShaderOverrideGraphics]
-hash = 1234abd1
+vk_hash = 1234abd1
 run = CustomShaderGraphics
 [ShaderOverrideBefore]
-hash = 1234abd2
+vk_hash = 1234abd2
 post $post = 9
 checktextureoverride = ib
 [ShaderOverrideAfter]
-hash = 1234abd3
+vk_hash = 1234abd3
 post $stage_post = $post
 [ShaderOverrideClear]
-hash = 1234abd4
+vk_hash = 1234abd4
 $clear_ib = 1
 post $post = 9
 checktextureoverride = ib
 [ShaderOverrideRematch]
-hash = 1234abd5
+vk_hash = 1234abd5
 checktextureoverride = ib
 [TextureOverrideOriginal]
 hash = abcdef01

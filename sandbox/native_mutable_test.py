@@ -23,7 +23,7 @@ def scene(checks,case):
     flags='' if case=='implicit' else 'bind_flags = shader_resource unordered_access\n'
     if case=='readonly':flags='bind_flags = shader_resource\n'
     stride=8 if case=='stride' else 4
-    header='namespace = mutable_file\n[ShaderOverrideCompute]\nhash = %08x\nhandling = skip\nvk_binding = cs-u2, 0, 2\n'%crc32c(shader.read_bytes())
+    header='namespace = mutable_file\n[ShaderOverrideCompute]\nvk_hash = %08x\nhandling = skip\nvk_binding = cs-u2, 0, 2\n'%crc32c(shader.read_bytes())
     if persistent:header=header.replace('handling = skip\n','').replace('[ShaderOverrideCompute]', '[Constants]\nglobal $bound = 0\n[Present]\n$bound = 0\n[ShaderOverrideCompute]')
     def content(reverse=False):
         first,second=('B','A') if reverse else ('A','B')

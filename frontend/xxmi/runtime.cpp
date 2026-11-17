@@ -33,7 +33,7 @@ void HostParseResources();
 void HostParseTextureOverrides();
 void HostParseResourceMatching();
 void HostParseShaderOverrides();
-void RuntimeParseSpirvShaderOverrides();
+void RuntimeParseShaderOverrides(ShaderOverrideMap&);
 std::vector<efmi::frontend::NativeBinding> RuntimeNativeBindings();
 void RuntimeParseHunting(int&, int&, unsigned&, unsigned&, bool&, InputCallback, InputCallback);
 void HostParseShaderRegex();
@@ -261,6 +261,16 @@ struct IniRuntime::Impl {
     ModTextures mod_textures; // what the loader makes of the Mods' image files, for the property queries (D-170)
     SourceShaderContext source_shaders;
     SourceShaderRegex source_regex;
+    ShaderOverrideMap native_shader_overrides;
+    SourceShaderHash source_hash_mode=SourceShaderHash::Fnv;
+    bool has_source_overrides=false;
+    ShaderOverride* source_override(const RuntimeDraw& draw,unsigned stage){
+        const auto& code=draw.source_codes.at(stage);
+        if(!code || !(draw.shader_stages&(1u<<stage)))return nullptr;
+        if(code->model()[0]!="vhdgpc"[stage])throw std::runtime_error("Original shader identity conflicts with its stage");
+        const auto found=G->mShaderOverrideMap.find(code->hash(source_hash_mode));
+        return found==G->mShaderOverrideMap.end()?nullptr:&found->second;
+    }
     std::array<ShaderOverride*,6> model_links{};
     std::unique_ptr<FilePlanCompiler> files;
     HackerDevice device;
@@ -517,13 +527,12 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
                 why.assign(unknown.begin(),unknown.end());return false;
             }
             bool explicit_filter=false;
-            if(draw.stage_hash_mask&bit){
-                const auto match=G->mShaderOverrideMap.find(uint64_t(draw.stage_hashes[index]));
-                if(match!=G->mShaderOverrideMap.end()){
-                    explicit_filter=match->second.filter_index!=FLT_MAX;
-                    value=explicit_filter?match->second.filter_index:1.0f;
-                }
+            auto* match=p.source_override(draw,index);
+            if(!match && (draw.stage_hash_mask&bit)){
+                const auto native=p.native_shader_overrides.find(uint64_t(draw.stage_hashes[index]));
+                if(native!=p.native_shader_overrides.end())match=&native->second;
             }
+            if(match){explicit_filter=match->filter_index!=FLT_MAX;value=explicit_filter?match->filter_index:1.0f;}
             if(const auto* linked=p.model_links[index]){
                 // Original explicit filters precede the first matching regex filter.
                 if(!explicit_filter && linked->filter_index!=FLT_MAX)value=linked->filter_index;
@@ -678,11 +687,12 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
                 if(entry.second.depth_filter!=DepthBufferFilter::NONE || entry.second.model[0])
                     throw std::runtime_error("Legacy shader depth/model substitution requires a source replacement adapter");
         } else {
-            // Route 2 (docs/vulkan-native-mods.md): the sections that name a SPIR-V module act at its draws; the
-            // DX11-hash ones stay out, as the compatibility route keeps them.
             p.native_bindings = RuntimeNativeBindings();
-            RuntimeParseSpirvShaderOverrides();
-            for (const auto& entry : G->mShaderOverrideMap) {
+            RuntimeParseShaderOverrides(p.native_shader_overrides);
+            p.has_source_overrides=!G->mShaderOverrideMap.empty();
+            p.source_hash_mode=G->shader_hash_type==ShaderHashType::EMBEDDED?SourceShaderHash::Embedded:
+                G->shader_hash_type==ShaderHashType::BYTECODE?SourceShaderHash::Bytecode:SourceShaderHash::Fnv;
+            for (const auto& entry : p.native_shader_overrides) {
                 p.shader_hashes.push_back(uint32_t(entry.first));
                 if (entry.second.depth_filter != DepthBufferFilter::NONE && entry.second.depth_filter != DepthBufferFilter::INVALID)
                     p.shader_depth_filters[uint32_t(entry.first)] = int(entry.second.depth_filter);
@@ -748,6 +758,7 @@ std::shared_ptr<IniRuntime> IniRuntime::load(const RuntimeConfig& config, std::s
             p.adapter.adapt(entry.command_list); p.adapter.adapt(entry.post_command_list);
         }
         for(auto& entry:G->mShaderOverrideMap){p.adapter.adapt(entry.second.command_list);p.adapter.adapt(entry.second.post_command_list);}
+        for(auto& entry:p.native_shader_overrides){p.adapter.adapt(entry.second.command_list);p.adapter.adapt(entry.second.post_command_list);}
         if(config.shader_hooks && config.initial_shaders)p.source_regex.apply(p.source_regex.prepare(*config.initial_shaders,63,false),p.adapter);
         phase = "file declaration adaptation";
         p.files = std::make_unique<FilePlanCompiler>(customResources);
@@ -849,8 +860,13 @@ bool IniRuntime::run_draw(const RuntimeDraw& input, assets::FilePlan& output, st
         const bool automatic_index = texture_overrides && !input.native_calls;
         if (automatic_index) find_texture_override_for_hash(input.hash, &matches, &call);
         // The ShaderOverride entries of the draw's modules (docs/vulkan-native-mods.md), by stage: vs, hs, ds, gs, ps.
-        ShaderOverride* shaders[6] = {};
+        ShaderOverride* shaders[6] = {};ShaderOverride* native_shaders[6]={};
         bool shader_lists = false;
+        for(unsigned i=input.compute?5:0;i<(input.compute?6:5);++i){
+            shaders[i]=p.source_override(input,i);shader_lists|=shaders[i]!=nullptr;
+            if(shaders[i] && (shaders[i]->model[0] || (shaders[i]->depth_filter!=DepthBufferFilter::NONE && shaders[i]->depth_filter!=DepthBufferFilter::INVALID)))
+                throw std::runtime_error("Original shader depth/model substitution requires a source replacement adapter");
+        }
         const bool regex_entry=input.native_calls && p.source_regex.stages()!=0;
         if(regex_entry && !input.hunting_skip)for(unsigned i=input.compute?5:0;i<(input.compute?6:5);++i){
             if(!(p.source_regex.stages() & input.shader_stages & (1u<<i)))continue;
@@ -861,8 +877,8 @@ bool IniRuntime::run_draw(const RuntimeDraw& input, assets::FilePlan& output, st
         if (!p.shader_hashes.empty())
             for (unsigned i = 0; i < 6; ++i) {
                 if (!(input.stage_hash_mask >> i & 1u)) continue;
-                const auto found = G->mShaderOverrideMap.find(uint64_t(input.stage_hashes[i]));
-                if (found != G->mShaderOverrideMap.end()) { shaders[i] = &found->second; shader_lists = true; }
+                const auto found = p.native_shader_overrides.find(uint64_t(input.stage_hashes[i]));
+                if (found != p.native_shader_overrides.end()) { native_shaders[i] = &found->second; shader_lists = true; }
             }
         phase("phase find");
         assets::FilePlan& result = p.draw_result;
@@ -884,6 +900,7 @@ bool IniRuntime::run_draw(const RuntimeDraw& input, assets::FilePlan& output, st
             // The vertex stage: its entry's own commands, then what ShaderRegex links into it (the library's vertex
             // groups, the Core's `CheckTextureOverride = ib` and with it the matched sections).
             if (shaders[0]) { pre.push_back(&shaders[0]->command_list); post.push_back(&shaders[0]->post_command_list); }
+            if (native_shaders[0]) { pre.push_back(&native_shaders[0]->command_list); post.push_back(&native_shaders[0]->post_command_list); }
             if(p.model_links[0]){pre.push_back(&p.model_links[0]->command_list);post.push_back(&p.model_links[0]->post_command_list);}
             pre.insert(pre.end(), hooks.before.begin(), hooks.before.end());
             stages.check_index = automatic_index;stages.checked_first = post.size();
@@ -892,12 +909,13 @@ bool IniRuntime::run_draw(const RuntimeDraw& input, assets::FilePlan& output, st
             // The hull, domain, geometry and pixel stages, each a list of its own; the library's pixel groups are linked
             // into the pixel stage's.
             for (unsigned i = 1; i < 6; ++i) {
-                if (!shaders[i] && !p.model_links[i]) continue;
+                if (!shaders[i] && !native_shaders[i] && !p.model_links[i]) continue;
                 stages.pre_starts.push_back(pre.size()); stages.post_starts.push_back(post.size());
                 if(shaders[i]){pre.push_back(&shaders[i]->command_list);post.push_back(&shaders[i]->post_command_list);}
+                if(native_shaders[i]){pre.push_back(&native_shaders[i]->command_list);post.push_back(&native_shaders[i]->post_command_list);}
                 if(p.model_links[i]){pre.push_back(&p.model_links[i]->command_list);post.push_back(&p.model_links[i]->post_command_list);}
             }
-            if (!hooks.between.empty() && !shaders[4] && shader_lists) stages.pre_starts.push_back(pre.size());
+            if (!hooks.between.empty() && !shaders[4] && !native_shaders[4] && shader_lists) stages.pre_starts.push_back(pre.size());
             pre.insert(pre.end(), hooks.between.begin(), hooks.between.end());
             DrawPlan& plan = p.draw_plan;
             const auto began = std::chrono::steady_clock::now();
@@ -981,6 +999,7 @@ void RuntimePublishTransitionParameters()
 bool IniRuntime::replayable() const { return impl_->replayable; }
 std::vector<uint32_t> IniRuntime::shader_hashes() const { return impl_->shader_hashes; }
 unsigned IniRuntime::shader_regex_stages() const {return impl_->source_regex.stages();}
+bool IniRuntime::has_source_shader_overrides() const {return impl_->has_source_overrides;}
 std::map<uint32_t, int> IniRuntime::shader_depth_filters() const { return impl_->shader_depth_filters; }
 const std::vector<NativeBinding>& IniRuntime::native_bindings() const { return impl_->native_bindings; }
 HuntingSettings IniRuntime::hunting() const { return impl_->hunting; }

@@ -23,7 +23,7 @@ def main():
                                      "Texture1D<float4> IniParams : register(t120);\n"
                                      "[numthreads(1,1,1)] void main() { float4 p = IniParams.Load(0);\n"
                                      "output[0] = uint4(asuint(p.x), 0, asuint(p.y), 23); }\n", encoding="ascii")
-    (mods / "query.ini").write_text("[ShaderOverrideQuery]\nhash = %08x\n" % crc32c(shader.read_bytes()) +
+    (mods / "query.ini").write_text("[ShaderOverrideQuery]\nvk_hash = %08x\n" % crc32c(shader.read_bytes()) +
         "vk_binding = cs-cb0, 0, 2\nhandling = skip\nResourceSaved = ref cs-cb0\n"
         "x0 = ResourceSaved->HashRegion(0,16)\ny0 = ResourceSaved->SpatialHash(0,1,2,1)\n"
         "run = CustomShaderQuery\n[ResourceSaved]\n[CustomShaderQuery]\ncs = query.hlsl\ndispatch = 1,1,1\n", encoding="ascii")

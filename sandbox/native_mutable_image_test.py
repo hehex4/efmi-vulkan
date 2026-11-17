@@ -41,7 +41,7 @@ def scene(checks,case):
     if case=='readonly':flags='bind_flags = shader_resource\n'
     if case=='attachment':flags='bind_flags = shader_resource render_target\n'
     slot='cs-t0' if sampled else 'cs-u0'
-    header='namespace = mutable_image\n[ShaderOverrideFirst]\nhash = %08x\nvk_binding = cs-u0, 0, 2\nvk_binding = cs-u1, 0, 3\n'%crc32c(shader.read_bytes())
+    header='namespace = mutable_image\n[ShaderOverrideFirst]\nvk_hash = %08x\nvk_binding = cs-u0, 0, 2\nvk_binding = cs-u1, 0, 3\n'%crc32c(shader.read_bytes())
     if sampled:header=header.replace('cs-u0','cs-t0')
     def content(reverse=False):
         a,b=('B','A') if reverse else ('A','B')

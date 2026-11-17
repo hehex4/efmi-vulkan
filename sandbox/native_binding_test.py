@@ -36,7 +36,7 @@ def scene(checks, case):
     mods = root / "Mods"; mods.mkdir()
     (mods / "test.ini").write_text(
         "namespace = native_binding\n[Constants]\nglobal $saved = 0\nglobal $moved = 0\n"
-        "[Present]\n$moved = 0\n[ResourceSaved]\n[ResourceOriginal]\n[ShaderOverrideCompute]\nhash = %08x\n" % crc32c(shader.read_bytes()) +
+        "[Present]\n$moved = 0\n[ResourceSaved]\n[ResourceOriginal]\n[ShaderOverrideCompute]\nvk_hash = %08x\n" % crc32c(shader.read_bytes()) +
         "vk_binding = cs-u0, 0, 0\nvk_binding = cs-u1, 0, 1\nvk_binding = cs-cb0, 0, 0\n" + body, encoding="ascii")
     settings = root / "settings"; settings.mkdir()
     output = root / "compute.raw"

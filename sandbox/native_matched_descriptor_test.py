@@ -18,8 +18,8 @@ def own_mesh(checks, case):
             ini = mods / 'mod.ini'
             text = ini.read_text()
             vertex, fragment = mesh.sandbox_shader_hashes()
-            text = text.replace('[ShaderOverrideTarget]\nhash = %08x\n' % vertex,
-                '[ShaderOverrideTarget]\nhash = %08x\nvk_binding = vs-cb0, 0, 0\n' % vertex)
+            text = text.replace('[ShaderOverrideTarget]\nvk_hash = %08x\n' % vertex,
+                '[ShaderOverrideTarget]\nvk_hash = %08x\nvk_binding = vs-cb0, 0, 0\n' % vertex)
             text = text.replace('handling = skip\n',
                 'handling = skip\nResourceUniform = ref vs-cb0\nvs-cb0 = ResourceGreen\npost vs-cb0 = ref ResourceUniform\n', 1)
             if case == 'ordered':
@@ -74,7 +74,7 @@ def texture_constant(checks):
         text = ini.read_text().replace('ps-t1 = ResourceBorrowed\n',
             'ResourceUniform = ref vs-cb13\nvs-cb13 = ResourceBlack\n'
             'ps-t1 = ResourceBorrowed\npost vs-cb13 = ref ResourceUniform\n', 1)
-        text += '\n[ShaderOverrideAlias]\nhash = %08x\nvk_binding = vs-cb13, 2, 0\n' % vertex
+        text += '\n[ShaderOverrideAlias]\nvk_hash = %08x\nvk_binding = vs-cb13, 2, 0\n' % vertex
         text += '[ResourceUniform]\n[ResourceBlack]\ntype = Buffer\nstride = 16\nbind_flags = constant_buffer\nfilename = black.buf\n'
         # This synthetic scene's unmatched component has these offsets. Runtime code has no fixture tables.
         data = bytearray(65536)
@@ -105,7 +105,7 @@ def merged_constant(checks):
         ini = folder / 'mod.ini'
         text = ini.read_text().replace('[CommandListDraw0]\n',
             '[CommandListDraw0]\nResourceUniform = ref ps-cb13\nps-cb13 = ResourceBlack\npost ps-cb13 = ref ResourceUniform\n', 1)
-        text += '\n[ShaderOverrideAlias]\nhash = %08x\nvk_binding = ps-cb13, 2, 0\n' % shader_hash
+        text += '\n[ShaderOverrideAlias]\nvk_hash = %08x\nvk_binding = ps-cb13, 2, 0\n' % shader_hash
         text += '[ResourceUniform]\n[ResourceBlack]\ntype = Buffer\nstride = 16\nbind_flags = constant_buffer\nfilename = black.buf\n'
         (folder / 'black.buf').write_bytes(bytes(65536))
         ini.write_text(text, encoding='ascii')

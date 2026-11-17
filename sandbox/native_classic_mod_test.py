@@ -30,8 +30,8 @@ def scene(checks,case,matched=False):
    hlsl=root/'mrt.hlsl';hlsl.write_text('struct Output { float4 a : SV_Target0; float4 b : SV_Target1; }; Output main() { Output o; o.a=o.b=float4(1,0,1,1); return o; }',encoding='ascii')
    compile_shader(hlsl,fixes,'%08x'%fragment,'ps')
   else:(fixes/('%08x-ps_replace.spv'%fragment)).write_bytes(compile_pixel(root,'1,0,1'))
- ini='namespace = classic_mesh\n[Constants]\nglobal $saved = 0\nglobal $source_draw = 0\nglobal $once = 0\nglobal $restore_now = 0\n[Present]\n$saved = 0\n$once = 0\n[ResourceOriginal]\n[ShaderOverrideTarget]\nhash = %08x\n'%vertex+('' if matched else body)+'checktextureoverride = ib\n'
- if filtered:ini+='[ShaderOverrideFilter]\nhash = %08x\ndepth_filter = depth_'%fragment+mode+'\n'
+ ini='namespace = classic_mesh\n[Constants]\nglobal $saved = 0\nglobal $source_draw = 0\nglobal $once = 0\nglobal $restore_now = 0\n[Present]\n$saved = 0\n$once = 0\n[ResourceOriginal]\n[ShaderOverrideTarget]\nvk_hash = %08x\n'%vertex+('' if matched else body)+'checktextureoverride = ib\n'
+ if filtered:ini+='[ShaderOverrideFilter]\nvk_hash = %08x\ndepth_filter = depth_'%fragment+mode+'\n'
  (mods/'vertex.buf').write_bytes(struct.pack('<6f',.70,.55,.90,.55,.80,.35))
  (mods/'index.buf').write_bytes(struct.pack('<3H',0,1,2))
  ini+='[TextureOverrideMesh]\nhash = %08x\nmatch_first_index = 6\nmatch_index_count = 3\nhandling = skip\nvb0 = ResourceVertex\nib = ResourceIndex\ndrawindexed = 3,0,0\n[ResourceVertex]\ntype = Buffer\nstride = 8\nfilename = vertex.buf\n[ResourceIndex]\ntype = Buffer\nformat = R16_UINT\nfilename = index.buf\n'%crc32c(struct.pack('<3I',14,15,16))
@@ -53,7 +53,7 @@ def scene(checks,case,matched=False):
   if mode in ('post','restore'):
    # A shader post list runs even after the matched mesh changes the index buffer.
    post='post if $once == 1\npost '+target+(' = null\n' if mode=='post' else ' = ref ResourceOriginal\n')+'post vb0 = ResourceTop\npost drawindexed = 3,0,0\npost endif\n'
-   header='[ShaderOverrideTarget]\nhash = %08x\n'%vertex
+   header='[ShaderOverrideTarget]\nvk_hash = %08x\n'%vertex
    ini=ini.replace(header,header+post,1)
    (mods/'top.buf').write_bytes(struct.pack('<6f',-.10,-.35,.10,-.35,0,-.55))
    ini+='[ResourceTop]\ntype = Buffer\nstride = 8\nfilename = top.buf\n'

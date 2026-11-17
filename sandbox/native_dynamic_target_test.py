@@ -16,7 +16,7 @@ def scene(checks, case):
     body='checktextureoverride = o0\nif rt_width == o0->width && rt_height == o0->height && o0->width > 0 && o0->height > 0 && o0->mips == 1 && o0->array == 1 && o0->format > 0 && o0->bindflags == 32 && o0->size == -3 && $matched == 1\nhandling = skip\nendif\n'
     if case=='absent':body='ResourceSaved = ref o1\nif o1->width == -2 && oD->width == -2 && ResourceSaved->width == -2\nhandling = skip\nendif\n'
     if case=='unowned':body='ResourceSaved = ref o0\nhandling = skip\n'
-    (mods/'mod.ini').write_text('namespace = native_target\n[Constants]\nglobal $matched = 0\n[ResourceSaved]\n[ShaderOverrideTarget]\nhash = %08x\n'%fragment+body+'[TextureOverrideTarget]\nmatch_type = Texture2D\n$matched = 1\n',encoding='ascii')
+    (mods/'mod.ini').write_text('namespace = native_target\n[Constants]\nglobal $matched = 0\n[ResourceSaved]\n[ShaderOverrideTarget]\nvk_hash = %08x\n'%fragment+body+'[TextureOverrideTarget]\nmatch_type = Texture2D\n$matched = 1\n',encoding='ascii')
     settings=root/'settings';settings.mkdir();pixels=root/'pixels.raw'
     env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> native output resources',EFMI_VK_TEST_NOTICES_READBACK=str(pixels))
     with Sandbox(seconds=3,threads=2 if case=='secondary' else 0,validation=True,entry='inject' if case=='inject' else 'layer',env_extra=env,extra_args=['--readable-swapchain','--dynamic-rendering','1','--api','1.3']) as sb:
@@ -36,7 +36,7 @@ def scene(checks, case):
 
 def owned_scene(checks,case):
     root=Path(test_dir('native-dynamic-target-'+case+'-'));mods=root/'Mods';mods.mkdir();_,fragment=sandbox_shader_hashes()
-    (mods/'mod.ini').write_text('namespace = owned_target\n[Constants]\nglobal $saved = 0\n[ResourceSaved]\n[ShaderOverrideTarget]\nhash = %08x\nvk_binding = ps-t0, 1, 5\n'%fragment+
+    (mods/'mod.ini').write_text('namespace = owned_target\n[Constants]\nglobal $saved = 0\n[ResourceSaved]\n[ShaderOverrideTarget]\nvk_hash = %08x\nvk_binding = ps-t0, 1, 5\n'%fragment+
         'if o0->width == 4 && rt_width == 4 && rt_height == 4\nResourceSaved = ref o0\nhandling = skip\nelif ResourceSaved->width == 4\nps-t0 = ref ResourceSaved\nendif\n',encoding='ascii')
     settings=root/'settings';fixes=settings/'ShaderFixes';fixes.mkdir(parents=True)
     shader=root/'sample.hlsl';shader.write_text('[[vk::binding(5,1)]] [[vk::combinedImageSampler]] Texture2D<float4> tex;\n[[vk::binding(5,1)]] [[vk::combinedImageSampler]] SamplerState samp;\nfloat4 main() : SV_Target0 { return tex.SampleLevel(samp,float2(0,0),0); }\n',encoding='ascii')

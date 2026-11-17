@@ -47,7 +47,7 @@ def main():
                         "format = R32G32B32A32_FLOAT\nbind_flags = render_target shader_resource\n") if sampling else ""
     sampled_binding = "o0 = ref ResourceSampling\nclear = o0 23.0 0.0 0.0 1.0\n" if sampling else ""
     (mods / "graphics.ini").write_text(
-        "[ShaderOverrideTransaction]\nhash = %08x\nvk_binding = cs-t2, 0, 2\n" % crc32c(shader.read_bytes()) +
+        "[ShaderOverrideTransaction]\nvk_hash = %08x\nvk_binding = cs-t2, 0, 2\n" % crc32c(shader.read_bytes()) +
         "handling = skip\nResourceOriginal = ref cs-t2\nResourceWork = copy cs-t2\n"
         "run = CustomShaderGraphics\nrun = CustomShaderSample\ncs-t2 = ref ResourceWork\n"
         "draw = from_caller\npost cs-t2 = ref ResourceOriginal\n"

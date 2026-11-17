@@ -39,7 +39,7 @@ def scene(checks, case, emitter):
         edits = edits.replace('drawindexed', 'vb0->ElementFormat(POSITION, 0) = R8G8B8A8_UINT\ndrawindexed')
     if case == 'ordered':
         edits += 'vb0->ElementOffset(POSITION, 0) = 16\ndrawindexed = 3,0,0\n'
-    ini = ('namespace = vertex_identity\n[ShaderOverrideEntry]\nhash = %08x\nchecktextureoverride = ib\n' % vertex +
+    ini = ('namespace = vertex_identity\n[ShaderOverrideEntry]\nvk_hash = %08x\nchecktextureoverride = ib\n' % vertex +
            '[TextureOverrideMesh]\nhash = %08x\nmatch_first_index = 6\n'
            'match_index_count = 3\nhandling = skip\nvb0 = ResourceVertex\nib = ResourceIndex\n' %
            crc32c(struct.pack('<3I', 14, 15, 16))) + edits

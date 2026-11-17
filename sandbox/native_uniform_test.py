@@ -19,7 +19,7 @@ def scene(checks,case):
         declaration+='type = Buffer\nstride = 16\nbind_flags = constant_buffer\nfilename = input.buf\n'
         (mods/'input.buf').write_bytes(struct.pack('<24f',*( [0,0,0,0,.2,1,.5,1]+[0]*16 )))
     (mods/'test.ini').write_text('namespace = native_uniform\n[Constants]\nglobal $saved = 0\n'
-        '[ShaderOverrideVertex]\nhash = %08x\nvk_binding = vs-cb0, 0, 0\n'%vertex+body+declaration,encoding='ascii')
+        '[ShaderOverrideVertex]\nvk_hash = %08x\nvk_binding = vs-cb0, 0, 0\n'%vertex+body+declaration,encoding='ascii')
     settings=root/'settings';fixes=settings/'ShaderFixes';fixes.mkdir(parents=True)
     shader=root/'color.hlsl';shader.write_text('[[vk::binding(0,0)]] cbuffer U { float4 offset; float4 color; };\n'
         'float4 main() : SV_Target0 { return color.y > .9 ? float4(0,1,0,1) : float4(1,0,1,1); }\n',encoding='ascii')

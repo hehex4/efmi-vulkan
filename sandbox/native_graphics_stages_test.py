@@ -41,7 +41,7 @@ def main():
             shader_hash = crc32c(originals[stage].read_bytes())
             mods = root / "Mods"; mods.mkdir()
             ini = "[Constants]\nglobal $loaded = 1\n"
-            if case == "skip": ini += "[ShaderOverrideStage]\nhash = %08x\nhandling = skip\n" % shader_hash
+            if case == "skip": ini += "[ShaderOverrideStage]\nvk_hash = %08x\nhandling = skip\n" % shader_hash
             (mods / "mod.ini").write_text(ini, encoding="ascii")
             kind = {"gs": "geometry", "hs": "hull", "ds": "domain"}[stage]
             (root / "d3dx.ini").write_text(

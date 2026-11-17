@@ -58,7 +58,7 @@ type = Buffer
 bind_flags = constant_buffer
 filename = control.buf
 [ShaderOverridePhase]
-hash = %08x
+vk_hash = %08x
 handling = skip
 vk_binding = ps-cb0, 0, 0
 vk_binding = ps-t0, 1, 5

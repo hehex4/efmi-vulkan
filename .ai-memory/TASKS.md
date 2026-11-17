@@ -7,7 +7,18 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
-Active D-340 follows 65f2af0/main fast-forward. Source 3.5.5 lazily executes
+Active D-341 follows 27e3416/main fast-forward. Implement original shader hash
+modes, separate explicit native identity from original hash values, and connect
+original ShaderOverride entry/filter queries. The current 32-bit value heuristic
+cannot distinguish original BYTECODE hashes from native CRC32C. Exact source
+evidence remains required; no character-specific identity fallback. CPU 57 and
+full interpreter 600 pass. Source-only production hash variants plus unknown and
+mismatched-slot negatives pass 20. Finish native/configuration regression, review,
+commit and fast-forward before continuing executable patterned ShaderRegex.
+The regression now passes registry 395, backend 13, geometry 128, IA 34,
+prepared 155 and native shader replacement. No game verification is implied.
+
+D-340 follows 65f2af0/main fast-forward. Source 3.5.5 lazily executes
 verified inherited application CS through original CustomShader dispatch. Finish
 the old-binary reproduction, matching build and inherited/unknown/nested GPU
 checks; preserve explicit source/resource lifetime and native restoration.

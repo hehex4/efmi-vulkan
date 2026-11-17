@@ -49,7 +49,7 @@ def scene(checks,case):
     fmt=61 if '_r8' in case else 56 if '_r16' in case else 11 if '_rgba16' in case else 28
     mods=root/'Mods';mods.mkdir();file=mods/'input.dds';expected=dds(file,layers,cube,fmt=fmt)
     (mods/'test.ini').write_text('namespace = native_image_shapes\n[Constants]\nglobal $loaded = 1\n'
-        '[ShaderOverrideCompute]\nhash = %08x\nvk_binding = cs-t0, 0, 2\ncs-t0 = ResourceTexture\n'
+        '[ShaderOverrideCompute]\nvk_hash = %08x\nvk_binding = cs-t0, 0, 2\ncs-t0 = ResourceTexture\n'
         '[ResourceTexture]\nfilename = input.dds\n'%crc32c(shader.read_bytes()),encoding='ascii')
     output=root/'result.bin';keys=root/'keys.txt';keys.write_text('1\n',encoding='ascii')
     env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_KEYS=str(keys),VK_LAYER_VALIDATE_SYNC='1')

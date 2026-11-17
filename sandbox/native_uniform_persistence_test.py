@@ -14,7 +14,7 @@ def scene(checks,case):
  root=Path(test_dir('native-uniform-persistent-'+case+'-'));mods=root/'Mods';mods.mkdir();_,fragment=sandbox_shader_hashes()
  body='vk_binding = ps-cb1, 1, 6\nvk_binding = ps-cb2, 1, 7\nif o0->bindflags == 32\nps-cb1 = ref ps-cb2\nendif\n'
  if case=='control':body=''
- (mods/'mod.ini').write_text('[ShaderOverrideUniform]\nhash = %08x\n'%fragment+body,encoding='ascii')
+ (mods/'mod.ini').write_text('[ShaderOverrideUniform]\nvk_hash = %08x\n'%fragment+body,encoding='ascii')
  settings=root/'settings';settings.mkdir();screen=root/'screen.raw';owned=root/'owned.raw';trigger=root/'capture.trigger'
  env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',
           EFMI_VK_TEST_NOTICE='> persistent native uniform',EFMI_VK_TEST_NOTICES_READBACK=str(screen),VK_LAYER_VALIDATE_SYNC='1')

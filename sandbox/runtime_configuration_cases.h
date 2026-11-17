@@ -84,7 +84,7 @@ global $unexpected = 1
     for(const auto* name:names)shaders+="$"+std::string(name)+" = "+name+"\n";
     shaders+="$tail = $tail + 1\n";
     for(unsigned i=0;i<6;++i){
-        shaders+="[ShaderOverride"+std::to_string(i)+"]\nhash = "+std::to_string(i+1)+"\n";
+        shaders+="[ShaderOverride"+std::to_string(i)+"]\nvk_hash = "+std::to_string(i+1)+"\n";
         if(i!=4)shaders+="filter_index = "+std::to_string(i+21)+"\n";
     }
     write(root/"d3dx.ini",shaders.c_str());
@@ -103,13 +103,13 @@ global $unexpected = 1
     for(unsigned i=0;i<6;++i)check(values.at("$"+std::string(names[i]))==0 &&
         std::signbit(values.at("$"+std::string(names[i])))==(i!=0 && i!=5),
         "Native filter queries distinguish bound positive zero from unbound negative zero");
-    shaders+="[ShaderOverrideComputeSkip]\nhash = 7\nfilter_index = 29\nif cs == 29\nhandling = skip\nendif\n";
+    shaders+="[ShaderOverrideComputeSkip]\nvk_hash = 7\nfilter_index = 29\nif cs == 29\nhandling = skip\nendif\n";
     write(root/"d3dx.ini",shaders.c_str());runtime=IniRuntime::load(config,{},reason);
     if(!runtime)throw std::runtime_error(reason);
     draw={};draw.native_calls=true;draw.compute=true;draw.shader_stages=32;draw.stage_hash_mask=32;draw.stage_hashes[5]=7;
     check(runtime->shader_draw(draw,plan,reason) && plan.skip_original,
         "Native compute overrides query their current filter before skipping the original call");
-    shaders+="[ShaderOverrideUnsafeDeclaration]\nhash = 8\nif cs->srv_stride(0) == 4\nhandling = skip\nendif\n";
+    shaders+="[ShaderOverrideUnsafeDeclaration]\nvk_hash = 8\nif cs->srv_stride(0) == 4\nhandling = skip\nendif\n";
     write(root/"d3dx.ini",shaders.c_str());runtime=IniRuntime::load(config,{},reason);
     if(!runtime)throw std::runtime_error(reason);
     draw.stage_hashes[5]=8;
@@ -145,7 +145,7 @@ global $unexpected = 1
     for(unsigned mode=0;mode<4;++mode){
         std::string ini="[Constants]\nglobal $hit = 0\n[TextureOverrideInert]\nhash = aabbccdd\n"
             "$hit = $hit + 1\npost $hit = $hit + 100\nhandling = skip\n";
-        if(mode)ini+="[ShaderOverrideEntry]\nhash = 1\n";
+        if(mode)ini+="[ShaderOverrideEntry]\nvk_hash = 1\n";
         if(mode>=2)ini+="if "+std::to_string(mode-2)+"\nchecktextureoverride = ib\nendif\n";
         write(root/"d3dx.ini",ini.c_str());runtime=IniRuntime::load(config,{},reason);
         if(!runtime)throw std::runtime_error(reason);
@@ -172,7 +172,7 @@ global $hit = 0
 global $v = 0
 global $p = 0
 [ShaderOverrideVertex]
-hash = 1
+vk_hash = 1
 filter_index = 42
 $pre = $pre * 10 + 1
 post $post = $post * 10 + 4
@@ -224,5 +224,32 @@ handling = skip
         draw.source_models[0]="vs_5_0";
         check(runtime->draw(draw,plan,reason) && runtime->status().variables.at("$hit")==enabled*202,
             "Repeated model entry does not accumulate command links");
+    }
+    const char* source="float4 main(uint id:SV_VertexID):SV_Position{return float4(id,0,0,1);}";
+    ID3DBlob* bytecode=nullptr;ID3DBlob* errors=nullptr;
+    const auto compiled=D3DCompile(source,strlen(source),nullptr,nullptr,nullptr,"main","vs_5_0",0,0,&bytecode,&errors);
+    if(errors)errors->Release();check(SUCCEEDED(compiled) && bytecode,"Original identity source compiles");
+    const auto code=SourceShaderCode::create(bytecode->GetBufferPointer(),bytecode->GetBufferSize());bytecode->Release();
+    const char* modes[]={"3dmigoto","embedded","bytecode"};
+    for(unsigned mode=0;mode<3;++mode){
+        const auto source_hash=code->hash(SourceShaderHash(mode));const uint32_t native_hash=uint32_t(source_hash);
+        char identities[256];sprintf_s(identities,"[ShaderOverrideSource]\nhash = %016llx\nfilter_index = 42\n",
+            static_cast<unsigned long long>(source_hash));
+        std::string ini=std::string("[Rendering]\nshader_hash = ")+modes[mode]+
+            "\n[Constants]\nglobal $source_hit = 0\nglobal $native_hit = 0\n"+identities+
+            "if vs == 42\n$source_hit = $source_hit + 1\nhandling = skip\nendif\n";
+        sprintf_s(identities,"[ShaderOverrideNative]\nvk_hash = %08x\n",native_hash);
+        ini+=std::string(identities)+"$native_hit = $native_hit + 1\n";
+        write(root/"d3dx.ini",ini.c_str());
+        auto runtime=IniRuntime::load(config,{},reason);check(bool(runtime),"Both explicit shader identity domains load");
+        RuntimeDraw draw;draw.native_calls=true;draw.shader_stages=draw.stage_hash_mask=1;draw.stage_hashes[0]=native_hash;
+        draw.source_codes[0]=code;efmi::assets::FilePlan plan;
+        check(runtime->shader_draw(draw,plan,reason) && plan.skip_original &&
+            runtime->status().variables.at("$source_hit")==1 && runtime->status().variables.at("$native_hit")==1,
+            "Exact original identity and explicit native identity execute independently with source filter precedence");
+        draw.source_codes[0].reset();
+        check(runtime->shader_draw(draw,plan,reason) && !plan.skip_original &&
+            runtime->status().variables.at("$source_hit")==1 && runtime->status().variables.at("$native_hit")==2,
+            "Missing source evidence cannot match an original hash even when its value equals native CRC");
     }
 }

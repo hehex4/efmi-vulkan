@@ -15,7 +15,7 @@ def scene(checks,case):
  settings=root/'settings';settings.mkdir();pixels=root/'screen.raw';owned=root/'owned.raw'
  if filtered:
   fixes=settings/'ShaderFixes';fixes.mkdir();(fixes/('%08x-ps_replace.spv'%fragment)).write_bytes(compile_pixel(root,'1,0,1'))
- (mods/'mod.ini').write_text('namespace = depth_null\n[ShaderOverrideTarget]\nhash = %08x\n'%fragment+('depth_filter = depth_'+case.removeprefix('filter_')+'\n' if filtered else '')+body,encoding='ascii')
+ (mods/'mod.ini').write_text('namespace = depth_null\n[ShaderOverrideTarget]\nvk_hash = %08x\n'%fragment+('depth_filter = depth_'+case.removeprefix('filter_')+'\n' if filtered else '')+body,encoding='ascii')
  env=dict(EFMI_VK_CONFIGURATION=configuration_root(mods),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_NOTICE='> native depth null',EFMI_VK_TEST_NOTICES_READBACK=str(pixels),VK_LAYER_VALIDATE_SYNC='1')
  args=['--native-output-no-color','--readable-swapchain','--api','1.3','--dynamic-rendering','2' if case=='khr' else '1','--native-output',str(owned),'--native-output-depth-stencil' if combined else '--native-output-stencil' if stencil else '--native-output-depth']
  with Sandbox(seconds=4,threads=0,entry='inject' if case=='inject' else 'layer',validation=True,env_extra=env,extra_args=args) as sb:

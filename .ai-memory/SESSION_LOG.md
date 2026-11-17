@@ -4249,3 +4249,34 @@ Production inherited/unknown/nested 12, exact declarations 4, graphics 20,
 transaction 5, Core 10, tracker 1042, ABI 16 and text 757 pass, validation clean.
 Prepared regression passes 155. Diff reviewed; commit and main fast-forward,
 then continue original shader hash entry. No game or completion claim.
+
+## 2026-11-17: D-341 original hash identity in progress
+
+D-340 committed as 27e3416 and main fast-forwarded. HackerDevice.cpp 2488-2555
+and util.h 112 establish the exact three source hash modes; the FNV helper is
+zero-seeded multiply-before-XOR, not standard FNV-1a. SourceShaderCode now computes
+immutable hashes from validated DXBC. A compiler-backed CPU fixture compares
+metadata-only changes, embedded endianness and chunk ordering. Build/test running
+in original-shader-hashes.out. Native/original namespace separation and runtime
+entry remain to implement. DX11 supplies retained shader lifetime, deferred
+destruction, hazard tracking and context order; this identity work retains the
+existing immutable source owner and does not submit work or change those proofs.
+
+Hash checks pass 16. Runtime parsing now separates original hash and vk_hash maps;
+exact source matches enter stage lists and shader filter expressions. Native
+fixtures migrate explicit keys. CPU fixture first fails compilation on an
+unqualified assets namespace; corrected build passes 57 and full interpreter 600.
+Original setting name is 3dmigoto, not fnv. Source version is 3.5.6; matching DLLs
+are building at ABI d3e682a6d592da0b in original-hash-entry-binaries.out. Production
+source-only hash cases still need execution. No game or deployment.
+
+Matching 3.5.6 binaries build. Source-only GPU positives initially refuse the
+fixture's incompatible t1/b2 declarations against native t0/b0 ranks. Corrected
+paired declarations pass all three original modes; unknown source and retained
+mismatched-slot negatives preserve the caller. Five cases pass 20, validation
+clean (original-hash-entry-source.out). Existing inherited 12, graphics 20,
+transaction 5, Core cases, tracker 1042, ABI 16 and text 758 pass. Broader native
+and configuration regression passes in original-hash-entry-regression.out:
+CPU 57, registry GPU 395, backend 13, geometry 128, IA 34, prepared GPU 155,
+native shader replacement and text 758. Diff reviewed; commit/main fast-forward
+then continue executable patterned ShaderRegex. No game action.

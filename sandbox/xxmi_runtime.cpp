@@ -337,9 +337,9 @@ int wmain(int argc, wchar_t** argv)
             const bool reported = std::any_of(loaded.diagnostic_messages.begin(), loaded.diagnostic_messages.end(),
                                               [](const std::string& text) { return text.find("inert") != std::string::npos; });
             if (!inert) fprintf(stderr, "acting ShaderOverride candidate: %s\n", reason.c_str());
-            check(inert && reported && inert->shader_hashes().empty(), "A ShaderOverride acting on game shaders by a DX11 hash loads inert and is reported");
+            check(inert && !reported && inert->has_source_shader_overrides() && inert->shader_hashes().empty(), "Original ShaderOverride identity loads without becoming a native hash");
         }
-        write(ini, "namespace = runtime_test\n[ShaderOverrideActing]\nhash = 1234abcd\nhandling = skip\n");
+        write(ini, "namespace = runtime_test\n[ShaderOverrideActing]\nvk_hash = 1234abcd\nhandling = skip\n");
         {
             auto acting = IniRuntime::load(config, {}, reason);
             const auto loaded = acting ? acting->status() : RuntimeStatus{};
