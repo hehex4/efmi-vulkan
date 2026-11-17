@@ -7,6 +7,11 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
+## D-328 final binding contract verified
+
+- Added admitted final binding snapshots after original post/tail execution, including skipped binding-only draws. Legacy executors explicitly refuse the payload. GPU 384 passes cleanly after reproducing/fixing BUG-168 stale result-cache reuse. Four development DLLs build at 3.4.4 / unchanged ABI fd2102f32b81fd00 in prepared-final-bindings-build.out. Fresh root configuration 27 and original interpreter 570 pass in prepared-final-bindings-runtime.out and prepared-final-bindings-interpreter.out. Scoped regression passes configuration backend 13, tracker 1011, native calls 60, ABI 9 and text 737 in prepared-final-bindings-regression.out.
+- Next: integrate complete native application-source facts and per-call/final binding admission, plus explicit application image handoff. Complete production original Core execution before returning to native I-01/I-04/I-05/capture. No game authorization.
+
 ## D-327 private image insertion verified
 
 - Native packet preflight now accepts retained private image layout chains and verifies full allocation disjointness using actual tracked future outputs. Tracker 1011 and GPU 61 pass cleanly; eight pass modes prove clear/copy order, attachment preservation and completion lifetime. Four development DLLs build at 3.4.3 in prepared-private-images-dll-build.out. Scoped regression passes configuration 13, tracker 1011, GPU insertion 61, recipes 410/cache 81/snapshots 52/variants 63, ABI 9 and text 737 in prepared-private-images-regression.out.

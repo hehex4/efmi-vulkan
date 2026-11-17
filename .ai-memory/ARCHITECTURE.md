@@ -1,5 +1,12 @@
 # EFMI Vulkan - Architecture
 
+D-328 (3.4.4) carries prepared_final_state from original planning through FilePlan.
+It is captured after post commands and the last packet, including skipped draws
+that only assign resources. Assignment-only trailing library groups replace it
+with their later state. It shares call admission and retained allocation owners;
+reused ordinary/candidate/compiler storage clears it. Legacy executors refuse it
+until complete per-call and final native binding admission is implemented.
+
 D-327 (3.4.3) admits retained private image work with a continuous layout chain
 returning to GENERAL at every packet boundary. Full allocation spans are checked
 against all retained output roles, including future outputs resolved through actual

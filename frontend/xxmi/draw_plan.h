@@ -69,6 +69,7 @@ struct DrawStages {
 };
 
 struct DrawPlan {
+    std::shared_ptr<const PreparedDrawState> prepared_final_state;
     bool skip_original = false;
     std::vector<PlanItem> items;
     // Items the pre phase made: those before the original draw; the rest are post commands.

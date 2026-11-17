@@ -34,6 +34,7 @@ bool valid(const FilePlanItem& item)
 bool prepare_file_plan(const FilePlan& input,ResourceCache& cache,PreparedFilePlan& output,std::string& reason)
 {
     reason.clear();
+    if(input.prepared_final_state){reason="Prepared final bindings require complete host admission";return false;}
     if(input.items.size()>4096){reason="File plan operation budget exceeded";return false;}
     for(const auto& item:input.items)if(!valid(item)){reason="Invalid file binding contract";return false;}
     PreparedFilePlan next;next.plan_=input;next.requests_.resize(input.items.size());

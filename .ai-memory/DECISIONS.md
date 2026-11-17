@@ -13,6 +13,16 @@ parsing with per-Mod backend generations is insufficient. Original includes and
 matching command lists decide execution; declared resources, not character bundles,
 are the units of lazy creation and retention. See docs/configuration-execution-rewrite.md.
 
+## D-328: Preserve the final original context, even without a draw (2026-11-17)
+
+A sequence of call snapshots alone omits post assignments after the last draw.
+Carry an explicit final binding snapshot after the post tail, sharing the same
+admission/cancellation as the calls and work. Do not create a dummy draw or GPU
+packet for binding-only execution. Retain allocations after the registry retires,
+clear the field when result storage is reused and refuse it in legacy executors
+until the host applies all final bindings. The next application draw must not be
+assumed to replace every binding that the original command lists leave active.
+
 ## D-327: Admit private image packets with explicit layout and allocation proof (2026-11-17)
 
 Private image packets may execute between render passes when their immutable state

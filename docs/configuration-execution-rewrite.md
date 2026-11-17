@@ -251,3 +251,11 @@ boundaries and complete allocation disjointness. Actual GPU clear/copy ordering,
 attachment preservation and completion lifetime pass 61 checks across eight pass
 modes, with zero validation diagnostics; tracker checks remain 1011. Application
 image handoff and production host source mapping/per-call admission remain open.
+
+D-328 retains final original bindings after post/tail execution, including skipped
+draws with only binding assignments. The final snapshot shares admission with the
+calls/work and survives registry retirement through retained allocations. Ordinary
+result reuse clears it; legacy file/native executors refuse it until final binding
+emission is integrated. GPU 384 passes with clean validation after reproducing and
+fixing the new-field cache reuse defect. Production source mapping and complete
+per-call/final binding admission still remain required.

@@ -47,6 +47,7 @@ std::unique_ptr<PreparedConfigurationDraw> OwnedRuntime::prepare_draw(std::share
             if(reason.empty())reason="Original configuration refused prepared GPU work";
             return {};
         }
+        if(!state.plan.prepared_final_state)throw std::runtime_error("Original draw plan has no final binding snapshot");
         // The original plan must have cut its tail at AfterDraw. Never silently
         // append an unpositioned operation after a host caller.
         if(resources.finish_prepared())throw std::runtime_error("Original draw plan left an unpositioned GPU segment");

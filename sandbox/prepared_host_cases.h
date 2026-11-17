@@ -28,6 +28,11 @@ run = CustomShaderIncrement
 ps-t0 = ref ResourceOutput
 draw = 3,0
 post ResourceOutput = copy ResourceSource
+post ps-t0 = null
+[ShaderOverrideBindingOnly]
+hash = 1122aabd
+handling = skip
+post ps-t1 = ref ResourceSource
 [ShaderOverrideRefused]
 hash = 1122aabc
 run = CustomShaderInherited
@@ -58,18 +63,43 @@ dispatch = 1,1,1
         check(!other.prepare_draw(ini,draw,application,true,why) && why.find("matching")!=std::string::npos,
             "Another GPU registry cannot prepare this original configuration");
     }
+    assets::FilePlan reused;
+    {
+        auto only=draw;only.stage_hashes[0]=0x1122aabd;
+        auto scope=owned->prepare_draw(ini,only,application,true,why);
+        if(!scope)throw std::runtime_error("Prepare binding-only host transaction: "+why);
+        const auto final=scope->plan().prepared_final_state;
+        check(scope->plan().skip_original && scope->plan().items.empty() && final &&
+            bool(final->bindings.at({L'p',ResourceCopyTargetType::SHADER_RESOURCE,1})),
+            "Skipped draw with only post bindings retains its final state without fabricated work");
+        check(!final->admitted(),"Binding-only final state starts unadmitted");scope.reset();
+        check(!final->admitted(),"Cancelling a binding-only draw does not admit its final state");
+        scope=owned->prepare_draw(ini,only,application,true,why);
+        check(scope && scope->admit(why) && scope->plan().prepared_final_state->admitted(),
+            "A binding-only retry admits its final state without a GPU packet");
+        reused=scope->plan();
+    }
+    auto unmatched=draw;unmatched.stage_hashes[0]=0x1122aaff;
+    check(ini->shader_draw(unmatched,reused,why) && !reused.prepared_final_state,
+        "Ordinary unmatched draw replaces a reused prepared output");
+    check(ini->shader_draw(unmatched,reused,why) && !reused.prepared_final_state,
+        "Recycled ordinary plan storage cannot revive a previous final snapshot");
     auto pending=owned->prepare_draw(ini,draw,application,true,why);
     if(!pending)throw std::runtime_error("Prepare host transaction: "+why);++checks;
     assets::FilePlan cancelled=pending->plan();
     check(cancelled.skip_original && cancelled.items.size()==4 && cancelled.items[0].prepared_work && cancelled.items[3].prepared_work,
         "Host transaction contains positioned pre work, explicit draw, caller and post work");
+    check(cancelled.prepared_final_state && !cancelled.prepared_final_state->admitted() &&
+        !cancelled.prepared_final_state->bindings.at({L'p',ResourceCopyTargetType::SHADER_RESOURCE,0}) &&
+        bool(cancelled.items[1].prepared_state->bindings.at({L'p',ResourceCopyTargetType::SHADER_RESOURCE,0})),
+        "Final post-null state differs from the retained draw bindings");
     check(!cancelled.items[1].prepared_state->admitted() && awaiting_admission(cancelled.items[0].prepared_work),
         "Host preparation never admits or records speculative work");
     check(!owned->prepare_draw(ini,draw,application,true,why),"Overlapping host preparation is rejected");
     check(!cancelled.items[1].prepared_state->admitted() && ini->status().variables.at("$calls")==1,
         "Rejected overlap does not execute or publish the original transaction");
     pending.reset();
-    check(!cancelled.items[1].prepared_state->admitted() && awaiting_admission(cancelled.items[0].prepared_work),
+    check(!cancelled.prepared_final_state->admitted() && !cancelled.items[1].prepared_state->admitted() && awaiting_admission(cancelled.items[0].prepared_work),
         "Abandoned host transaction leaves retained calls and packets unrecordable");
     cancelled={};
     draw.stage_hashes[0]=0x1122aabc;
@@ -85,6 +115,8 @@ dispatch = 1,1,1
     check(pending->admit(why) && pending->admit(why),"Host acceptance admits the complete plan exactly once");
     assets::FilePlan accepted=pending->plan();pending.reset();
     check(registry.expired(),"Accepted plan packets do not keep the original configuration alive");
+    check(accepted.prepared_final_state->admitted() && !accepted.prepared_final_state->bindings.at({L'p',ResourceCopyTargetType::SHADER_RESOURCE,0}),
+        "Accepted final bindings remain valid after the original host and registry retire");
     check(accepted.items[1].prepared_state->admitted() && accepted.items[2].prepared_state->admitted(),
         "All original call snapshots share the host admission");
     const auto output=accepted.items[1].prepared_state->bindings.at({L'p',ResourceCopyTargetType::SHADER_RESOURCE,0}).buffer;

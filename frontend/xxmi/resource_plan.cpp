@@ -110,7 +110,7 @@ bool FilePlanCompiler::compile(const DrawPlan& source,assets::FilePlan& output,s
     reason.clear();
     auto refuse=[&](const wchar_t* text){reason=text;return false;};
     if(source.items.size()>4096)return refuse(L"Resource plan operation budget exceeded");
-    assets::FilePlan& next=next_;next.items.clear();next.skip_original=source.skip_original;next.pre_items=source.pre_items;size_t draws=0;
+    assets::FilePlan& next=next_;next.items.clear();next.prepared_final_state=source.prepared_final_state;next.skip_original=source.skip_original;next.pre_items=source.pre_items;size_t draws=0;
     for(const auto& item:source.items){
         assets::FilePlanItem own;own.slot=item.slot;own.application_slot=item.application_slot;own.native_resource=item.native_resource;
         if(item.prepared_work && item.operation!=PlanOperation::PreparedWork)

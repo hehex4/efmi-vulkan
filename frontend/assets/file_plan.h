@@ -59,6 +59,9 @@ struct FilePlanItem {
     bool shadow=false; // PlanItem's (D-185): in a shadow pass, drawn in place by the opacity
 };
 struct FilePlan {
+    // Original post lists can change bindings without another draw. The host
+    // applies this admitted snapshot after the last packet, including skipped draws.
+    std::shared_ptr<const frontend::PreparedDrawState> prepared_final_state;
     bool skip_original=false;
     std::vector<FilePlanItem> items;
     size_t pre_items=SIZE_MAX; // items before the original draw (DrawPlan::pre_items)

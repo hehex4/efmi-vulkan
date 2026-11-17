@@ -1,5 +1,17 @@
 # EFMI Vulkan - Known issues
 
+## BUG-168: Reused ordinary plans revived prepared final bindings (fixed in D-328)
+
+During D-328 implementation, the reused IniRuntime result cleared its items and
+flags but omitted the new prepared_final_state. Passing a prepared output through
+two ordinary unmatched draws swapped the old final snapshot back to the caller.
+prepared-final-bindings-cache-before.out reproduces this. Original BeforeDraw /
+AfterDraw use the current context, with DX11 reference-counted lifetime/deferred
+destruction, hazard tracking and context order; cached speculative metadata is not
+a context assignment. Clear the field on every result entry, along with candidate
+and compiler reset. prepared-final-bindings-fixed.out passes GPU 384 with clean
+validation. The defect was caught before this development change was committed.
+
 ## BUG-167: Sandbox geometry shader filename was shadowed by a flag (fixed in D-323)
 
 The earlier boolean --geometry-shader branch consumed the option before the later

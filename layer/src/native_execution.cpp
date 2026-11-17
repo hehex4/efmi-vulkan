@@ -154,6 +154,7 @@ bool native_calls(NativeCallCache& cache, TextureResidency* residency, Device* d
 {
     using O = efmi::assets::FileOperation;
     auto refuse = [&](const char* text) { why = text; return false; };
+    if(plan.prepared_final_state)return refuse("Prepared final bindings require complete native call admission");
     if (!device || !cb || plan.items.empty()) return false;
     const bool compute = compute_call(r);
     if(compute && device->synchronization2_enabled && r.kind == DK_DISPATCH_INDIRECT)

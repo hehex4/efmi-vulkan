@@ -813,7 +813,7 @@ bool IniRuntime::run_draw(const RuntimeDraw& input, assets::FilePlan& output, st
             }
         phase("phase find");
         assets::FilePlan& result = p.draw_result;
-        result.items.clear(); result.skip_original = input.hunting_skip; result.pre_items = SIZE_MAX;
+        result.items.clear(); result.prepared_final_state.reset(); result.skip_original = input.hunting_skip; result.pre_items = SIZE_MAX;
         auto s = p.command_state(); s.call_info = &call; std::wstring why;
         ResourceCopyTarget index_target;
         index_target.type = ResourceCopyTargetType::INDEX_BUFFER;
@@ -860,6 +860,7 @@ bool IniRuntime::run_draw(const RuntimeDraw& input, assets::FilePlan& output, st
                 DrawPlan unused;
                 if (!p.adapter.execute(*list, after, unused, why) || !unused.items.empty())
                     throw std::runtime_error("A library's shader group list was refused: " + utf8(why));
+                if(unused.prepared_final_state)result.prepared_final_state=std::move(unused.prepared_final_state);
             }
             phase("phase execute+compile");
         }

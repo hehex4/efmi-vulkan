@@ -3873,3 +3873,28 @@ Continue final/per-call host bindings, complete source mapping and application
 image handoff before production original Core insertion. Native I-01/I-04/I-05 and
 capture work follow the completed rewrite. No game, deployment, candidate refresh,
 installed/system mutation, historical artifact deletion or remote action.
+
+## 2026-11-17: D-328 final original binding snapshots
+
+Read original BeforeDraw/caller/AfterDraw and current-context resource assignment.
+DX11 supplies reference-counted lifetime/deferred destruction, hazards and context
+order; post assignments remain active until another actual bind. Prepared planning
+now captures the final bindings after post commands and the last GPU cut, including
+skipped binding-only draws. Assignment-only trailing library groups replace that
+snapshot with their later state. The final state shares call/work admission and
+retained allocation owners; legacy file/native executors explicitly refuse it.
+
+Initial GPU checks pass 382 (prepared-final-bindings-gpu.out). An added reused-result
+case reproduces BUG-168: the second ordinary unmatched call swaps back an earlier
+prepared final snapshot (prepared-final-bindings-cache-before.out). Reset the field
+at result entry as well as candidate/compiler entry. GPU 384 passes with zero core
+or synchronization validation errors/warnings in prepared-final-bindings-fixed.out,
+covering post-null versus draw state, cancellation, binding-only retry, retirement
+of the original registry and ordinary output reuse. Four development DLLs build at 3.4.4 / unchanged ABI fd2102f32b81fd00 in prepared-final-bindings-build.out. Fresh root configuration 27 and original interpreter 570 pass in prepared-final-bindings-runtime.out and prepared-final-bindings-interpreter.out. Scoped regression passes configuration backend 13, tracker 1011, native calls 60, ABI 9 and text 737 in prepared-final-bindings-regression.out.
+
+The replacement loader has no character package discovery/loading/activation path.
+Production original Core still needs complete native source facts, per-call/final
+binding admission and application-image layout handoff. Complete those before the
+remaining native queue/access/readiness/capture work. These are development/sandbox
+results only. No game, deployment, candidate refresh, installed/system mutation,
+historical artifact deletion or remote action.

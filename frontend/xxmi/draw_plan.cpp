@@ -2299,7 +2299,7 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
 #endif
     DrawPlan& candidate = runtime_->candidate;
     const bool hunting_skip = state.call_info && state.call_info->hunting_skip;
-    candidate.items.clear(); candidate.skip_original = hunting_skip; candidate.pre_items = SIZE_MAX;
+    candidate.items.clear(); candidate.prepared_final_state.reset(); candidate.skip_original = hunting_skip; candidate.pre_items = SIZE_MAX;
     auto saved_layout = state.input_layout_overrides;const auto saved_post=state.post;
     runtime_->active = &candidate; runtime_->steps = runtime_->draws = 0;runtime_->queries->count=0;runtime_->nested_failed=false;runtime_->active_depth=0;
     runtime_->keep_original=false;runtime_->shader_depth=0;
@@ -2392,10 +2392,14 @@ bool DrawPlanAdapter::execute_impl(const std::vector<CommandList*>& pre,const st
             runtime_->flush(after);
             phase("exec post lists+flush");
         }
-        // What the lists leave bound after their last draw reaches no draw of the plan: the game binds its
-        // own for its next draw, and nothing is issued for it.
         nested();
         runtime_->cut_plan();
+        // AfterDraw leaves the original context's final bindings in place, even
+        // when no call was emitted. Capture after the post tail and parameter flush.
+        if(runtime_->planning_prepared()){
+            candidate.prepared_final_state=runtime_->prepared_capture();
+            if(!candidate.prepared_final_state)refuse(L"Prepared draw has no final binding snapshot");
+        }
         if(runtime_->keep_original && !hunting_skip)candidate.skip_original=false;
         // The lists ran to their end (D-162): the Mod's variables are what the original leaves. Where the
         // host cannot draw the draw as the Mod's, the output stays and the reason goes back.
