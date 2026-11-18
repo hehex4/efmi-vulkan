@@ -1,4 +1,5 @@
 #include "native_descriptors.h"
+#include "native_descriptor_restore.h"
 #include "resource_memory.h"
 #include "native_targets.h"
 #include "native_resources.h"
@@ -11,8 +12,8 @@ using Resource=efmi::frontend::NativeResource;
 bool dynamic_type(uint32_t t){return t==VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC || t==VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;}
 bool buffer_type(uint32_t t){return dynamic_type(t) || t==VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER || t==VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;}
 bool image_type(uint32_t t){return t==VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE || t==VK_DESCRIPTOR_TYPE_STORAGE_IMAGE || t==VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER || t==VK_DESCRIPTOR_TYPE_SAMPLER;}
-struct Writes {
-    std::vector<VkWriteDescriptorSet> writes;
+struct Writes : NativePushWrites {
+    std::vector<std::shared_ptr<const void>> owners;
     std::vector<VkDescriptorBufferInfo> buffers;
     std::vector<VkDescriptorImageInfo> images;
     std::vector<VkBufferView> views;
@@ -75,6 +76,18 @@ bool hold_locked(Device* d,DescriptorSetInfo& contents,std::vector<std::shared_p
     }
     return true;
 }
+}
+std::shared_ptr<const NativePushWrites> prepare_native_push_locked(Device* device,const DescriptorSetInfo& snapshot){
+    if(snapshot.unsupported || !snapshot.layout || !snapshot.layout->complete || snapshot.values.empty() || snapshot.values.size()>4096)return {};
+    for(const auto& entry:snapshot.values){
+        const auto& value=entry.second;
+        if(!value.known || (!image_type(value.type) && !buffer_type(value.type) &&
+            value.type!=VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER && value.type!=VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER))return {};
+    }
+    auto copy=snapshot;auto writes=std::make_shared<Writes>(copy,VK_NULL_HANDLE);
+    writes->owners.push_back(snapshot.layout);
+    if(!hold_locked(device,copy,writes->owners))return {};
+    return writes;
 }
 struct NativeDescriptorSet {
     Device* device=nullptr;

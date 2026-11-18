@@ -3,6 +3,7 @@
 #include "../../frontend/xxmi/native_bindings.h"
 
 namespace efvk {
+std::shared_ptr<const VkSamplerCreateInfo> native_sampler_locked(Device*,const DrawRec&,const efmi::frontend::NativeBinding&);
 bool native_vertex_stride(const GraphicsRecipe&,const DrawRec&,uint32_t slot,uint32_t& stride,std::string& why);
 uint32_t native_buffer_bind_flags(uint32_t usage);
 bool native_resource_locked(Device*, CmdBuf*, const DrawRec&, const efmi::frontend::NativeBinding&,

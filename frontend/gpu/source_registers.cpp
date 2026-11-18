@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <cstring>
 #include <map>
 #include <set>
 #include <unordered_map>
@@ -38,6 +39,7 @@ bool source_registers(const std::vector<uint32_t>& code, std::vector<SourceRegis
     if (code.size() < 5 || code.size() > kMaxWords || code[0] != kMagic) { reason = "not a SPIR-V module"; return false; }
     std::unordered_map<uint32_t, Type> types;
     std::unordered_map<uint32_t, uint32_t> constants, bindings, sets;
+    std::unordered_map<uint32_t,std::string> names;
     std::set<uint32_t> nonwritable, buffer_blocks;
     std::unordered_map<uint32_t, std::set<uint32_t>> readonly_members;
     std::unordered_map<uint32_t, uint32_t> array_strides;
@@ -49,7 +51,10 @@ bool source_registers(const std::vector<uint32_t>& code, std::vector<SourceRegis
         if (!count || i + count > code.size()) { reason = "malformed SPIR-V instruction"; return false; }
         const uint32_t* o = code.data() + i + 1;
         const uint32_t n = count - 1;
-        if (op == OpDecorate && n >= 2) {
+        if(op==5 && n>=2 && n<=66 && names.size()<65536){ // OpName
+            const char* name=reinterpret_cast<const char*>(o+1);const auto length=strnlen(name,(n-1)*4);
+            if(length && length<(n-1)*4)names.emplace(o[0],std::string(name,length));
+        }else if (op == OpDecorate && n >= 2) {
             if (o[1] == DecorationBinding && n >= 3) bindings[o[0]] = o[2];
             else if (o[1] == DecorationDescriptorSet && n >= 3) sets[o[0]] = o[2];
             else if (o[1] == DecorationNonWritable) nonwritable.insert(o[0]);
@@ -149,6 +154,7 @@ bool source_registers(const std::vector<uint32_t>& code, std::vector<SourceRegis
                                 : (storage ? SourceRegister::ImageUav : SourceRegister::ImageSrv);
         } else if (t->second.op == OpTypeSampler) {
             r.kind = SourceRegister::Sampler;
+            const auto name=names.find(v.id);if(name!=names.end())r.sampler_name=name->second;
         } else if (t->second.op == OpTypeStruct) {
             if (v.storage == StorageStorageBuffer || buffer_blocks.count(type)) {
                 const auto members = readonly_members.find(type);

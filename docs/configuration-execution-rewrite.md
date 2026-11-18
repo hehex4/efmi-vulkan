@@ -337,7 +337,12 @@ D-352 handles cached Store values, null resources and bounds. D-353 migrates
 hunting fixtures to original Include configuration. D-354 and D-355 project
 actual static or dynamic IA and restore vertex state around private graphics.
 
+D-356 preserves finite IA windows across private and application draws. D-357
+inherits named, exactly paired immutable/pushed sampler slots and restores
+application push descriptors. A following application dispatch observes the
+private result (23 + 7), with synchronization validation clean.
+
 These are scoped sandbox/GPU results. Compatibility is not complete:
-inherited samplers/comparison operations, current GPU Store boundaries, broader queue/source
+combined or late-bound samplers, comparison operations, current GPU Store boundaries, broader queue/source
 contracts and obsolete capture fixture migration remain. No game acceptance is
 implied and native-route work follows completion of this compatibility rewrite.

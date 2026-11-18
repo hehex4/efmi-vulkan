@@ -720,7 +720,7 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
         }
         efmi::frontend::NativeApplicationState application;
         std::unique_ptr<efmi::frontend::PreparedConfigurationDraw> prepared;
-        if(native_application_state(b.device,cb,r,application,reason,hooks->program->runtime()->native_bindings()) && hooks->program->gpu())
+        if(native_application_state(b.device,cb,r,request,application,reason,hooks->program->runtime()->native_bindings()) && hooks->program->gpu())
             prepared=hooks->program->gpu()->prepare_native_draw(hooks->program->runtime(),request,application,!matched_index,reason);
         const bool ran=bool(prepared);
         b.shader_draws_run.fetch_add(1, std::memory_order_relaxed);

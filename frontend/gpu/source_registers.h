@@ -25,6 +25,7 @@ struct SourceRegister {
     uint32_t scalar_type = 0, image_format = 0; // 32-bit image scalar: 1 float, 2 unsigned, 3 signed; SPIR-V Image Format.
     uint32_t bytes = 0;     // a constant buffer: its block's size (last member's offset plus its size)
     uint32_t stride = 0;    // a buffer view: the array stride of its block's last member, 0 when none
+    std::string sampler_name; // Exact descriptor variable name when SPIR-V retains it.
     bool words = false;     // a buffer view whose elements are single 32-bit unsigned integers
 };
 

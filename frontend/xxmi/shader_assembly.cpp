@@ -2,6 +2,9 @@
 #include "shader_state.h"
 #include "util.h"
 #include <mutex>
+#include <d3dcompiler.h>
+#include <d3d11shader.h>
+#include <wrl/client.h>
 #include <stdexcept>
 
 namespace efmi::frontend {
@@ -17,6 +20,20 @@ std::shared_ptr<const SourceShaderCode> SourceShaderCode::create(const void* byt
     auto result=std::shared_ptr<SourceShaderCode>(new SourceShaderCode);
     result->model_=source_shader_model(bytes,size);
     result->declarations_=source_shader_declarations(bytes,size);
+    // RDEF can be stripped from a valid original shader. Only reflected names
+    // and exact source registers can associate a native sampler with an INI slot.
+    Microsoft::WRL::ComPtr<ID3D11ShaderReflection> reflection;
+    D3D11_SHADER_DESC desc{};
+    if(SUCCEEDED(D3DReflect(bytes,size,IID_PPV_ARGS(&reflection))) && SUCCEEDED(reflection->GetDesc(&desc)) && desc.BoundResources<=4096){
+        for(UINT i=0;i<desc.BoundResources;++i){
+            D3D11_SHADER_INPUT_BIND_DESC field{};
+            if(FAILED(reflection->GetResourceBindingDesc(i,&field)) || field.Type!=D3D_SIT_SAMPLER || !field.Name ||
+               field.BindPoint>=16 || !field.BindCount || field.BindCount>16-field.BindPoint)continue;
+            const size_t length=strnlen(field.Name,257);if(!length || length>256)continue;
+            for(UINT j=0;j<field.BindCount;++j)
+                result->sampler_names_[field.BindPoint+j]=field.BindCount==1?field.Name:std::string(field.Name)+"["+std::to_string(j)+"]";
+        }
+    }
     const auto* data=static_cast<const uint8_t*>(bytes);result->bytes_.assign(data,data+size);
     // HackerDevice.cpp hash_shader: the pinned FNV helper starts at zero and
     // multiplies before XOR. BYTECODE hashes whitelisted payloads in table order.
@@ -29,6 +46,14 @@ std::shared_ptr<const SourceShaderCode> SourceShaderCode::create(const void* byt
             if(!memcmp(data+at,tag,4))hash=crc32c_hw(hash,data+at+8,word(at+4));
     }
     result->hashes_[2]=hash?uint64_t(hash):result->hashes_[0];return result;
+}
+int SourceShaderCode::sampler_slot(const std::string& name,uint32_t element,uint32_t count) const {
+    if(name.empty() || element>=count || count>16)return -1;
+    const auto indexed=name+"["+std::to_string(element)+"]";int slot=-1;
+    for(unsigned i=0;i<sampler_names_.size();++i)if(sampler_names_[i]==indexed || (count==1 && sampler_names_[i]==name)){
+        if(slot>=0)return -1;slot=int(i);
+    }
+    return slot;
 }
 std::string source_shader_disassembly(const SourceShaderCode& code,bool patch_cb_offsets,bool custom_data){
     auto text=BinaryToAsmText(code.bytes().data(),code.bytes().size(),patch_cb_offsets,custom_data);

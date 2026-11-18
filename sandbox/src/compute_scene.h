@@ -65,7 +65,7 @@ static bool create_compute_scene()
     if(c.constant_input)bindings[2].descriptorType=VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     if(c.image_input)bindings[2].descriptorType=(c.storage_image || (g.reference_storage && !g.reference_sampled_source))?VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
     const uint32_t sampler_slot=c.reference_shader_path.empty()?3:4;
-    if(g.texture_shape)bindings[sampler_slot]={sampler_slot,VK_DESCRIPTOR_TYPE_SAMPLER,1,VK_SHADER_STAGE_COMPUTE_BIT,&g.sampler};
+    if(g.texture_shape)bindings[sampler_slot]={sampler_slot,VK_DESCRIPTOR_TYPE_SAMPLER,1,VK_SHADER_STAGE_COMPUTE_BIT,g.mutable_sampler?nullptr:&g.sampler};
     si.bindingCount = g.texture_shape?sampler_slot+1:!c.reference_shader_path.empty()?4:c.binding_scene?3:1; si.pBindings = bindings;
     if(c.binding_scene && g.descriptor_mode>=2)si.flags=VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
     CHECK(vkCreateDescriptorSetLayout(g.device, &si, nullptr, &c.set_layout));
@@ -111,6 +111,12 @@ static bool create_compute_scene()
         VkDescriptorImageInfo image{VK_NULL_HANDLE,c.storage_image?c.writable_view:c.reference_images[0].view?c.reference_images[0].view:g.shaped_texture_view?g.shaped_texture_view:g.texture_view,(c.storage_image || g.reference_storage)?VK_IMAGE_LAYOUT_GENERAL:VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
         if(c.image_input){write.descriptorType=(c.storage_image || (g.reference_storage && !g.reference_sampled_source))?VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;write.pImageInfo=&image;write.pBufferInfo=nullptr;}
         vkUpdateDescriptorSets(g.device,1,&write,0,nullptr);
+        if(g.texture_shape && g.mutable_sampler){
+            VkDescriptorImageInfo info{g.sampler,VK_NULL_HANDLE,VK_IMAGE_LAYOUT_UNDEFINED};
+            VkWriteDescriptorSet sampler{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};sampler.dstSet=c.set;sampler.dstBinding=sampler_slot;
+            sampler.descriptorCount=1;sampler.descriptorType=VK_DESCRIPTOR_TYPE_SAMPLER;sampler.pImageInfo=&info;
+            vkUpdateDescriptorSets(g.device,1,&sampler,0,nullptr);
+        }
         if(c.reference_images[1].view){write.descriptorType=g.reference_storage?VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;write.dstBinding=3;image.imageView=c.reference_images[1].view;vkUpdateDescriptorSets(g.device,1,&write,0,nullptr);}
     }
     return true;

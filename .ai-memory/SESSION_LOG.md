@@ -4495,3 +4495,15 @@ and restore it to the application. The loaded sandbox renders a triangle with
 application. Results: 11/15 before, 15/15 after, dynamic graphics 15, owned
 graphics 334, prepared 155, tracker 1056, ABI 16. Logs: bounded-ia-*.out.
 Sandbox only. Inherited samplers, ordered GPU Store and legacy replay remain.
+
+## D-357: Inherit proven original sampler registers and restore pushed descriptors
+
+D-357 verified at 3.7.1 / ABI 0f05a29d5e689e79. Exact DXBC sampler names
+and native descriptor variables map sparse original slots. Known immutable and
+pushed samplers are copied on first use and cached per sampler object. Private
+graphics/compute restores retained pushed writes with their actual layout.
+Five loaded cases pass 20 checks: result 7 -> 23, then 30 when the original
+caller executes after private work. Different slots and mutable ordinary sets
+remain unknown. Inherited compute 12, prepared 155, tracker 1056 and ABI 16
+pass. Logs: inherited-sampler-{before,regression,push-regression,push-caller}.out.
+Combined descriptors and comparison sampling still need adapters. Sandbox only.

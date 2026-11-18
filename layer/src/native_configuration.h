@@ -1,9 +1,10 @@
 #pragma once
 #include "native_resources.h"
+#include "../../frontend/xxmi/shader_assembly.h"
 #include "../../frontend/xxmi/owned_runtime.h"
 #include "../../frontend/gpu/source_registers.h"
 namespace efvk {
-inline bool native_application_state(Device* device,CmdBuf* cb,const DrawRec& draw,
+inline bool native_application_state(Device* device,CmdBuf* cb,const DrawRec& draw,const efmi::frontend::RuntimeDraw& source,
     efmi::frontend::NativeApplicationState& output,std::string& why,
     const std::vector<efmi::frontend::NativeBinding>& aliases={}){
     using B=efmi::frontend::NativeBinding;using S=efmi::gpu::SourceRegister;
@@ -118,7 +119,18 @@ inline bool native_application_state(Device* device,CmdBuf* cb,const DrawRec& dr
         if(stage==6 || !shader.shader){why="Original context has unknown shader metadata";return false;}
         std::vector<S> registers;if(!efmi::gpu::source_registers(shader.shader->code,registers,why))return false;
         for(const auto& resource:registers){
-            if(resource.kind==S::Sampler)continue;
+            if(resource.kind==S::Sampler){
+                if(!source.source_codes[stage] || resource.sampler_name.empty() || resource.count>16)continue;
+                if(std::count_if(registers.begin(),registers.end(),[&](const auto& r){return r.kind==S::Sampler && r.sampler_name==resource.sampler_name;})!=1)continue;
+                for(unsigned element=0;element<resource.count;++element){
+                    const int slot=source.source_codes[stage]->sampler_slot(resource.sampler_name,element,resource.count);
+                    if(slot<0)continue;
+                    B address;address.stage=uint8_t(stage);address.set=resource.set;address.binding=resource.binding;address.element=element;
+                    if(auto state=native_sampler_locked(device,draw,address))
+                        next.sampler_states.emplace(std::make_pair(L"vhdgpc"[stage],unsigned(slot)),std::move(state));
+                }
+                continue;
+            }
             for(unsigned element=0;element<resource.count;++element){
                 if(next.bindings.size()>=1024){why="Original context source register budget exceeded";return false;}
                 B address;address.stage=uint8_t(stage);address.hash=shader.shader->hash;address.slot=resource.index+element;

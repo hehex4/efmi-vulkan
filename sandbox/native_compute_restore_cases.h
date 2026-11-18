@@ -48,7 +48,7 @@ static void native_compute_restore_cases(){
     cb.comp_sets[2].dyn_count=1;rejected("Refuse incomplete dynamic arrays without output or command mutation");
     cb.comp_sets[2]=original;cb.comp_sets[2].dyn_first=UINT32_MAX;rejected("Refuse dynamic-offset range overflow");
     cb.comp_sets[2]=original;cb.comp_sets[2].id++;rejected("Refuse a recycled descriptor handle");
-    cb.comp_sets[2]=original;cb.comp_sets[2].pushed=std::make_shared<DescriptorSetInfo>();rejected("Refuse unsupported push-descriptor restoration");
+    cb.comp_sets[2]=original;cb.comp_sets[2].pushed=std::make_shared<DescriptorSetInfo>();rejected("Refuse a push snapshot with an ordinary set handle and no push command");
     cb.comp_sets[2]=original;cb.comp_sets[2].unsupported="descriptor_buffer";rejected("Refuse unknown descriptor-buffer state");
     cb.comp_sets[2]=original;cb.comp_bound=VK_NULL_HANDLE;rejected("Refuse missing actual pipeline selection");cb.comp_bound=h<VkPipeline>(1207);
     d.passive=true;rejected("Refuse a passive device with no complete tracking");d.passive=false;

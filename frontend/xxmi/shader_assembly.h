@@ -17,6 +17,7 @@ public:
     const std::vector<uint8_t>& bytes() const {return bytes_;}
     const std::string& model() const {return model_;}
     const std::shared_ptr<const ShaderBindings>& declarations() const {return declarations_;}
+    int sampler_slot(const std::string& name,uint32_t element,uint32_t count) const;
     uint64_t hash(SourceShaderHash mode) const {return hashes_.at(size_t(mode));}
 private:
     SourceShaderCode()=default;
@@ -24,6 +25,7 @@ private:
     std::string model_;
     std::shared_ptr<const ShaderBindings> declarations_;
     std::array<uint64_t,3> hashes_{};
+    std::array<std::string,16> sampler_names_;
 };
 std::string source_shader_disassembly(const SourceShaderCode&,bool patch_cb_offsets,bool custom_data);
 // Original signature-aware assembler. Parse notices are retained separately;

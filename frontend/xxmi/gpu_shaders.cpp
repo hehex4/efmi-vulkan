@@ -114,6 +114,7 @@ void GpuShaderRuntime::application_compute(const RuntimeDraw& draw){
     indirect_arguments_=draw.indirect_arguments;
     stages_.fill(nullptr);source_graphics_.fill(nullptr);stages_known_=0;graphics_known_=0;
     scissor_known_=pixel_samplers_known_=false;known_samplers_.clear();samplers_.clear();
+    application_samplers_=draw.sampler_states;
     application_graphics(draw.compute?nullptr:draw.graphics_state.get());
     input_layout_.reset();original_layout_.reset();source_input_elements_=draw.input_elements;source_input_known_=draw.input_layout_known;
     if(!draw.compute && (draw.shader_stages&1))for(unsigned i=0;i<5;++i){
@@ -253,11 +254,19 @@ void GpuShaderRuntime::set_sampler(wchar_t stage,unsigned slot,const VkSamplerCr
     known_samplers_.emplace(stage,slot);
 }
 gpu::Sampler GpuShaderRuntime::sampler(wchar_t stage,unsigned slot){
-    if(adapter_ && adapter_->planning_prepared())require(known_samplers_.count({stage,slot}) ||
+    const auto source=application_samplers_.find({stage,slot});
+    if(adapter_ && adapter_->planning_prepared())require(source!=application_samplers_.end() || known_samplers_.count({stage,slot}) ||
         (stage==L'p' && (pixel_samplers_known_ || graphics_.pixel_samplers.at(slot).has_value())),
         "Prepared CustomShader inherits an unknown application sampler");
     if(stage==L'p' && graphics_.pixel_samplers.at(slot))return source_sampler(*graphics_.pixel_samplers[slot]);
     const auto found=samplers_.find({stage,slot});if(found!=samplers_.end())return found->second;
+    if(source!=application_samplers_.end() && !known_samplers_.count({stage,slot})){
+        const auto previous=sampler_copies_.find(source->second);if(previous!=sampler_copies_.end())return previous->second;
+        auto info=*source->second;info.compareEnable=VK_FALSE; // Ordinary Sample; Dref is checked before binding.
+        auto sampler=commands_.sampler(info);
+        if(sampler_copies_.size()>=128)sampler_copies_.erase(sampler_copies_.begin());
+        sampler_copies_.emplace(source->second,sampler);return sampler;
+    }
     if(!default_sampler_){
         // D3D11 null sampler: linear min/mag/mip, clamp, zero bias, no
         // comparison. Preserve the source LOD range, including its negative end.

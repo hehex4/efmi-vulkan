@@ -155,6 +155,7 @@ struct RuntimeDraw {
     // alone does not prove an original DXBC model or its hash/bytecode.
     std::array<std::string,6> source_models;
     std::array<std::shared_ptr<const SourceShaderCode>,6> source_codes;
+    std::map<std::pair<wchar_t,unsigned>,std::shared_ptr<const VkSamplerCreateInfo>> sampler_states;
     // The application's call, as the original's DRAW_TYPE takes it: indexed or not, direct or indirect.
     bool indexed = true, indirect = false, compute = false;
     // Same-handle retained indirect parameters; never a CPU-read count snapshot.

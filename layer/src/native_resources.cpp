@@ -208,15 +208,9 @@ bool native_resource(Device* device, CmdBuf* cb, const DrawRec& draw, const efmi
     std::shared_lock<std::shared_mutex> lock(device->res_mx);
     return native_resource_locked(device,cb,draw,alias,output,why);
 }
-bool native_resource_locked(Device* device, CmdBuf* cb, const DrawRec& draw, const efmi::frontend::NativeBinding& alias,
-                            efmi::frontend::NativeResource& output, std::string& why)
-{
-    using B = efmi::frontend::NativeBinding;
-    auto refuse = [&](const char* reason) { why = reason; return false; };
-    output = {};
-    if (!device || !cb) return refuse("Native resource recording is unavailable");
-    if(alias.kind==B::Vertex || alias.kind==B::Index)return ia_resource(device,cb,draw,alias,output,why);
-    if(alias.kind==B::ColorTarget || alias.kind==B::DepthTarget)return target_resource(device,cb,draw,alias,output,why);
+static const DescriptorSetInfo* descriptor_contents_locked(Device* device,const DrawRec& draw,
+        const efmi::frontend::NativeBinding& alias,std::string& why){
+    auto refuse=[&](const char* reason)->const DescriptorSetInfo*{why=reason;return nullptr;};
     if(alias.set>=kMaxSets)return refuse("Native descriptor set is outside tracked slots");
     const auto pipeline = device->pipes.find(draw.pipeline);
     if (pipeline == device->pipes.end() || !pipeline->second.layout) return refuse("Native pipeline layout is unknown");
@@ -237,6 +231,34 @@ bool native_resource_locked(Device* device, CmdBuf* cb, const DrawRec& draw, con
         return refuse("Native descriptor address is not in the bound layout");
     const uint32_t stages[] = {1, 2, 4, 8, 16, 32};
     if (alias.stage >= 6 || !(layout->second.stages & stages[alias.stage])) return refuse("Native descriptor is not visible to the alias stage");
+    return contents;
+}
+std::shared_ptr<const VkSamplerCreateInfo> native_sampler_locked(Device* device,const DrawRec& draw,const efmi::frontend::NativeBinding& address){
+    std::string why;const auto contents=descriptor_contents_locked(device,draw,address,why);
+    if(!contents)return {};
+    const auto& binding=contents->layout->bindings.at(address.binding);
+    if(binding.type!=VK_DESCRIPTOR_TYPE_SAMPLER)return {};
+    const auto value=contents->values.find({address.binding,address.element});
+    if(value==contents->values.end() || !value->second.known)return {};
+    if(address.element<binding.immutable_descriptions.size())return binding.immutable_descriptions[address.element];
+    // A mutable ordinary set can be updated after recording. Only a pushed
+    // descriptor has its application's sampler value fixed at this point.
+    if(!draw.sets[address.set].pushed)return {};
+    if(!value->second.sampler_id)return {};
+    const auto sampler=device->samplers.find(value->second.sampler);
+    return sampler!=device->samplers.end() && sampler->second.id==value->second.sampler_id?sampler->second.description:nullptr;
+}
+bool native_resource_locked(Device* device, CmdBuf* cb, const DrawRec& draw, const efmi::frontend::NativeBinding& alias,
+                            efmi::frontend::NativeResource& output, std::string& why)
+{
+    using B = efmi::frontend::NativeBinding;
+    auto refuse = [&](const char* reason) { why = reason; return false; };
+    output = {};
+    if (!device || !cb) return refuse("Native resource recording is unavailable");
+    if(alias.kind==B::Vertex || alias.kind==B::Index)return ia_resource(device,cb,draw,alias,output,why);
+    if(alias.kind==B::ColorTarget || alias.kind==B::DepthTarget)return target_resource(device,cb,draw,alias,output,why);
+    const auto contents=descriptor_contents_locked(device,draw,alias,why);if(!contents)return false;
+    const auto& bound=draw.sets[alias.set];
     const auto found = contents->values.find({alias.binding, alias.element});
     if (found == contents->values.end() || !found->second.known) return refuse("Native descriptor element has no known value");
     const auto& value = found->second;

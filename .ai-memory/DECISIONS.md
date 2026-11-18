@@ -3067,3 +3067,13 @@ and orders hazards on its context. A Vulkan sized binding has a physical
 window apart from its buffer description. A ref carries that provenance, a
 new allocation starts a fresh range. Validate and bind the same interval
 for private work and restore the caller with the supported core/extension command.
+
+## D-357: Inherit proven original sampler registers and restore pushed descriptors
+
+CommandList.cpp 2917-2918/2960 changes only an explicitly overridden PS s0
+and restores it after the list. The DX11 context orders commands and hazards
+and retains objects through deferred destruction. Keep that source register
+identity from exact FXC reflection and named native variables. Record-time
+pushed and immutable states may supply sampler descriptions. A regular set
+whose values can still change needs submit-time resolution. Restore pushed
+sets from owned write arrays and retained allocations, views and samplers.

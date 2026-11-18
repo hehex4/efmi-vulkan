@@ -102,6 +102,7 @@ struct BufferViewInfo {
 };
 
 struct SamplerInfo {
+    std::shared_ptr<const VkSamplerCreateInfo> description;
     uint32_t id = 0;
     uint32_t mag = 0, min = 0, mipmap = 0;
     uint32_t address[3] = {};
@@ -112,6 +113,7 @@ struct DescriptorBinding {
     uint32_t type = 0, count = 0, stages = 0, flags = 0;
     std::vector<VkSampler> immutable_samplers;
     std::vector<std::shared_ptr<SamplerLifetime>> immutable_owners;
+    std::vector<std::shared_ptr<const VkSamplerCreateInfo>> immutable_descriptions;
 };
 
 struct DescriptorLayoutInfo {

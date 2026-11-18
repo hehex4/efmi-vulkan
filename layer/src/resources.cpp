@@ -186,6 +186,7 @@ void on_create_sampler(Device* dev, VkSampler h, const VkSamplerCreateInfo* info
     if (skip(dev)) return;
     std::unique_lock<std::shared_mutex> lock(dev->res_mx);
     SamplerInfo s;
+    if(!info->pNext && !info->flags && !info->unnormalizedCoordinates)s.description=std::make_shared<const VkSamplerCreateInfo>(*info);
     s.id = dev->next_resource_id++;
     s.mag = info->magFilter;
     s.min = info->minFilter;
@@ -335,6 +336,7 @@ void on_create_set_layout(Device* dev, VkDescriptorSetLayout h, const VkDescript
             b.immutable_samplers.assign(in.pImmutableSamplers, in.pImmutableSamplers + b.count);
             for (auto sampler : b.immutable_samplers) {
                 const auto found = dev->samplers.find(sampler);
+                b.immutable_descriptions.push_back(found==dev->samplers.end()?nullptr:found->second.description);
                 b.immutable_owners.push_back(found == dev->samplers.end() ? nullptr : found->second.lifetime);
             }
         }
@@ -649,7 +651,7 @@ static void disturb_sets(SetBind* bound, const std::shared_ptr<const PipelineLay
 }
 
 static std::shared_ptr<DescriptorSetInfo> prepare_push_locked(CmdBuf* cb, VkPipelineBindPoint point,
-    const std::shared_ptr<const PipelineLayoutInfo>& layout, uint32_t slot)
+    const std::shared_ptr<const PipelineLayoutInfo>& layout, VkPipelineLayout handle, uint32_t slot)
 {
     if(point==VK_PIPELINE_BIND_POINT_COMPUTE && slot>=kMaxSets)cb->compute_sets_complete=false;
     if(point==VK_PIPELINE_BIND_POINT_GRAPHICS && slot>=kMaxSets)cb->graphics_sets_complete=false;
@@ -661,7 +663,7 @@ static std::shared_ptr<DescriptorSetInfo> prepare_push_locked(CmdBuf* cb, VkPipe
     }
     disturb_sets(bound, layout, slot);
     if (slot >= kMaxSets) return nullptr;
-    auto previous = bound[slot].pushed;
+    auto previous = compatible(bound[slot].layout,layout,slot)?bound[slot].pushed:nullptr;
     auto pushed = previous && same_set_layout(*previous->layout, *layout->sets[slot])
         ? std::make_shared<DescriptorSetInfo>(*previous) : std::make_shared<DescriptorSetInfo>();
     pushed->layout = layout->sets[slot];
@@ -670,6 +672,7 @@ static std::shared_ptr<DescriptorSetInfo> prepare_push_locked(CmdBuf* cb, VkPipe
     // In contrast to allocated sets, even immutable samplers are undefined until pushed.
     bound[slot] = SetBind();
     bound[slot].layout = layout;
+    bound[slot].layout_handle=handle;
     bound[slot].pushed = pushed;
     return pushed;
 }
@@ -680,7 +683,7 @@ void on_push_descriptors(Device* dev, CmdBuf* cb, VkPipelineBindPoint point, VkP
     if (skip(dev) || (point != VK_PIPELINE_BIND_POINT_GRAPHICS && point != VK_PIPELINE_BIND_POINT_COMPUTE)) return;
     std::shared_lock<std::shared_mutex> lock(dev->res_mx);
     auto it = dev->pipeline_layouts.find(handle);
-    auto pushed = prepare_push_locked(cb, point, it == dev->pipeline_layouts.end() ? nullptr : it->second, slot);
+    auto pushed = prepare_push_locked(cb, point, it == dev->pipeline_layouts.end() ? nullptr : it->second, handle, slot);
     if (pushed) for (uint32_t i = 0; i < count; i++) apply_write_locked(dev, *pushed, writes[i]);
 }
 
@@ -702,7 +705,7 @@ void on_push_template(Device* dev, CmdBuf* cb, VkDescriptorUpdateTemplate update
         on_unsupported_descriptor_bind(cb, info.point, "unknown_push_template_layout");
         return;
     }
-    auto pushed = prepare_push_locked(cb, info.point, lit->second, slot);
+    auto pushed = prepare_push_locked(cb, info.point, lit->second, handle, slot);
     if (pushed) apply_template_locked(dev, *pushed, info, data);
 }
 

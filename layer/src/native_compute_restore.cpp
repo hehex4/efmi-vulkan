@@ -16,6 +16,7 @@ bool prepare_native_descriptor_restore(Device* device,const SetBind* bindings,co
     auto refuse=[&](const char* reason){why=reason;return false;};
     if(!device || !bindings || device->passive || !g_cfg.track_resources)return refuse("Descriptor bindings are not tracked");
     NativeDescriptorRestore next;next.bind_sets=device->d.CmdBindDescriptorSets;
+    next.push_sets=device->d.CmdPushDescriptorSetKHR?device->d.CmdPushDescriptorSetKHR:device->d.CmdPushDescriptorSet;
     if(!next.bind_sets)return refuse("Descriptor restoration command is unavailable");
     std::shared_lock<std::shared_mutex> lock(device->res_mx,std::defer_lock);
     if(!resource_lock_held)lock.lock();
@@ -23,17 +24,17 @@ bool prepare_native_descriptor_restore(Device* device,const SetBind* bindings,co
     std::vector<std::pair<uint32_t,std::shared_ptr<const PipelineLayoutInfo>>> earlier;
     for(uint32_t slot=0;slot<kMaxSets;++slot){
         const auto& bind=bindings[slot];
-        if(bind.pushed)return refuse("Push descriptor restoration is not implemented");
+        if(bind.pushed && (bind.set || bind.id || bind.dyn_count || !next.push_sets))return refuse("Push descriptor binding state or command is unavailable");
         if(bind.unsupported && strcmp(bind.unsupported,"disturbed_pipeline_layout"))return refuse("Descriptor binding has unknown state");
-        if(!bind.set){if(bind.id || bind.dyn_count)return refuse("Empty descriptor set has nonempty binding metadata");continue;}
+        if(!bind.set && !bind.pushed){if(bind.id || bind.dyn_count)return refuse("Empty descriptor set has nonempty binding metadata");continue;}
         if(bind.unsupported)return refuse("Disturbed descriptor set still has a handle");
         const auto& layout=bind.layout;
         if(!layout || !layout->complete || slot>=layout->sets.size() || !layout->sets[slot] ||
            slot>=layout->prefix.size() || !layout->prefix[slot])return refuse("Descriptor pipeline layout is incomplete");
         const auto set=device->descriptor_sets.find(bind.set);
-        if(!bind.id || set==device->descriptor_sets.end() || set->second.id!=bind.id)
+        if(!bind.pushed && (!bind.id || set==device->descriptor_sets.end() || set->second.id!=bind.id))
             return refuse("Descriptor set was destroyed or recycled");
-        const auto& description=set->second;
+        const auto& description=bind.pushed?*bind.pushed:set->second;
         if(!description.layout || !description.layout->complete || !description.layout->canonical ||
            description.layout->canonical!=layout->sets[slot]->canonical)
             return refuse("Descriptor set layout differs from its binding");
@@ -73,6 +74,11 @@ bool prepare_native_descriptor_restore(Device* device,const SetBind* bindings,co
             }
         }
         NativeDescriptorRestore::Set restored;restored.slot=slot;restored.handle=bind.set;restored.layout=handle;
+        if(bind.pushed){
+            if(!(description.layout->flags&VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR))return refuse("Pushed set lacks a push descriptor layout");
+            restored.pushed=prepare_native_push_locked(device,description);
+            if(!restored.pushed)return refuse("Pushed descriptor contents or lifetime could not be restored");
+        }
         restored.offsets.assign(dynamic.begin()+bind.dyn_first,dynamic.begin()+bind.dyn_first+bind.dyn_count);
         next.sets.push_back(std::move(restored));
     }

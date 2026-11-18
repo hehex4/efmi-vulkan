@@ -10,6 +10,16 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
+D-357 verified at 3.7.1 / ABI 0f05a29d5e689e79. Exact DXBC sampler names
+and native descriptor variables map sparse original slots. Known immutable and
+pushed samplers are copied on first use and cached per sampler object. Private
+graphics/compute restores retained pushed writes with their actual layout.
+Five loaded cases pass 20 checks: result 7 -> 23, then 30 when the original
+caller executes after private work. Different slots and mutable ordinary sets
+remain unknown. Inherited compute 12, prepared 155, tracker 1056 and ABI 16
+pass. Logs: inherited-sampler-{before,regression,push-regression,push-caller}.out.
+Combined descriptors and comparison sampling still need adapters. Sandbox only.
+
 D-356 verified at 3.7.0 / ABI 982743f310db2326. Original IA references preserve
 finite Vulkan byte windows independently of the resource's size metadata.
 Private draws validate the window, record that interval for hazards, bind it

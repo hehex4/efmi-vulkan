@@ -7,6 +7,16 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
+D-357 verified at 3.7.1 / ABI 0f05a29d5e689e79. Exact DXBC sampler names
+and native descriptor variables map sparse original slots. Known immutable and
+pushed samplers are copied on first use and cached per sampler object. Private
+graphics/compute restores retained pushed writes with their actual layout.
+Five loaded cases pass 20 checks: result 7 -> 23, then 30 when the original
+caller executes after private work. Different slots and mutable ordinary sets
+remain unknown. Inherited compute 12, prepared 155, tracker 1056 and ABI 16
+pass. Logs: inherited-sampler-{before,regression,push-regression,push-caller}.out.
+Combined descriptors and comparison sampling still need adapters. Sandbox only.
+
 D-356 verified at 3.7.0 / ABI 982743f310db2326. Original IA references preserve
 finite Vulkan byte windows independently of the resource's size metadata.
 Private draws validate the window, record that interval for hazards, bind it

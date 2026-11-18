@@ -116,6 +116,8 @@ private:
     std::map<std::vector<uint64_t>,gpu::Sampler> source_samplers_;
     std::map<std::pair<wchar_t,unsigned>,gpu::Sampler> samplers_;
     std::set<std::pair<wchar_t,unsigned>> known_samplers_;
+    decltype(RuntimeDraw::sampler_states) application_samplers_;
+    std::map<std::shared_ptr<const VkSamplerCreateInfo>,gpu::Sampler,std::owner_less<std::shared_ptr<const VkSamplerCreateInfo>>> sampler_copies_;
     gpu::Sampler default_sampler_;
     uint64_t dispatches_=0,shader_calls_=0,draws_=0;
 };
