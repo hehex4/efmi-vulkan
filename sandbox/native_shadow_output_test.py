@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import sys
 
-from harness import Checks, DIST, ROOT
+from harness import Checks, DIST, ROOT, configuration_root
 
 sys.path.insert(0, str(Path(ROOT) / 'scripts'))
 import replay_capture as replay
@@ -24,11 +24,11 @@ def main(snapshot=False, forward=False):
     if prep.returncode:
         print(prep.stdout + prep.stderr)
         return prep.returncode
-    source = replay.MODS / 'ardelia lily whisper 1.5'
+    source = replay.INSTALLED_ROOT / 'Mods' / 'ardelia lily whisper 1.5'
     mods = root / 'build/native-shadow-output/Mods'
     mod = mods / 'mod'
     mod.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(replay.MODS / 'EFMITTL', mods / 'EFMITTL', dirs_exist_ok=True)
+    shutil.copytree(replay.INSTALLED_ROOT / 'Mods' / 'EFMITTL', mods / 'EFMITTL', dirs_exist_ok=True)
     original = (source / 'ardelia.ini').read_text(encoding='utf-8-sig')
     # Preserve original relative declarations; installed assets are read only.
     for name in re.findall(r'(?mi)^\s*filename\s*=\s*([^;\r\n]+)', original):
@@ -84,9 +84,9 @@ def main(snapshot=False, forward=False):
                 before = guard + '        o0 = null\n' + (null if case == 'both_null' else '') + '    endif\n'
             text = text.replace(header, header + before, 1)
         (mod / 'mod.ini').write_text(text.encode('ascii', 'backslashreplace').decode(), encoding='ascii')
-        replay.MODS = mods
+        configuration = Path(configuration_root(mods))
         run = replay.run(out / 'replay_gpu.exe', out, Path(DIST), 30, True,
-                         Path('F:/vulkan/validation-1.4.321.0/bin'), name=('capture-output-' if forward else 'capture-snapshot-' if snapshot else 'shadow-output-') + case)
+                         Path('F:/vulkan/validation-1.4.321.0/bin'), configuration=configuration, name=('capture-output-' if forward else 'capture-snapshot-' if snapshot else 'shadow-output-') + case)
         checks.equal(run['returncode'], 0, case + ': normal completion')
         checks.check('validation errors=0 ' in run['output'], case + ': clean core/sync validation')
         replacement = run['status'].get('result', {}).get('replacement', {})

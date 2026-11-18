@@ -1228,6 +1228,30 @@ std::vector<std::vector<int>> IniRuntime::key_combos() const
     // The Mods' keys: the installation's hunting keys are the host's (docs/vulkan-native-mods.md).
     Scope scope(impl_->state); return ::RuntimeInputKeys(impl_->hunting_keys_first, impl_->hunting_keys_last);
 }
+std::pair<bool,bool> IniRuntime::capture_index_candidate(const RuntimeDraw& input) const {
+    Scope scope(impl_->state);
+    DrawCallInfo call(DrawCall::DrawIndexedInstanced,0,input.count,input.instances,uint32_t(input.base),
+        input.first,input.first_instance,nullptr,0);
+    TextureOverrideMatches matches;find_texture_override_for_hash(input.hash,&matches,&call);
+    std::vector<const CommandList*> lists;
+    for(const auto* entry:matches){lists.push_back(&entry->command_list);lists.push_back(&entry->post_command_list);}
+    std::set<const CommandList*> seen;
+    while(!lists.empty()){
+        const auto* list=lists.back();lists.pop_back();
+        if(!list || !seen.insert(list).second)continue;
+        for(const auto& command:list->commands){
+            const auto* original=DrawPlanAdapter::original(*command);
+            if(dynamic_cast<const DrawCommand*>(original) || dynamic_cast<const RunCustomShaderCommand*>(original) ||
+               dynamic_cast<const RunLinkedCommandList*>(original) || dynamic_cast<const RunExplicitCommandList*>(original))
+                return {true,true};
+            if(const auto* branch=dynamic_cast<const IfCommand*>(original)){
+                for(const auto* child:{branch->true_commands_pre.get(),branch->true_commands_post.get(),
+                                       branch->false_commands_pre.get(),branch->false_commands_post.get()})lists.push_back(child);
+            }
+        }
+    }
+    return {!matches.empty(),false};
+}
 std::vector<uint32_t> IniRuntime::texture_hashes() const
 {
     Scope scope(impl_->state);

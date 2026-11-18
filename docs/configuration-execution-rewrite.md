@@ -342,6 +342,11 @@ inherits named, exactly paired immutable/pushed sampler slots and restores
 application push descriptors. A following application dispatch observes the
 private result (23 + 7), with synchronization validation clean.
 
+D-358 migrates catalogue selection and both replay children to the original
+configuration. The vk03 bundle has 29 matched draws. Three pass groups include
+potential geometry, and currently all three fail pixel acceptance. Read
+build/replay-root-pixel-gate.out for the observed refusal.
+
 These are scoped sandbox/GPU results. Compatibility is not complete:
 combined or late-bound samplers, comparison operations, current GPU Store boundaries, broader queue/source
 contracts and obsolete capture fixture migration remain. No game acceptance is

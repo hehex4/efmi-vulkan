@@ -150,26 +150,14 @@ STEPS = [
     ("installed root configuration", [os.path.join(ROOT, "scripts", "check_configuration.py"), "--only", "gpu", "--installation", "D:/XXMI-Launcher-Portable-v2.1.6/EFMI"]),
     # --mod-first: no matched draw shows the game's mesh, not even while a new object is identified or
     # an EFMI Mod registers with the Core's API (the user's bar; held instead, 2026-10-26).
-    ("captured frame replayed with the Mods folder", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
-                                                      r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk03", "--frames", "300", "--check",
-                                                      "--mod-first"]),
-    # Si Lunabelle's optional guard runs the Core's spatial identification itself (D-086). A copy of that
-    # Mod alone, so the step holds whichever Si Mod the user has enabled.
-    ("captured frame with a Mod's own identification", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
-                                                       r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk04", "--frames", "120", "--check",
-                                                       "--only-mod", "Si Lunabelle 1.4"]),
-    # Si NightveilTrancer drives shape keys from its Present (a compute pass writes the mesh's positions,
-    # which its draws bind by reference as vb0) and guards every draw with `if rt_width != 0`, which the
-    # original evaluates again in the post phase's fresh state (BUG-053). Every matched draw must plan.
-    ("captured frame with Present compute and owned vertex streams", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
-                                                                     r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk04", "--frames", "120", "--check",
-                                                                     "--no-refusal", "--only-mod", "Si\uff1aNightveilTrancer & Gui"]),
-    # The same Mod's parts read bones of several components; on two queues a recording draws parts whose
-    # other components another recording imports: every recording dispatches all of them (BUG-054), and
-    # the pictures with the bones on the GPU equal those with the CPU's master.
+    ("captured frame replayed with the installed configuration", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
+                                                                 r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk03", "--frames", "300", "--check",
+                                                                 "--mod-first"]),
+    ("captured vk04 original transactions", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
+                                             r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk04", "--frames", "120", "--check", "--no-refusal"]),
     ("captured frame with bones across recordings", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
                                                      r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk04", "--frames", "120", "--check",
-                                                     "--two-queues", "--bones-identical", "--only-mod", "Si\uff1aNightveilTrancer & Gui"]),
+                                                     "--two-queues", "--bones-identical"]),
     # The game keeps a frame's bone data valid only until that frame completed, then reuses the region
     # (BUG-060): with two copies of every bone buffer, the one of the frame before zeroed before a frame is
     # submitted, the GPU import must read the game's data only in the batch of the recording that drew
@@ -177,24 +165,14 @@ STEPS = [
     # several components, which the split passes put in other recordings.
     ("captured frame with the game's bone regions reused", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
                                                            r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk06", "--frames", "60", "--check",
-                                                           "--split-passes", "--rolling-bones", "--bones-identical",
-                                                           "--only-mod", "Typhoeus\uff1aNya Tech & GUI"]),
-    # SiModGB (BUG-064): an index buffer declared with `stride = 6` beside its format, typed vertex buffers,
-    # and `if ps-tN == <filter_index>` to find which slot holds one of its textures, all as the original
-    # takes them; every matched draw plans.
-    ("captured frame with texture filter queries", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
-                                                    r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk04", "--frames", "90", "--check",
-                                                    "--no-refusal", "--only-mod", "SiModGB"]),
-    # Tangtang's draw lists ask the game's shaders `vs->srv_stride(0) == 16`, `ps != 1718.2`: the
-    # declarations come from the pipeline's SPIR-V (D-124) and every matched draw plans.
-    ("captured frame with shader declaration queries", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
-                                                        r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk02", "--frames", "120", "--check",
-                                                        "--no-refusal", "--only-mod", "Tangtang - Uniform NSFW"]),
+                                                           "--split-passes", "--rolling-bones", "--bones-identical"]),
+    ("captured vk02 original transactions", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
+                                             r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk02", "--frames", "120", "--check", "--no-refusal"]),
     # A full card (the game leaves almost no device memory free): with pageable device memory the Mod
     # still activates at its first match, as 3DMigoto creates resources whatever the free memory (D-122).
     ("captured frame on a full card", [os.path.join(ROOT, "scripts", "replay_capture.py"), "--bundle",
                                        r"F:\efmi vulkan\captures\catalogue-20261019\vulkan\vk04", "--frames", "120", "--check",
-                                       "--reserve-mb", "1000000", "--only-mod", "Si\uff1aNightveilTrancer & Gui"]),
+                                       "--reserve-mb", "1000000"]),
     # The game's two graphics queues (D-119): a frame's passes on two command buffers over both queues,
     # the queues swapping every frame, three frames in flight; the merged skeleton's import on the GPU
     # (D-117) must give the CPU import's pictures and complete on both queues.

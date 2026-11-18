@@ -10,6 +10,8 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
+D-358 verified replay selection and the acceptance gate at 3.7.2 / ABI 0e6e2de2d78acd00. The installed root and pinned draw matcher select seven signatures, 29 indexed calls and 26 pipelines in vk03. Configuration tests pass 59 checks and the module boundary passes 16. With metadata supplied, 351 of 870 original transactions executed. The checker now correctly fails on three empty geometry groups and 519 refusals. See build/replay-root-pixel-gate.out. These are stand-in sandbox draws. Image import and full pixel acceptance remain open.
+
 D-357 verified at 3.7.1 / ABI 0f05a29d5e689e79. Exact DXBC sampler names
 and native descriptor variables map sparse original slots. Known immutable and
 pushed samplers are copied on first use and cached per sampler object. Private

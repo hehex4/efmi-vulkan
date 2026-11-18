@@ -1,6 +1,7 @@
 #include "../frontend/xxmi/runtime.h"
 #include "../frontend/xxmi/efmittl_bridge.h"
 #include <fstream>
+#include <iostream>
 #include <cstdarg>
 #include <cstdio>
 #include <stdexcept>
@@ -227,6 +228,21 @@ static int state_table()
 int wmain(int argc, wchar_t** argv)
 {
     try {
+        if(argc==4 && !wcscmp(argv[1],L"--capture-index-candidates")){
+            const auto root=std::filesystem::absolute(argv[2]);
+            RuntimeConfig config{root,{},std::filesystem::absolute(argv[3]),"capture-inspection"};config.installation=root;
+            config.shader_hooks=true;std::string why;auto ini=IniRuntime::load(config,{},why);
+            if(!ini)throw std::runtime_error(why);
+            RuntimeDraw draw;unsigned row=0;
+            while(std::cin>>std::hex>>draw.hash){
+                if(row>=1048576 || !(std::cin>>std::dec>>draw.count>>draw.first>>draw.instances>>draw.first_instance>>draw.base))
+                    throw std::runtime_error("Incomplete or excessive captured index query");
+                const auto result=ini->capture_index_candidate(draw);
+                printf("capture_candidate %u %d %d\n",row++,int(result.first),int(result.second));
+            }
+            if(!std::cin.eof())throw std::runtime_error("Invalid captured index hash");
+            return 0;
+        }
         if (argc == 2 && !wcscmp(argv[1], L"--state-table")) return state_table();
         if (argc == 3 && !wcscmp(argv[1], L"--configuration")) {
             runtime_configuration_cases(argv[2]);

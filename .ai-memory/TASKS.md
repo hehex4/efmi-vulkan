@@ -7,6 +7,8 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
+D-358 verified replay selection and the acceptance gate at 3.7.2 / ABI 0e6e2de2d78acd00. The installed root and pinned draw matcher select seven signatures, 29 indexed calls and 26 pipelines in vk03. Configuration tests pass 59 checks and the module boundary passes 16. With metadata supplied, 351 of 870 original transactions executed. The checker now correctly fails on three empty geometry groups and 519 refusals. See build/replay-root-pixel-gate.out. These are stand-in sandbox draws. Image import and full pixel acceptance remain open.
+
 D-357 verified at 3.7.1 / ABI 0f05a29d5e689e79. Exact DXBC sampler names
 and native descriptor variables map sparse original slots. Known immutable and
 pushed samplers are copied on first use and cached per sampler object. Private

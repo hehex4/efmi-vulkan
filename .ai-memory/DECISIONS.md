@@ -3077,3 +3077,7 @@ identity from exact FXC reflection and named native variables. Record-time
 pushed and immutable states may supply sampler descriptions. A regular set
 whose values can still change needs submit-time resolution. Restore pushed
 sets from owned write arrays and retained allocations, views and samplers.
+
+## D-358: Replay captured indexed calls through the original configuration
+
+Use ResourceHash.cpp matches_draw_info and find_texture_override_for_hash without executing INI at selection time. Both children load the same original root. The static geometry gate includes conditional list branches and potential calls. The captured readback, not selection or transaction counts, determines pixel acceptance. Original D3D11 context order, lifetime and hazards remain the job of Vulkan at execution.

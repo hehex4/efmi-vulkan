@@ -292,6 +292,8 @@ public:
     // texture the game binds with that hash at a slot a list checks (`checktextureoverride = ps-tN`, the Core's
     // OverrideTextures over t0 to t22) runs them. For checks that plan with such a texture bound (D-184).
     std::vector<uint32_t> texture_hashes() const;
+    // Offline replay selection only. Matching reads the current root registry without running its commands.
+    std::pair<bool,bool> capture_index_candidate(const RuntimeDraw&) const;
 private:
     friend class OwnedRuntime;
     bool uses_extension(const RuntimeExtension*) const;

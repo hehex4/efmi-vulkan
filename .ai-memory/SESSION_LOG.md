@@ -4507,3 +4507,7 @@ caller executes after private work. Different slots and mutable ordinary sets
 remain unknown. Inherited compute 12, prepared 155, tracker 1056 and ABI 16
 pass. Logs: inherited-sampler-{before,regression,push-regression,push-caller}.out.
 Combined descriptors and comparison sampling still need adapters. Sandbox only.
+
+## D-358: Replay captured indexed calls through the original configuration
+
+D-358 verified replay selection and the acceptance gate at 3.7.2 / ABI 0e6e2de2d78acd00. The installed root and pinned draw matcher select seven signatures, 29 indexed calls and 26 pipelines in vk03. Configuration tests pass 59 checks and the module boundary passes 16. With metadata supplied, 351 of 870 original transactions executed. The checker now correctly fails on three empty geometry groups and 519 refusals. See build/replay-root-pixel-gate.out. These are stand-in sandbox draws. Image import and full pixel acceptance remain open.

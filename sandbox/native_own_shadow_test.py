@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import sys
 
-from harness import Checks, DIST, ROOT
+from harness import Checks, DIST, ROOT, configuration_root
 from native_image_test import dds
 from own_shadow_fixture import mesh
 
@@ -26,12 +26,12 @@ def main(merged=False, forward=False):
     if prep.returncode:
         print(prep.stdout + prep.stderr)
         return prep.returncode
-    source = replay.MODS / 'ardelia lily whisper 1.5'
+    source = replay.INSTALLED_ROOT / 'Mods' / 'ardelia lily whisper 1.5'
     prefix = 'own-capture-' if forward else 'merged-opacity-' if merged else 'own-shadow-'
     mods = root / ('build/native-own-capture/Mods' if forward else 'build/native-merged-opacity/Mods' if merged else 'build/native-own-shadow/Mods')
     mod = mods / 'mod'
     mod.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(replay.MODS / 'EFMITTL', mods / 'EFMITTL', dirs_exist_ok=True)
+    shutil.copytree(replay.INSTALLED_ROOT / 'Mods' / 'EFMITTL', mods / 'EFMITTL', dirs_exist_ok=True)
     original = (source / 'ardelia.ini').read_text(encoding='utf-8-sig')
     for name in re.findall(r'(?mi)^\s*filename\s*=\s*([^;\r\n]+)', original):
         relative = Path(name.strip())
@@ -80,11 +80,11 @@ def main(merged=False, forward=False):
         text = original.replace(call, guard + before + call + '\n' + after + '    endif')
         text = text.replace('$\\EFMITTL\\alpha = 0.7', '$\\EFMITTL\\alpha = ' + ('0.25' if case in ('low', 'restore_before', 'restore', 'post_restore', 'mixed') else '0.75'))
         (mod / 'mod.ini').write_text(text.encode('ascii', 'backslashreplace').decode(), encoding='ascii')
-        replay.MODS = mods
+        configuration = Path(configuration_root(mods))
         # Cold asynchronous variants can use the first dozen frames preparing.
         # Leave enough replay frames for the existing >40 shadow-execution oracle.
         run = replay.run(out / 'replay_gpu.exe', out, Path(DIST), 60 if merged else 30, True,
-                         Path('F:/vulkan/validation-1.4.321.0/bin'), name=prefix + case)
+                         Path('F:/vulkan/validation-1.4.321.0/bin'), configuration=configuration, name=prefix + case)
         checks.equal(run['returncode'], 0, case + ': normal completion')
         checks.check('validation errors=0 ' in run['output'], case + ': clean core/sync validation')
         replacement = run['status'].get('result', {}).get('replacement', {})

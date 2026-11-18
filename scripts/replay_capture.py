@@ -1,11 +1,8 @@
-"""Replay a captured character's game draws through the layer, with the installed Mod (sandbox).
+"""Replay captured indexed Vulkan draws against one original root configuration in the sandbox.
 
-A catalogue bundle of the Vulkan session (captures/catalogue-20261019/vulkan/vkNN) holds every
-pipeline recipe of the frame, its SPIR-V, the descriptor contents of every draw and the uniform
-buffers they read. This rebuilds the draws an installed Mod's sections match, in their recorded
-order, and runs them for a few frames in a child process that loads the layer with the Mods folder
-(directory generation, D-078): the layer must match them, plan them with the Mod's live INI,
-import the bones and draw the Mod's mesh with the game's own shaders.
+The original TextureOverride matcher selects captured calls for the fixture by hash and draw
+arguments. At execution the layer loads d3dx.ini and its Includes. Actual ShaderOverride and
+ShaderRegex entry, command lists and resource use decide which selected calls change.
 
 What the capture does not hold is made up, never guessed into game data: the index bytes (only the
 region's hash is kept) are forged to the same CRC-32C with small indices, vertex buffers and
@@ -39,9 +36,7 @@ sys.path.insert(0, str(ROOT / "sandbox"))
 from efmi_vk.hashes import crc32c  # noqa: E402
 from efmi_vk.source_slots import core_facts, declarations  # noqa: E402
 
-MODS = Path(r"D:\XXMI-Launcher-Portable-v2.1.6\EFMI\Mods")
-ANY_COUNT = 0xFFFFFFFF            # a section matched by its hash alone (any index count)
-CORE = Path(r"D:\XXMI-Launcher-Portable-v2.1.6\EFMI\Core\EFMI")
+INSTALLED_ROOT = Path("D:/XXMI-Launcher-Portable-v2.1.6/EFMI")
 SETTINGS = None  # --settings: a folder of persistent INI variable files copied into each run
 RESERVE_MB = None  # --reserve-mb: m2_reserve_mb for every run
 IDENTITY_BONES = 1024            # bones written as identity at each instance entry's offsets
@@ -141,45 +136,40 @@ def forge_region(length: int, index_size: int, target: int) -> bytes:
     return bytes(data)
 
 
-def only_mod(name: str) -> Path:
-    """A Mods folder of the project holding a copy of the installed Mod `name`, whether the user has it
-    enabled or renamed to DISABLED_ (the installed folder is only read). A suite step that tests one
-    Mod's mechanism then does not depend on which Mods the user has on. Copied once; when the user has
-    removed the Mod since, the copy made before stays the step's data."""
-    source = MODS / name if (MODS / name).is_dir() else MODS / ("DISABLED_" + name)
-    # The project's folder takes a plain name (it names the replay's output and build folders); the copy
-    # inside keeps the Mod's own, whatever its characters.
-    target = ROOT / "build" / "replay-mods" / "".join(c if c.isascii() and (c.isalnum() or c in "._-") else "_" for c in name)
-    copy = target / name
-    if not source.is_dir():
-        if (target / "source.txt").is_file() and copy.is_dir():
-            print("only-mod: %s is no longer installed; the project's copy of it is used" % name)
-            return target
-        raise ValueError("no installed Mod folder named %s (enabled or DISABLED_) and no copy of it" % name)
-    files = sorted(f for f in source.rglob("*") if f.is_file())
-    stamp = "\n".join("%s %d %d" % (f.relative_to(source), f.stat().st_size, f.stat().st_mtime_ns) for f in files)
-    if not (target / "source.txt").is_file() or (target / "source.txt").read_text(encoding="utf-8") != stamp:
-        shutil.rmtree(target, ignore_errors=True)
-        shutil.copytree(source, copy)
-        (target / "source.txt").write_text(stamp, encoding="utf-8")
-    return target
+def capture_key(draw: dict):
+    ib = draw.get("ib") or {}
+    if draw.get("kind") != "indexed" or not ib.get("hash"):
+        return None
+    return (int(ib["hash"], 16), draw["count"], draw["first"], draw["instances"],
+            draw["first_instance"], draw["vertex_offset"])
 
 
-# Capture ---------------------------------------------------------------------------------------
-def mod_sections(dist: Path, out: Path) -> tuple[dict, dict]:
-    """The installed Mods' sections by (index hash, count): the INI of each, and its component (None for a hide section)."""
-    exe = dist / "efmi_vk_character_test.exe"
-    run = subprocess.run([str(exe), "--plan-mods", str(MODS), str(CORE), str(out / "plan-settings")], cwd=out,
-                         capture_output=True, text=True, errors="replace", timeout=600)
-    if run.returncode:
-        raise ValueError("dry run failed: " + run.stderr[-500:])
-    sections, components = {}, {}
-    for line in run.stdout.splitlines():
-        m = json.loads(line)
-        for s in m.get("sections", []):
-            sections[(s["hash"], s["count"])] = m["ini"]
-            components[(s["hash"], s["count"])] = s.get("component")
-    return sections, components
+def configuration_candidates(configuration: Path, frame: dict, out: Path) -> dict:
+    from build_xxmi_runtime import build_runtime
+    tools = ROOT / "build/xxmi-runtime"
+    settings = out / "inspection-settings"
+    settings.mkdir(exist_ok=True)
+    build_runtime(tools, test=True)
+    keys = list(dict.fromkeys(key for draw in frame["draws"] if (key := capture_key(draw)) is not None))
+    queries = "".join("%08x %u %u %u %u %d\n" % key for key in keys)
+    result = subprocess.run([str(tools / "runtime_test.exe"), "--capture-index-candidates",
+                             str(configuration), str(settings)], input=queries, cwd=out, capture_output=True,
+                            encoding="utf-8", errors="replace", timeout=300)
+    if result.returncode:
+        raise ValueError("Original configuration inspection failed: " + (result.stderr or result.stdout)[-1200:])
+    matches, seen = {}, set()
+    for line in result.stdout.splitlines():
+        if not line.startswith("capture_candidate "):
+            continue
+        row, present, may_draw = map(int, line.split()[1:])
+        if not 0 <= row < len(keys) or row in seen:
+            raise ValueError("Invalid original configuration query result")
+        seen.add(row)
+        if present:
+            matches[keys[row]] = bool(may_draw)
+    if len(seen) != len(keys):
+        raise ValueError("Original configuration query results are incomplete")
+    return matches
 
 
 class Replay:
@@ -426,22 +416,31 @@ def run(exe: Path, out: Path, dist: Path, frames: int, enabled: bool, validation
         two_queues: bool = False, gpu_bones: bool | None = None, name: str | None = None, split_passes: bool = False,
         animate_bones: bool = False, rolling_bones: bool = False,
         depth_null_after: int | None = None, depth_restore_after: int | None = None,
-        no_null_descriptors: bool = False) -> dict:
+        no_null_descriptors: bool = False, configuration: Path = INSTALLED_ROOT) -> dict:
     from harness import layer_env
     folder = out / (name or ("enabled" if enabled else "disabled"))
     folder.mkdir(parents=True, exist_ok=True)
+    for artifact in ("status.json", "targets.json", "layer.log"):
+        (folder / artifact).unlink(missing_ok=True)
     if SETTINGS is not None and SETTINGS.is_dir():
         # Persistent INI variables to start from (a variant key's state), as the game's settings folder.
         (folder / "settings").mkdir(exist_ok=True)
         for item in SETTINGS.glob("*.ini"):
             shutil.copy2(item, folder / "settings" / item.name)
-    extra = dict(EFMI_VK_M2_MODS=str(MODS), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(folder / "settings"),
+    extra = dict(EFMI_VK_CONFIGURATION=str(configuration), EFMI_VK_M2_SETTINGS=str(folder / "settings"),
                  EFMI_VK_M2_ENABLED="1" if enabled else "0", EFMI_VK_M2_DIMENSION_ZERO=dimension_policy() or "off",
                  VK_LAYER_PATH=os.pathsep.join([str(dist), str(validation)]), VK_LAYER_VALIDATE_SYNC="1",
                  # Match Sandbox: retain every diagnostic and avoid the pinned VVL's
                  # unsynchronized duplicate-message map during concurrent pipeline builds.
                  VK_LAYER_DUPLICATE_MESSAGE_LIMIT="0", XDG_CACHE_HOME=str(folder),
                  TEMP=str(folder), TMP=str(folder), TMPDIR=str(folder))
+    # Share exact shader evidence read-only across runs. Explicit test overrides take precedence.
+    for variable, relative in (("EFMI_VK_SHADER_INPUTS", "d294-inputs/shader-inputs.bin"),
+                               ("EFMI_VK_SHADER_MODELS", "shader-model-index/shader-models.bin"),
+                               ("EFMI_VK_SHADER_SOURCES", "shader-source-index/shader-sources.bin")):
+        metadata = ROOT / "build" / relative
+        if variable not in os.environ and metadata.is_file():
+            extra[variable] = str(metadata)
     if gpu_bones is not None:
         extra["EFMI_VK_M2_GPU_BONES"] = "1" if gpu_bones else "0"
     if RESERVE_MB is not None:
@@ -549,9 +548,8 @@ def main() -> int:
     ap.add_argument("--open-tests", action="store_true", help="diagnosis: no depth, stencil or culling in the replayed pipelines")
     ap.add_argument("--probe-vertices", action="store_true", help="diagnosis: the original draws get a small known shape")
     ap.add_argument("--small-images", action="store_true", help="diagnosis: 4x4 single-level textures")
-    ap.add_argument("--mods", type=Path, help="another Mods folder than the installed one (a project-owned copy)")
-    ap.add_argument("--only-mod", help="a project-owned Mods folder with a copy of this installed Mod only, enabled or "
-                    "DISABLED_ (a suite step about one Mod's mechanism)")
+    ap.add_argument("--configuration", type=Path, default=INSTALLED_ROOT,
+                    help="original d3dx.ini or its installation directory")
     ap.add_argument("--settings", type=Path, help="a folder of persistent INI variable files the Mods start from (a variant key's state)")
     ap.add_argument("--check", action="store_true", help="fail unless both runs are clean, the originals draw nothing and every "
                     "render pass with a component of the Mod shows the Mod's draws (regression suite)")
@@ -579,31 +577,27 @@ def main() -> int:
     ap.add_argument("--bones-identical", action="store_true", help="also replay with the merged skeleton imported on the CPU "
                     "(m2_gpu_bones = 0) and, with --check, fail unless its pictures equal the GPU import's (D-117)")
     args = ap.parse_args()
-    global MODS, SETTINGS, RESERVE_MB
-    MODS = args.mods or MODS
+    global SETTINGS, RESERVE_MB
+    configuration = args.configuration.resolve()
+    if configuration.is_file() and configuration.name.lower() == "d3dx.ini":
+        configuration = configuration.parent
+    if not (configuration / "d3dx.ini").is_file():
+        ap.error("configuration needs an original d3dx.ini")
     RESERVE_MB = args.reserve_mb
-    if args.only_mod:
-        MODS = args.mods = only_mod(args.only_mod)
     SETTINGS = args.settings
     dist = Path(os.environ.get("EFMI_VK_DIST", ROOT / "dist"))
     validation = Path(os.environ.get("EFMI_VK_VALIDATION_DIR", "F:/vulkan/validation-1.4.321.0/bin"))
-    out = ROOT / "build" / "replay" / (args.bundle.name + ("-rp" + "-".join(map(str, args.rp)) if args.rp else "") + ("-open" if args.open_tests else "") + ("-probe" if args.probe_vertices else "") + ("-" + args.mods.name if args.mods else "") + ("-small" if args.small_images else "") + ("-split" if args.split_passes else "-2q" if args.two_queues else "") + ("-roll" if args.rolling_bones else "-anim" if args.animate_bones else ""))
+    out = ROOT / "build" / "replay" / (args.bundle.name + ("-rp" + "-".join(map(str, args.rp)) if args.rp else "") + ("-open" if args.open_tests else "") + ("-probe" if args.probe_vertices else "") + ("-" + hashlib_digest(str(configuration).encode("utf8")) if configuration != INSTALLED_ROOT else "") + ("-small" if args.small_images else "") + ("-split" if args.split_passes else "-2q" if args.two_queues else "") + ("-roll" if args.rolling_bones else "-anim" if args.animate_bones else ""))
     out.mkdir(parents=True, exist_ok=True)
-    sections, components = mod_sections(dist, out)
     replay = Replay(args.bundle, out)
     replay.probe_vertices = args.probe_vertices
     replay.small_images = args.small_images
-    def section_of(d: dict):
-        """The (hash, count) a Mod section matches this draw by: its own count, or any count for a
-        section matched by its hash alone."""
-        ib = (d.get("ib") or {}).get("hash")
-        for key in ((ib, d.get("count")), (ib, ANY_COUNT)):
-            if key in sections:
-                return key
-        return None
+    candidates = configuration_candidates(configuration, replay.frame, out)
+    def selected(draw):
+        return capture_key(draw) in candidates and (not args.rp or draw.get("rp") in args.rp)
 
     draws = []
-    mod_passes = {(d["cb"], d["rp"]) for d in replay.frame["draws"] if section_of(d) and d.get("kind") == "indexed"}
+    mod_passes = {(d["cb"], d["rp"]) for d in replay.frame["draws"] if selected(d)}
 
     def copy_pass(d: dict) -> bool:
         if not args.copy_passes or d.get("kind") != "draw" or (d["cb"], d["rp"] - 1) not in mod_passes:
@@ -619,14 +613,14 @@ def main() -> int:
             if made:
                 draws.append(made)
             continue
-        if section_of(d) and d.get("kind") == "indexed" and (not args.rp or d.get("rp") in args.rp):
+        if selected(d):
             made = replay.draw(d)
             if made:
-                made["key"] = section_of(d)
+                made["expects_geometry"] = candidates[capture_key(d)]
                 draws.append(made)
-    mods = sorted({sections[section_of(d)] for d in replay.frame["draws"] if section_of(d)})
-    print("bundle %s: Mods %s; %d draws replayed, omitted %s; %d pipelines, %d buffers, %d images, %d bytes of data" % (
-        args.bundle.name, mods, len(draws), dict(replay.omitted), len(replay.cases), len(replay.buffers), len(replay.images), len(replay.data)))
+    print("bundle %s: configuration %s; %d matching signatures; %d draws replayed, omitted %s; %d pipelines, %d buffers, %d images, %d bytes of data" % (
+        args.bundle.name, configuration, len(candidates), len(draws), dict(replay.omitted), len(replay.cases),
+        len(replay.buffers), len(replay.images), len(replay.data)))
     if not draws:
         return 1
     (out / "replay.bin").write_bytes(bytes(replay.data))
@@ -638,7 +632,7 @@ def main() -> int:
     results = {}
     for enabled in (False, True):
         r = run(exe, out, dist, args.frames, enabled, validation, args.open_tests, args.two_queues, split_passes=args.split_passes,
-                animate_bones=args.animate_bones, rolling_bones=args.rolling_bones)
+                animate_bones=args.animate_bones, rolling_bones=args.rolling_bones, configuration=configuration)
         results[enabled] = r
         rep = r["status"].get("result", {}).get("replacement", {})
         counters = {k: v for k, v in rep.get("counters", {}).items() if v} if rep else {}
@@ -650,22 +644,23 @@ def main() -> int:
             off, on = shots[False].get(name, {}), shots[True][name]
             print("  %s (format %d): covered %d without the layer's replacement, %d with it%s" % (
                 name, on["format"], off.get("covered", 0), on["covered"], "" if off.get("raw") != on["raw"] else "; identical"))
-    summary = {"bundle": args.bundle.name, "mods": mods, "draws": len(draws), "omitted": dict(replay.omitted), "frames": args.frames,
+    summary = {"bundle": args.bundle.name, "configuration": str(configuration), "matching_signatures": len(candidates), "draws": len(draws), "omitted": dict(replay.omitted), "frames": args.frames,
                "runs": {("enabled" if enabled else "disabled"): {
                    "returncode": r["returncode"],
                    "replay": next((l for l in r["output"].splitlines() if l.startswith("replay:")), ""),
                    "counters": {k: v for k, v in r["status"].get("result", {}).get("replacement", {}).get("counters", {}).items() if v},
+                   "original_commands": r["status"].get("result", {}).get("replacement", {}).get("shader_overrides", {}),
                    "last_reason": r["status"].get("result", {}).get("replacement", {}).get("last_reason", ""),
                    "translucency": r["status"].get("result", {}).get("replacement", {}).get("translucency", {}),
                    "bones": r["status"].get("result", {}).get("replacement", {}).get("bones", {}),
-                   "folder": {k: v for k, v in r["status"].get("result", {}).get("replacement", {}).get("folder_generation", {}).items()
-                              if k in ("packages", "presents", "ini", "left_out")},
+                   "folder": {k: v for k, v in r["status"].get("result", {}).get("replacement", {}).get("configuration_generation", {}).items()
+                              if k in ("presents", "ini")},
                    "targets": shots.get(enabled, {})} for enabled, r in results.items()}}
     (out / "summary.json").write_text(json.dumps(summary, indent=1), encoding="ascii")
     cpu_bones = None
     if args.bones_identical:
         cpu_bones = run(exe, out, dist, args.frames, True, validation, args.open_tests, args.two_queues, gpu_bones=False, name="enabled-cpu-bones",
-                        split_passes=args.split_passes, animate_bones=args.animate_bones, rolling_bones=args.rolling_bones)
+                        split_passes=args.split_passes, animate_bones=args.animate_bones, rolling_bones=args.rolling_bones, configuration=configuration)
         line = next((l for l in cpu_bones["output"].splitlines() if l.startswith("replay:")), "replay: no summary")
         gpu_shots = shots.get(True, {}); cpu_shots = pictures(cpu_bones["folder"]) if (cpu_bones["folder"] / "targets.json").is_file() else {}
         differing = sorted(n for n in gpu_shots if cpu_shots.get(n, {}).get("raw") != gpu_shots[n].get("raw"))
@@ -675,7 +670,7 @@ def main() -> int:
         summary["runs"]["enabled-cpu-bones"] = {"returncode": cpu_bones["returncode"], "replay": line, "differing": differing}
         (out / "summary.json").write_text(json.dumps(summary, indent=1), encoding="ascii")
     if args.check:
-        problems = check(summary, draws, components, args.mod_first)
+        problems = check(summary, draws, args.mod_first)
         if args.bones_identical:
             cpu = summary["runs"]["enabled-cpu-bones"]
             bones = results[True]["status"].get("result", {}).get("replacement", {}).get("bones", {})
@@ -694,6 +689,9 @@ def main() -> int:
             if not shadows:
                 problems.append("no translucent call was drawn in a shadow pass by its opacity (translucent_shadows %s)" % shadows)
         if args.no_refusal:
+            original = summary["runs"]["enabled"]["original_commands"]
+            if "refused" not in original or original["refused"]:
+                problems.append("original transaction refusals: %s (%s)" % (original.get("refused"), original.get("last_reason")))
             refused = {k: v for k, v in summary["runs"].get("enabled", {}).get("counters", {}).items() if k.startswith("refused_") and v}
             if refused:
                 problems.append("refused plans %s: %s" % (refused, summary["runs"]["enabled"].get("last_reason", "")))
@@ -705,23 +703,22 @@ def main() -> int:
     return 0 if all(r["returncode"] == 0 for r in results.values()) else 1
 
 
-def check(summary: dict, draws: list[dict], components: dict, mod_first: bool = False) -> list[str]:
+def check(summary: dict, draws: list[dict], mod_first: bool = False) -> list[str]:
     problems = []
     runs = summary["runs"]
     if mod_first:
-        counters = runs.get("enabled", {}).get("counters", {})
-        for name in ("kept_original", "original_before_shown"):
-            if counters.get(name):
-                problems.append("%d draws drew the game's mesh (%s)" % (counters[name], name))
+        original = runs.get("enabled", {}).get("original_commands", {})
+        if original.get("kept") != 0 or not original.get("skipped"):
+            problems.append("the selected original commands retained callers or never suppressed a caller")
     for name in ("disabled", "enabled"):
         run = runs.get(name, {})
         if run.get("returncode") != 0:
             problems.append("%s run exited %s" % (name, run.get("returncode")))
         if "validation errors=0 " not in run.get("replay", "") or " 0 failed" not in run.get("replay", ""):
             problems.append("%s run: %s" % (name, run.get("replay") or "no summary"))
-    if not runs.get("enabled", {}).get("counters", {}).get("replaced"):
-        problems.append("no draw replaced")
-    # One generation for the Mods folder (D-131): its INI Present runs once per presentation, not once per package.
+    if not runs.get("enabled", {}).get("original_commands", {}).get("executed"):
+        problems.append("no original command transaction executed")
+    # The original root runs Present once per presentation.
     folder = runs.get("enabled", {}).get("folder", {})
     if folder and folder.get("ini", {}).get("presents", 0) > folder.get("presents", 0):
         problems.append("the folder generation's Present ran %d times in %d presentations" % (folder["ini"]["presents"], folder["presents"]))
@@ -732,7 +729,7 @@ def check(summary: dict, draws: list[dict], components: dict, mod_first: bool = 
     order, drawn = {}, set()
     for d in draws:
         group = order.setdefault(d["group"], len(order))
-        if components.get(d["key"]) is not None:
+        if d.get("expects_geometry"):
             drawn.add(group)
     for group in sorted(order.values()):
         names = [n for n in runs.get("enabled", {}).get("targets", {}) if n.startswith("group%d-" % group)]
@@ -741,7 +738,9 @@ def check(summary: dict, draws: list[dict], components: dict, mod_first: bool = 
         if off:
             problems.append("group %d: the original draws cover %d texels" % (group, off))
         if group in drawn and not on:
-            problems.append("group %d has a component draw of the Mod and no covered texel" % group)
+            problems.append("group %d has a matching original geometry command and no covered texel" % group)
+    if not drawn:
+        problems.append("no selected indexed call has a matching original geometry command")
     return problems
 
 

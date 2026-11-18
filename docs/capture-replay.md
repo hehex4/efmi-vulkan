@@ -1,12 +1,18 @@
-# Captured frames replayed through the layer (candidate 1.5.6)
+# Captured frames replayed through the layer
 
-`scripts/replay_capture.py` takes a catalogue bundle of the Vulkan session
-(`captures/catalogue-20261019/vulkan/vkNN`) and replays the draws an installed Mod's sections
-match, with the game's own pipelines, shaders, descriptor layouts and uniform data, in a child
-process that loads the layer with the Mods folder (directory generation, D-078). It is the first
-check of the live path (match, identification, bone import, INI plan, variant pipelines, materials,
-owned Present) against real game pipelines and real Mods without starting the game. Sandbox only:
-it is not a result of the game.
+The replay reads the installed root d3dx.ini and its enabled Includes. The
+original index override matcher selects captured indexed draws using their
+hash, count, first index, instances, first instance and base vertex. It does
+not execute commands during selection. Both sandbox children use that same
+configuration and the existing offline shader metadata when available.
+Use --configuration DIR or a path to d3dx.ini for a project-owned fixture.
+
+With --check the control must have empty targets and each pass group whose
+matching list may issue geometry must have covered pixels. The check also
+requires original transactions. --no-refusal additionally requires every
+matched transaction to be admitted. A replay uses stand-ins and cannot verify
+a live character. The findings below labelled by older versions describe the
+loader at those versions.
 
     py -B scripts/replay_capture.py --bundle "F:/efmi vulkan/captures/catalogue-20261019/vulkan/vk03"
 

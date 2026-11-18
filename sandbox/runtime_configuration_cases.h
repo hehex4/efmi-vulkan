@@ -37,7 +37,9 @@ $alpha = 7
 run = CommandList\helper\Touch
 run = CommandListSecond
 handling = skip
+if $alpha == 7
 drawindexed = 3,0,0
+endif
 )ini");
     write(root / "Mods" / "B" / "second.ini", R"ini(namespace = shared
 [Constants]
@@ -61,7 +63,12 @@ global $unexpected = 1
           "Original recursive exclusions apply to the complete configuration");
     check(!std::filesystem::exists(root / "Mods" / "A" / "deliberately-missing.buf"),
           "Unused missing resources do not gate configuration loading");
-    RuntimeDraw draw; draw.hash = 0x12345678; draw.count = 30;
+    RuntimeDraw draw; draw.hash = 0x12345678; draw.count = 29;
+    check(runtime->capture_index_candidate(draw)==std::make_pair(false,false),"Replay rejects a captured count outside the original hash rule");
+    draw.count=30;
+    check(runtime->capture_index_candidate(draw)==std::make_pair(true,true) && runtime->status().variables.at("$\\shared\\alpha")==0,
+          "Replay observes the included draw rule without executing it");
+
     efmi::assets::FilePlan plan;
     check(runtime->draw(draw, plan, reason), "Global hash rules execute without a package");
     check(plan.skip_original && plan.items.size() == 1 && plan.items[0].index_count == 3,
