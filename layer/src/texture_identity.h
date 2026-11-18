@@ -10,11 +10,12 @@ namespace efvk {
 // The DXGI format the game's DX11 build creates for this Vulkan format; 0 when not known.
 uint32_t dxgi_format(VkFormat format);
 
-// The DXGI format of the shader resource view the game's DX11 build binds where its Vulkan build binds a
-// view of this format and aspect (D-170): what the original's `ps-tN->Format` reads. A colour view has the
-// texture's own format on both sides. A depth texture is typeless under DX11 and its view names the depth
-// bits: D16_UNORM is R16_UNORM, D32_SFLOAT_S8_UINT is R32_FLOAT_X8X24_TYPELESS, the two the paired catalogue
-// shows (scripts/check_texture_properties.py). 0 when not known, the other depth formats included.
+// Original-compatible application allocation and typed DSV projections. A sampled depth
+// allocation can have separate typed SRV and DSV views of the same original family.
+uint32_t dxgi_application_format(VkFormat format, VkImageUsageFlags usage);
+uint32_t dxgi_depth_target_format(VkFormat format);
+
+// SRV format as reported by the original view getter for the selected aspect.
 uint32_t dxgi_view_format(VkFormat format, VkImageAspectFlags aspect);
 
 // The D3D11_TEXTURE2D_DESC the game's DX11 build creates for this image, field by field (Width, Height,

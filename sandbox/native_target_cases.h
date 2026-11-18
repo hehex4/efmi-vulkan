@@ -39,8 +39,22 @@ static void native_target_cases()
     alias.slot=7;check(native_resource(&d,&cb,draw,alias,out,why) && !out.bound,"color output beyond this subpass is unbound");
     alias.slot=8;check(!native_resource(&d,&cb,draw,alias,out,why),"color output beyond original slot limits is refused");
     alias.slot=0;alias.kind=B::DepthTarget;
-    check(native_resource(&d,&cb,draw,alias,out,why) && out.bound && out.image_view==uint64_t(depth) && out.format==40 && out.bind_flags==64 && !out.keep,
+    check(native_resource(&d,&cb,draw,alias,out,why) && out.bound && out.image_view==uint64_t(depth) && out.format==40 && out.resource_format==40 && out.bind_flags==64 && !out.keep,
           "depth source keeps actual format and metadata but no fabricated allocation owner");
+    d.images.at(depth_image).usage|=VK_IMAGE_USAGE_SAMPLED_BIT;
+    check(native_resource(&d,&cb,draw,alias,out,why) && out.format==40 && out.resource_format==39,
+          "Sampled D32 source retains its typeless allocation with a typed target view");
+    for(const auto& row:std::vector<std::array<uint32_t,5>>{{VK_FORMAT_D16_UNORM,53,55,56,0},
+          {VK_FORMAT_D32_SFLOAT,39,40,41,0},{VK_FORMAT_D24_UNORM_S8_UINT,44,45,46,47},
+          {VK_FORMAT_D32_SFLOAT_S8_UINT,19,20,21,22}}){
+        const auto format=VkFormat(row[0]);
+        check(dxgi_application_format(format,VK_IMAGE_USAGE_SAMPLED_BIT)==row[1] &&
+              dxgi_application_format(format,VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)==row[2] &&
+              dxgi_depth_target_format(format)==row[2] && dxgi_view_format(format,VK_IMAGE_ASPECT_DEPTH_BIT)==row[3] &&
+              dxgi_view_format(format,VK_IMAGE_ASPECT_STENCIL_BIT)==row[4] &&
+              !dxgi_view_format(format,VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT),
+              "Application depth allocation, DSV and individual SRV aspects use the original DXGI family");
+    }
     on_next_targets(&d,&cb);draw.targets=cb.active_targets;
     check(native_resource(&d,&cb,draw,alias,out,why) && !out.bound,"next subpass without depth is unbound");
     alias.kind=B::ColorTarget;check(native_resource(&d,&cb,draw,alias,out,why) && !out.bound,"next subpass without color is unbound");

@@ -33,10 +33,11 @@ GpuResourceBinding GpuResourceRuntime::import_application_image(const Applicatio
     require(!cube || ((native.flags&VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT) && d.ArraySize%6==0),
         "Original cube image requires a complete compatible allocation");
     const bool typeless=original_default_format(d.Format)!=d.Format;
-    const auto expected=source_image_format(typeless?original_typed(d.Format,bool(d.BindFlags&D3D11_BIND_DEPTH_STENCIL)):d.Format);
     require(native.format>VK_FORMAT_UNDEFINED && uint32_t(native.format)<185,"Application image format needs an explicit adapter");
     const auto& format=gpu::image_formats[uint32_t(native.format)];
     const bool depth=bool(format.aspects&VK_IMAGE_ASPECT_DEPTH_BIT);
+    // A sampled-only depth image still has physical depth storage and an SRV of its typeless family.
+    const auto expected=source_image_format(typeless?original_typed(d.Format,depth):d.Format);
     require(typeless && !depth?(bool(native.flags&VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT) &&
         format.aspects==expected.aspects && format.compatibility==gpu::image_formats[uint32_t(expected.format)].compatibility):
         native.format==expected.format,"Application image source format does not match its allocation");

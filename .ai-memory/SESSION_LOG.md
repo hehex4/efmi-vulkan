@@ -4511,3 +4511,7 @@ Combined descriptors and comparison sampling still need adapters. Sandbox only.
 ## D-358: Replay captured indexed calls through the original configuration
 
 D-358 verified replay selection and the acceptance gate at 3.7.2 / ABI 0e6e2de2d78acd00. The installed root and pinned draw matcher select seven signatures, 29 indexed calls and 26 pipelines in vk03. Configuration tests pass 59 checks and the module boundary passes 16. With metadata supplied, 351 of 870 original transactions executed. The checker now correctly fails on three empty geometry groups and 519 refusals. See build/replay-root-pixel-gate.out. These are stand-in sandbox draws. Image import and full pixel acceptance remain open.
+
+## D-359: Preserve the original depth resource family across output and sampled views
+
+D-359 verified at 3.7.3 / ABI 0e6e2de2d78acd00. D16, D32, D24S8 and D32S8 have separate allocation, target and sampled aspect formats. Sampled-only D32 imports its real storage with the original R32_FLOAT view and shader-only bind flags. The same 30-frame vk03 replay executes 657/870 original transactions (previously 351), with 213 refusals and zero covered pixels in all three potential geometry groups. The next Core dispatch reports a texel buffer format incompatibility. Configuration GPU 397, prepared 155, tracker 1061, ABI 16 and paired texture properties pass. See build/depth-projection-{configuration,regression,replay}.out. No game load.

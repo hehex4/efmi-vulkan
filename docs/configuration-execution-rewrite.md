@@ -347,6 +347,11 @@ configuration. The vk03 bundle has 29 matched draws. Three pass groups include
 potential geometry, and currently all three fail pixel acceptance. Read
 build/replay-root-pixel-gate.out for the observed refusal.
 
+D-359 preserves original depth allocation families through DSV and sampled
+views, including shader-only depth storage. The same vk03 replay now executes
+657/870 original transactions. Three geometry groups still have no pixels.
+The remaining Core compute and resource-scope failures are reproducible offline.
+
 These are scoped sandbox/GPU results. Compatibility is not complete:
 combined or late-bound samplers, comparison operations, current GPU Store boundaries, broader queue/source
 contracts and obsolete capture fixture migration remain. No game acceptance is

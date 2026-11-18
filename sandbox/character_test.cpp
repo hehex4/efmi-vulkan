@@ -52,7 +52,8 @@ static bool srv_of(const std::vector<efmi::gpu::SourceRegister>& registers, unsi
 {
     efmi::gpu::SourceSrvDeclaration declaration;
     if (!efmi::gpu::source_srv_declaration(registers, slot, declaration, why)) return false;
-    type = declaration.words ? efmi::frontend::kWordBufferDeclaration : declaration.type;
+    if (declaration.words) { why = "Raw and structured uint declarations need original bytecode"; return false; }
+    type = declaration.type;
     dimension = declaration.dimension; stride = declaration.stride;
     return true;
 }
@@ -633,9 +634,9 @@ int main(int argc, char** argv)
     }
     if (argc == 2 && !strcmp(argv[1], "--view-formats")) {
         // D-170: the DXGI format the layer answers for a view of each Vulkan format, per aspect (1 colour,
-        // 2 depth): "<VkFormat> <aspect> <DXGI_FORMAT>" for those it maps (scripts/check_texture_properties.py).
+        // 2 depth, 4 stencil): "<VkFormat> <aspect> <DXGI_FORMAT>" for those it maps (scripts/check_texture_properties.py).
         for (uint32_t format = 1; format < 185; ++format)
-            for (uint32_t aspect : {1u, 2u})
+            for (uint32_t aspect : {1u, 2u, 4u})
                 if (const uint32_t dxgi = efvk::dxgi_view_format(VkFormat(format), VkImageAspectFlags(aspect))) printf("%u %u %u\n", format, aspect, dxgi);
         return 0;
     }
@@ -679,7 +680,7 @@ int main(int argc, char** argv)
             std::string line;
             for (uint32_t slot = 0; slot < count; ++slot) {
                 uint32_t type = 0, dimension = 0, stride = 0; char item[48];
-                if (srv_of(registers, slot, type, dimension, stride, reason) && type != efmi::frontend::kWordBufferDeclaration)
+                if (srv_of(registers, slot, type, dimension, stride, reason))
                     snprintf(item, sizeof(item), " %u:%u.%u.%u", slot, type, dimension, stride);
                 else snprintf(item, sizeof(item), " %u:-", slot);
                 line += item;
@@ -755,7 +756,7 @@ int main(int argc, char** argv)
         };
         auto unknown = [&](unsigned slot) { uint32_t a = 0, b = 0, c = 0; std::string why; return !srv_of(shader, slot, a, b, c, why) && !why.empty(); };
         check(is(0, 2, 1, 16), "a read-only buffer of 16-byte elements is dcl_resource_structured with its stride (vs->srv_stride(0) == 16)");
-        check(is(1, efmi::frontend::kWordBufferDeclaration, 1, 4), "a buffer of uint words is a byte address buffer or a structured buffer of uint: answered as one of the two");
+        check(unknown(1), "A buffer of uint words cannot identify a raw or structured original declaration");
         check(is(2, 1, 1, 0), "a texel buffer is a typed buffer view");
         check(is(3, 1, 4, 0) && is(4, 1, 4, 0), "each element of an image array declares its own typed 2D register");
         check(is(5, 1, 10, 0) && is(6, 1, 7, 0) && is(7, 1, 8, 0), "cube arrays, multisampled 2D arrays and 3D images by their view dimensions");

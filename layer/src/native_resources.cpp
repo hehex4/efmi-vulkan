@@ -114,7 +114,7 @@ bool image_resource(VkImageView handle, const ImageViewInfo& view, const ImageIn
     output.width = resource.extent.width; output.height = resource.extent.height; output.depth = resource.extent.depth;
     output.levels = resource.levels; output.layers = resource.layers; output.samples = resource.samples;
     output.format = dxgi_view_format(view.format,view.range.aspectMask); output.format_known = output.format != 0;
-    output.resource_format = dxgi_format(resource.format);
+    output.resource_format = dxgi_application_format(resource.format,resource.usage);
     output.bind_flags = ((resource.usage & VK_IMAGE_USAGE_SAMPLED_BIT) ? 8u : 0u) |
         ((resource.usage & VK_IMAGE_USAGE_STORAGE_BIT) ? 128u : 0u) |
         ((resource.usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) ? 32u : 0u) |
@@ -176,18 +176,7 @@ bool target_resource(Device* device, CmdBuf* cb, const DrawRec& draw,
     device->track_image_layouts.store(true,std::memory_order_relaxed);
     if(!image_resource(target->handle,view->second,image->second,output))return false;
     if(depth){
-        auto depth_format=[](VkFormat format)->uint32_t{
-            switch(format){
-            case VK_FORMAT_D16_UNORM:return 55;
-            case VK_FORMAT_D32_SFLOAT:return 40;
-            case VK_FORMAT_D24_UNORM_S8_UINT:return 45;
-            case VK_FORMAT_D32_SFLOAT_S8_UINT:return 20;
-            default:return 0;
-            }
-        };
-        // OMGetRenderTargets returns a DSV, whose format differs from a sampled depth view.
-        output.format=depth_format(view->second.format);output.format_known=output.format!=0;
-        output.resource_format=depth_format(image->second.format);
+        output.format=dxgi_depth_target_format(view->second.format);output.format_known=output.format!=0;
     }
     return true;
 }

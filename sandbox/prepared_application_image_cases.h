@@ -62,6 +62,23 @@ ps-t5 = ref ResourceCopy
     };
     auto source_facts=facts(source,201,DXGI_FORMAT_R32_UINT,D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_UNORDERED_ACCESS|D3D11_BIND_RENDER_TARGET);
     auto depth_facts=facts(depth,202,DXGI_FORMAT_D32_FLOAT,D3D11_BIND_DEPTH_STENCIL);
+    {
+        auto sampled_desc=depth_desc;sampled_desc.usage=VK_IMAGE_USAGE_SAMPLED_BIT;
+        auto sampled=app.create_image(sampled_desc);app.clear(sampled,sampled->full_range(),VkClearDepthStencilValue{0.25f,0});
+        auto ticket=app.submit(d.queue);ticket->wait();
+        Runtime::ApplicationResourceState observed;observed.omitted_slots_unbound=true;
+        Runtime::ApplicationImageBinding view;view.stage=L'p';view.type=Target::SHADER_RESOURCE;
+        view.source=facts(sampled,204,DXGI_FORMAT_R32_TYPELESS,D3D11_BIND_SHADER_RESOURCE);
+        view.view_known=true;view.format=DXGI_FORMAT_R32_FLOAT;view.view_type=VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+        view.range=sampled->full_range();observed.images.push_back(view);
+        resources.begin_prepared(observed);
+        auto value=resources.binding(L'p',Target::SHADER_RESOURCE,0);
+        check(value.image_view && value.view_format==DXGI_FORMAT_R32_FLOAT && value.image->image()==sampled->image() &&
+              value.image_description.texture.Format==DXGI_FORMAT_R32_TYPELESS &&
+              value.image_description.texture.BindFlags==D3D11_BIND_SHADER_RESOURCE,
+              "Sampled-only D32 imports the physical image with a typeless allocation and a typed depth SRV");
+        resources.finish_prepared();resources.discard();
+    }
     Runtime::ApplicationResourceState initial;initial.omitted_slots_unbound=true;
     Runtime::ApplicationImageBinding input;input.stage=L'p';input.type=Target::SHADER_RESOURCE;input.source=source_facts;
     input.view_known=true;input.format=DXGI_FORMAT_R32_UINT;input.view_type=VK_IMAGE_VIEW_TYPE_2D_ARRAY;

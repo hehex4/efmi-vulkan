@@ -1,5 +1,6 @@
 #include "texture_identity.h"
 #include <cstring>
+#include <dxgiformat.h>
 
 namespace efvk {
 
@@ -50,15 +51,48 @@ uint32_t dxgi_format(VkFormat format)
     }
 }
 
+namespace {
+struct DepthFormats {
+    DXGI_FORMAT family, target, depth, stencil;
+};
+
+DepthFormats depth_formats(VkFormat format)
+{
+    switch (format) {
+    case VK_FORMAT_D16_UNORM:
+        return {DXGI_FORMAT_R16_TYPELESS, DXGI_FORMAT_D16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_UNKNOWN};
+    case VK_FORMAT_D32_SFLOAT:
+        return {DXGI_FORMAT_R32_TYPELESS, DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT_R32_FLOAT, DXGI_FORMAT_UNKNOWN};
+    case VK_FORMAT_D24_UNORM_S8_UINT:
+        return {DXGI_FORMAT_R24G8_TYPELESS, DXGI_FORMAT_D24_UNORM_S8_UINT,
+                DXGI_FORMAT_R24_UNORM_X8_TYPELESS, DXGI_FORMAT_X24_TYPELESS_G8_UINT};
+    case VK_FORMAT_D32_SFLOAT_S8_UINT:
+        return {DXGI_FORMAT_R32G8X24_TYPELESS, DXGI_FORMAT_D32_FLOAT_S8X24_UINT,
+                DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS, DXGI_FORMAT_X32_TYPELESS_G8X24_UINT};
+    default: return {};
+    }
+}
+}
+
+uint32_t dxgi_application_format(VkFormat format, VkImageUsageFlags usage)
+{
+    const auto depth = depth_formats(format);
+    if (!depth.target) return dxgi_format(format);
+    return (usage & VK_IMAGE_USAGE_SAMPLED_BIT) ? depth.family : depth.target;
+}
+
+uint32_t dxgi_depth_target_format(VkFormat format)
+{
+    return depth_formats(format).target;
+}
+
 uint32_t dxgi_view_format(VkFormat format, VkImageAspectFlags aspect)
 {
     if (aspect == VK_IMAGE_ASPECT_COLOR_BIT) return dxgi_format(format);
-    if (aspect != VK_IMAGE_ASPECT_DEPTH_BIT) return 0;
-    switch (format) {
-    case VK_FORMAT_D16_UNORM: return 56;          // DXGI_FORMAT_R16_UNORM
-    case VK_FORMAT_D32_SFLOAT_S8_UINT: return 65; // DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS
-    default: return 0;
-    }
+    const auto depth = depth_formats(format);
+    if (aspect == VK_IMAGE_ASPECT_DEPTH_BIT) return depth.depth;
+    if (aspect == VK_IMAGE_ASPECT_STENCIL_BIT) return depth.stencil;
+    return DXGI_FORMAT_UNKNOWN;
 }
 
 bool dx11_texture_desc(const ImageInfo& image, uint32_t desc[11])

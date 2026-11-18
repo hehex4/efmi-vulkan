@@ -74,7 +74,7 @@ inline bool native_application_state(Device* device,CmdBuf* cb,const DrawRec& dr
                     if(actual.format==VK_FORMAT_D32_SFLOAT_S8_UINT || actual.format==VK_FORMAT_D24_UNORM_S8_UINT ||
                        actual.format==VK_FORMAT_D16_UNORM_S8_UINT)aspects=VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT;
                     image.uniform_layout=cb->image_layouts.get(actual.id,actual.levels,actual.layers,{aspects,0,actual.levels,0,actual.layers},image.layout);
-                    entry.source_known&=actual.capture_safe && r.image_safe && image.uniform_layout;
+                    entry.source_known&=r.resource_format && actual.capture_safe && r.image_safe && image.uniform_layout;
                 }
             }else if(r.buffer){
                 entry.source_known&=r.size<=UINT32_MAX;

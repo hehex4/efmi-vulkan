@@ -1,5 +1,6 @@
 // Offline tests of tracker lifetimes and descriptor semantics. No Vulkan driver.
 #include "../layer/src/state.h"
+#include "../layer/src/texture_identity.h"
 #include "../layer/src/json.h"
 #include "../layer/src/translucency_history.h"
 #include "src/spirv.h"

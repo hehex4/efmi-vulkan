@@ -3081,3 +3081,7 @@ sets from owned write arrays and retained allocations, views and samplers.
 ## D-358: Replay captured indexed calls through the original configuration
 
 Use ResourceHash.cpp matches_draw_info and find_texture_override_for_hash without executing INI at selection time. Both children load the same original root. The static geometry gate includes conditional list branches and potential calls. The captured readback, not selection or transaction counts, determines pixel acceptance. Original D3D11 context order, lifetime and hazards remain the job of Vulkan at execution.
+
+## D-359: Preserve the original depth resource family across output and sampled views
+
+Follow original CommandList.cpp FillInMissingInfo, MakeDSVFormat and MakeNonDSVFormat. D3D11 gives the resource and each view separate descriptors and keeps its references alive while tracking hazards on its context. The bridge retains the application allocation, its actual usage and layout, maps its compatible typeless family once and selects the typed view by slot and aspect. A view alone cannot prove an unknown allocation. These projections describe compatibility rather than recovering historical D3D creation flags.
