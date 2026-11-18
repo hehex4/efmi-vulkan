@@ -246,7 +246,7 @@ bool native_calls(NativeCallCache& cache, TextureResidency* residency, Device* d
             if (item.indexed && !geometry) {
                 const auto buffer = device->bufs.find(r.ib);
                 if (buffer == device->bufs.end() || !r.index_size || r.ib_off > buffer->second.size ||
-                    uint64_t(item.first_index) + item.index_count > (buffer->second.size - r.ib_off) / r.index_size)
+                    uint64_t(item.first_index) + item.index_count > std::min(r.ib_range,buffer->second.size-r.ib_off) / r.index_size)
                     return refuse("Native indexed call exceeds the bound index buffer");
             }
         } else return refuse("Native resource bindings require the descriptor executor");
@@ -265,7 +265,9 @@ bool native_calls(NativeCallCache& cache, TextureResidency* residency, Device* d
         CmdBuf context;context.gfx_pipeline=cb->gfx_pipeline;context.gfx_bound=cb->gfx_bound;
         context.graphics_dynamic=cb->graphics_dynamic;context.graphics_sets_complete=cb->graphics_sets_complete;
         context.m2_extended_bind=cb->m2_extended_bind;context.native_geometry=effective_geometry;context.dyn=cb->dyn;
-        context.ib=cb->ib;context.ib_off=cb->ib_off;context.index_size=cb->index_size;
+        context.ib=cb->ib;context.ib_off=cb->ib_off;context.ib_range=cb->ib_range;context.index_size=cb->index_size;
+        context.vertex_input=cb->vertex_input;context.topology=cb->topology;context.primitive_restart=cb->primitive_restart;
+        context.untracked_vertex_strides=cb->untracked_vertex_strides;
         for(unsigned slot=0;slot<kMaxVb;++slot)context.vb[slot]=cb->vb[slot];
         const auto projected=native_descriptor_draw(r,transaction.descriptors,i);
         for(unsigned slot=0;slot<kMaxSets;++slot)context.sets[slot]=compute?cb->sets[slot]:projected.sets[slot];

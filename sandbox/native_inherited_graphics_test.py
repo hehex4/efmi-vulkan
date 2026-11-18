@@ -19,7 +19,7 @@ from build_shader_model_index import encode_sources
 
 def main():
     case = sys.argv[1] if len(sys.argv) > 1 else 'enabled'
-    if case not in ('enabled', 'unknown_source', 'unknown_layout', 'direct_root_this', 'nested', 'reference', 'state', 'state_nested',
+    if case not in ('enabled', 'unknown_source', 'unknown_layout', 'direct_root_this', 'dynamic_layout', 'dynamic_stride_layout', 'static_after_dynamic', 'nested', 'reference', 'state', 'state_nested',
                     'indirect', 'indirect_nonindexed', 'indirect_count', 'regex', 'regex_nested', 'regex_nomatch', 'regex_caller_unknown', 'regex_caller', 'regex_caller_indirect', 'regex_caller_skip', 'regex_caller_pixel', 'regex_caller_self_ref', 'regex_caller_indirect_self_ref'):
         raise ValueError('Unknown inherited graphics fixture')
     original_caller = case in ('regex_caller', 'regex_caller_indirect', 'regex_caller_skip', 'regex_caller_pixel', 'regex_caller_self_ref', 'regex_caller_indirect_self_ref')
@@ -76,6 +76,9 @@ def main():
     if case == 'direct_root_this':
         ini = mods / 'graphics.ini'
         ini.write_text(ini.read_text().replace('if rt_width == 4', 'if rt_width == 4 && ib->size > 0 && this->size == -2'), encoding='ascii')
+    if case in ('dynamic_layout', 'dynamic_stride_layout'):
+        ini = mods / 'graphics.ini'
+        ini.write_text(ini.read_text().replace('vb0', 'vb1'), encoding='ascii')
     if case == 'reference':
         ini = mods / 'graphics.ini'
         ini.write_text(ini.read_text().replace('ResourceSaved = copy o0', 'ResourceSaved = ref o0'), encoding='ascii')
@@ -122,6 +125,9 @@ def main():
                EFMI_VK_TEST_NOTICE='> inherited graphics',
                EFMI_VK_TEST_NOTICES_READBACK=str(pixels), EFMI_VK_TEST_NOTICES_READBACK_TRIGGER=str(trigger))
     args = ['--readable-swapchain', '--native-target']
+    modes = {'dynamic_layout': 4, 'dynamic_stride_layout': 5, 'static_after_dynamic': 6}
+    if case in modes:
+        args += ['--geometry-dynamic', str(modes[case]), '--api', '1.3', '--geometry-shader-scene']
     if case.startswith('regex'):
         args.append('--native-target-unique-vertex')
     if original_caller:
@@ -140,7 +146,7 @@ def main():
         checks.equal(sb.proc.returncode, 0, 'Inherited graphics sandbox exits normally')
         (root / (case + '-stdout.txt')).write_text(sb.output(), encoding='utf-8')
         (root / (case + '-layer.log')).write_text(sb.log(), encoding='utf-8')
-    accepted = case in ('enabled', 'direct_root_this', 'nested', 'reference', 'state', 'state_nested', 'indirect', 'indirect_nonindexed', 'regex', 'regex_nested', 'regex_nomatch', 'regex_caller', 'regex_caller_indirect', 'regex_caller_skip', 'regex_caller_pixel', 'regex_caller_self_ref', 'regex_caller_indirect_self_ref')
+    accepted = case in ('enabled', 'direct_root_this', 'dynamic_layout', 'dynamic_stride_layout', 'static_after_dynamic', 'nested', 'reference', 'state', 'state_nested', 'indirect', 'indirect_nonindexed', 'regex', 'regex_nested', 'regex_nomatch', 'regex_caller', 'regex_caller_indirect', 'regex_caller_skip', 'regex_caller_pixel', 'regex_caller_self_ref', 'regex_caller_indirect_self_ref')
     checks.check(pixels.exists(), 'This process produced a fresh completed image')
     checks.equal(colored_pixels(pixels, (0, 0, 255) if case == 'regex_caller_pixel' else (255, 255, 0)) > 200, accepted and case not in ('regex_nomatch', 'regex_caller_skip'), 'Inherited VS/IA produce actual replacement pixels; unknown proof preserves the caller')
     reason = status.get('shader_overrides', {}).get('last_reason', '')

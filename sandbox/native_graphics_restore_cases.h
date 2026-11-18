@@ -6,6 +6,19 @@ static VkPipeline selected;
 static uint32_t vertex_slot,index_type;
 static VkDeviceSize vertex_offset,index_offset;
 static float width,blend_red;
+static uint32_t input_stride,input_divisor,input_binding,active_topology,active_restart;
+static VkDeviceSize bound_stride;
+static VKAPI_ATTR void VKAPI_CALL input(VkCommandBuffer,uint32_t count,const VkVertexInputBindingDescription2EXT* b,
+                                         uint32_t attributes,const VkVertexInputAttributeDescription2EXT* a){
+    if(count==1 && attributes==1){input_stride=b->stride;input_divisor=b->divisor;input_binding=a->binding;}
+    calls.push_back(104);
+}
+static VKAPI_ATTR void VKAPI_CALL topology(VkCommandBuffer,VkPrimitiveTopology value){active_topology=value;calls.push_back(105);}
+static VKAPI_ATTR void VKAPI_CALL restart(VkCommandBuffer,VkBool32 value){active_restart=value;calls.push_back(106);}
+static VKAPI_ATTR void VKAPI_CALL sized_vertices(VkCommandBuffer,uint32_t first,uint32_t,const VkBuffer*,const VkDeviceSize*,
+                                                const VkDeviceSize*,const VkDeviceSize* stride){
+    if(stride){vertex_slot=first;bound_stride=*stride;}calls.push_back(107);
+}
 static VkViewport viewport;
 static VkRect2D scissor;
 static std::array<uint32_t,2> stencil{};
@@ -65,7 +78,26 @@ static void native_graphics_restore_cases(){
     check(!prepare_native_graphics_restore(&d,&cb,result,why) && result.pipeline==saved,"Failed graphics preflight preserves an existing restoration");
     cb.graphics_dynamic=result.dynamic;recipe->dynamic.push_back(VK_DYNAMIC_STATE_CULL_MODE);
     check(!prepare_native_graphics_restore(&d,&cb,result,why),"Untracked extended dynamic state refuses explicitly");recipe->dynamic.pop_back();
-    cb.m2_extended_bind=true;check(!prepare_native_graphics_restore(&d,&cb,result,why),"Unproved extended IA windows refuse restoration");cb.m2_extended_bind=false;
+    cb.untracked_vertex_strides=true;check(!prepare_native_graphics_restore(&d,&cb,result,why),"Untracked extended IA strides refuse restoration");cb.untracked_vertex_strides=false;
+    cb.ib_range=8;check(!prepare_native_graphics_restore(&d,&cb,result,why),"A finite index fetch window cannot be widened by a prepared draw");cb.ib_range=VK_WHOLE_SIZE;
+    cb.vb[3].size=8;check(!prepare_native_graphics_restore(&d,&cb,result,why),"A finite vertex fetch window cannot be widened by a prepared draw");cb.vb[3].size=VK_WHOLE_SIZE;
+    auto input=std::make_shared<DynamicVertexInput>();input->complete=true;
+    input->bindings.push_back({3,16,1,2});input->attributes.push_back({0,3,VK_FORMAT_R32G32_SFLOAT,4});
+    cb.vertex_input=input;cb.topology=VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;cb.primitive_restart=true;
+    cb.vb[3].stride_known=true;cb.vb[3].stride=24;
+    recipe->dynamic.insert(recipe->dynamic.end(),{VK_DYNAMIC_STATE_VERTEX_INPUT_EXT,VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE,
+                                                 VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY,VK_DYNAMIC_STATE_PRIMITIVE_RESTART_ENABLE});
+    d.d.CmdSetVertexInputEXT=t::input;d.d.CmdBindVertexBuffers2EXT=t::sized_vertices;
+    d.d.CmdSetPrimitiveTopologyEXT=t::topology;d.d.CmdSetPrimitiveRestartEnableEXT=t::restart;
+    check(prepare_native_graphics_restore(&d,&cb,result,why),"Known dynamic input, independent stride, topology and restart prepare");
+    input->bindings[0].stride=64;input->attributes[0].binding=1;t::calls.clear();result.record(&d,h<VkCommandBuffer>(46005));
+    check(t::input_stride==16 && t::input_divisor==2 && t::input_binding==3 && t::bound_stride==24 && t::vertex_slot==3,
+        "Dynamic restoration retains declaration bytes, instance divisor and the last independent stride");
+    auto pipeline_at=std::find(t::calls.begin(),t::calls.end(),100);
+    auto input_at=std::find(pipeline_at,t::calls.end(),104);
+    check(pipeline_at!=t::calls.end() && input_at!=t::calls.end() && std::find(input_at,t::calls.end(),107)!=t::calls.end() &&
+          t::active_topology==VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP && t::active_restart,
+          "Dynamic declaration precedes the binding stride after pipeline restoration");
     on_unsupported_descriptor_bind(&cb,VK_PIPELINE_BIND_POINT_GRAPHICS,"test_unknown");
     check(!cb.graphics_sets_complete && !prepare_native_graphics_restore(&d,&cb,result,why),"Untracked graphics descriptors cannot restore a partial snapshot");
     cb.reset_recording();check(cb.graphics_sets_complete && cb.graphics_dynamic.complete && !cb.graphics_dynamic.viewport_mask,"Reset discards old graphics state completeness and values");

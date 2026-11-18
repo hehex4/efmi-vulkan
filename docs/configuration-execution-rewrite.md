@@ -333,6 +333,10 @@ prepared 155 remain validation-clean.
 D-349 through D-351 preserve image self-references, forward direct/indirect compute
 from_caller and implement the original call-local indirect argument resource.
 
+D-352 handles cached Store values, null resources and bounds. D-353 migrates
+hunting fixtures to original Include configuration. D-354 and D-355 project
+actual static or dynamic IA and restore vertex state around private graphics.
+
 These are scoped sandbox/GPU results. Compatibility is not complete:
 inherited samplers/comparison operations, current GPU Store boundaries, broader queue/source
 contracts and obsolete capture fixture migration remain. No game acceptance is

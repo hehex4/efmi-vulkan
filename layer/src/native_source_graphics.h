@@ -26,6 +26,11 @@ inline std::shared_ptr<const efmi::frontend::NativeGraphicsState> source_graphic
         case VK_DYNAMIC_STATE_SCISSOR:
             state->scissor_known=recipe.scissor_count==1 && (dynamic.scissor_mask&1);
             if(state->scissor_known)state->scissor=dynamic.scissors[0];break;
+        case VK_DYNAMIC_STATE_VERTEX_INPUT_EXT:case VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE:break;
+        case VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY:
+            if(cb.topology==UINT32_MAX)state->known&=~8u;else state->topology=VkPrimitiveTopology(cb.topology);break;
+        case VK_DYNAMIC_STATE_PRIMITIVE_RESTART_ENABLE:
+            if(cb.primitive_restart==UINT32_MAX)state->known&=~8u;else state->restart=cb.primitive_restart!=0;break;
         case VK_DYNAMIC_STATE_LINE_WIDTH:
             if(!(dynamic.known&(1u<<value)))state->known&=~4u;
             else state->raster.lineWidth=dynamic.line_width;break;

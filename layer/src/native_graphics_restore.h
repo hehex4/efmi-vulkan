@@ -6,7 +6,14 @@
 namespace efvk {
 struct CmdBuf;
 struct NativeGraphicsRestore : NativeDescriptorRestore {
-    struct Vertex {uint32_t slot=0;VkBuffer buffer=VK_NULL_HANDLE;VkDeviceSize offset=0;};
+    struct Vertex {uint32_t slot=0;VkBuffer buffer=VK_NULL_HANDLE;VkDeviceSize offset=0,stride=0;bool stride_known=false;};
+    std::vector<VkVertexInputBindingDescription2EXT> input_bindings;
+    std::vector<VkVertexInputAttributeDescription2EXT> input_attributes;
+    bool input_known=false;
+    uint32_t topology=UINT32_MAX,restart=UINT32_MAX;
+    PFN_vkCmdBindVertexBuffers2 bind_vertices=nullptr;
+    PFN_vkCmdSetPrimitiveTopology set_topology=nullptr;
+    PFN_vkCmdSetPrimitiveRestartEnable set_restart=nullptr;
     VkPipeline pipeline=VK_NULL_HANDLE;
     VkBuffer index=VK_NULL_HANDLE;
     VkDeviceSize index_offset=0;

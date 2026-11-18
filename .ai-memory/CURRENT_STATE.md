@@ -10,6 +10,16 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
+D-355 verified at 3.6.9 / ABI 23c5246c8797088c. Three inherited graphics
+cases improved from 9/15 to 15/15, with fresh replacement pixels in dynamic
+vertex input, independent stride and static-after-dynamic modes. The layer
+copies setter arrays, projects exact source semantics and restores the original
+declaration, stride, topology and restart in order. IA self-reference compares
+the effective physical binding. Original IA queries 46, tracker 1054 and ABI
+16 pass. Logs: graphics-dynamic-{before,binding-regression}.out. Limited
+vertex/index windows and persistent changed bindings still need coverage.
+Sandbox only; no game deployment.
+
 D-354 verified at 3.6.8 / ABI a0fb558d54581641. Original vertex queries
 select the stride of the active pipeline. A static pipeline following a
 dynamic setter previously returned 64 instead of the actual 8. Three live

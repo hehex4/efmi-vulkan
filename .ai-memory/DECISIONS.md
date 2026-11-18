@@ -3050,3 +3050,11 @@ Vulkan keeps the draw's declaration and binding metadata alive. Only an active
 dynamic vertex declaration replaces the static one. A separately enabled
 dynamic binding stride overrides it. Incomplete or absent dynamic locations
 cannot supply a stride.
+
+## D-355: Preserve effective vertex input across original CustomShader graphics
+
+CommandList.cpp 323-378 and 9736 acquire the current layout and IA bindings.
+The D3D11 context holds references until GPU retirement, orders draws and handles
+hazards. Vulkan retains and replays known setter values around the private
+pipeline and draws with exact archived vertex semantics. Binding windows and
+independent strides must be reproducible before private work is recorded.

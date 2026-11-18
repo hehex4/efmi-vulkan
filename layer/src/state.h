@@ -394,7 +394,7 @@ struct DrawRec {
     // (D-133). Code that binds its own pipeline in between binds this one back.
     VkPipeline bound = VK_NULL_HANDLE;
     VkBuffer ib = VK_NULL_HANDLE;
-    uint64_t ib_off = 0;
+    uint64_t ib_off = 0, ib_range = VK_WHOLE_SIZE;
     VkBuffer indirect = VK_NULL_HANDLE;
     uint64_t indirect_off = 0;
     VkBuffer indirect_count = VK_NULL_HANDLE;
@@ -469,6 +469,7 @@ struct CmdBuf {
     uint32_t id = 0;
     bool secondary = false;
     uint32_t tid = 0;
+    bool untracked_vertex_strides = false;
     bool m2_extended_bind = false; // the initial replacement cannot reproduce Bind*2 size/stride state
     // The work of each replacement backend recorded into this command buffer (several character
     // packages share one recording), kept until a legal recording reset/free after GPU completion.
@@ -499,7 +500,7 @@ struct CmdBuf {
     VkPipeline comp_pipeline = VK_NULL_HANDLE;
     VkPipeline comp_bound = VK_NULL_HANDLE;
     VkBuffer ib = VK_NULL_HANDLE;
-    uint64_t ib_off = 0;
+    uint64_t ib_off = 0, ib_range = VK_WHOLE_SIZE;
     uint8_t index_size = 0;
     VbBind vb[kMaxVb];
     SetBind sets[kMaxSets];

@@ -16,8 +16,16 @@ inline Key key(const NativeBinding& value){
     if(shader && value.stage>=6)throw std::runtime_error("Unknown native shader stage");
     return {shader?L"vhdgpc"[value.stage]:wchar_t(0),type(value.kind),value.slot};
 }
-inline bool equal(const GpuResourceBinding& a,const GpuResourceBinding& b){
+inline bool equal(ResourceCopyTargetType slot,const GpuResourceBinding& a,const GpuResourceBinding& b){
     if(!a && !b)return true;
+    using T=ResourceCopyTargetType;
+    if((slot==T::INDEX_BUFFER || slot==T::VERTEX_BUFFER) && a.buffer && a.buffer==b.buffer && a.offset==b.offset){
+        const auto remaining=a.buffer->size()-a.offset;
+        auto range=[&](const GpuResourceBinding& value){
+            return value.visible_size?std::min<VkDeviceSize>(value.visible_size,remaining):remaining;
+        };
+        return range(a)==range(b) && (slot==T::INDEX_BUFFER?a.format==b.format:a.stride==b.stride);
+    }
     // Image query metadata (format/stride/size) can be filled by a ref copy
     // without changing the retained typed view passed to the native context.
     if(a.image || b.image)return a.image==b.image && a.image_view==b.image_view && a.view==b.view;
@@ -129,7 +137,7 @@ std::unique_ptr<PreparedConfigurationDraw> OwnedRuntime::prepare_native_draw(std
                 const auto found=snapshot->bindings.find(item.first);
                 const GpuResourceBinding value=found==snapshot->bindings.end()?GpuResourceBinding{}:found->second;
                 const auto old=previous.find(item.first);
-                if(old!=previous.end() && equal(old->second,value))continue;
+                if(old!=previous.end() && equal(std::get<1>(item.first),old->second,value))continue;
                 const auto address=addresses.find(item.first);
                 // Original virtual registers survive for later CustomShaders.
                 // Only the current application's actual descriptor addresses

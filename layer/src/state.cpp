@@ -348,6 +348,7 @@ void on_bind_vertex_buffers(CmdBuf* cb,uint32_t first,uint32_t count,const VkBuf
             if(it->first>=first && uint64_t(it->first)-first<count)it=next->vertices.erase(it);else ++it;
         cb->native_geometry=next->empty()?nullptr:std::move(next);
     }
+    if(strides && uint64_t(first)+count>kMaxVb)cb->untracked_vertex_strides=true;
     if(first>=kMaxVb)return;
     const auto n=std::min(count,kMaxVb-first);
     for(uint32_t i=0;i<n;++i){
@@ -368,14 +369,14 @@ void CmdBuf::reset_recording()
     begin_flags = 0;
     for (auto& owner : owners) if (owner) owner->reset_after_completion();
     character_frame = 0;
-    m2_extended_bind = false;
+    m2_extended_bind = false;untracked_vertex_strides=false;
     gfx_pipeline = VK_NULL_HANDLE;
     gfx_bound = VK_NULL_HANDLE; topology = UINT32_MAX; primitive_restart = UINT32_MAX; vertex_input.reset();
     comp_pipeline = VK_NULL_HANDLE;
     comp_bound = VK_NULL_HANDLE;
     compute_sets_complete = true;
     ib = VK_NULL_HANDLE;
-    ib_off = 0;
+    ib_off = 0;ib_range=VK_WHOLE_SIZE;
     index_size = 0;
     for (VbBind& b : vb)
         b = VbBind();

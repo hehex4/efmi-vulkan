@@ -81,6 +81,10 @@ bool ia_resource(Device* device,CmdBuf* cb,const DrawRec& draw,const efmi::front
         output.format_known=true;
     }else{
         if(draw.index_size!=2 && draw.index_size!=4)return refuse("Native IA index type is unsupported");
+        if(draw.ib_range!=VK_WHOLE_SIZE){
+            if(draw.ib_range>output.range)return refuse("Native index binding range exceeds its allocation");
+            output.range=draw.ib_range;
+        }
         output.index_size=output.stride=draw.index_size;
         output.format=output.resource_format=draw.index_size==2?57u:42u;output.format_known=true;
     }

@@ -690,7 +690,7 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
                         request.source_codes[i]=found->second;
                         if(found->second)request.source_models[i]=found->second->model();
                     }
-                    if(i==0 && geometry->inputs && pipeline->second.recipe && pipeline->second.recipe->geometry_complete && !r.vertex_input){
+                    if(i==0 && geometry->inputs && pipeline->second.recipe && pipeline->second.recipe->geometry_complete){
                         auto found=geometry->profiles.find(stage.shader);
                         if(found==geometry->profiles.end() && geometry->profiles.size()<4096){
                             NativeGeometryContext::Profile entry;auto profile=std::make_shared<efmi::frontend::VertexProfile>();
@@ -698,16 +698,21 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
                             found=geometry->profiles.emplace(stage.shader,std::move(entry)).first;
                         }
                         if(found!=geometry->profiles.end() && found->second.value){
-                            const auto& vertex=pipeline->second.recipe->vertex;request.input_layout_known=true;
-                            for(const auto& attribute:vertex.attributes){
-                                const auto* semantic=found->second.value->semantic(attribute.location);
-                                const auto binding=std::find_if(vertex.bindings.begin(),vertex.bindings.end(),[&](const auto& value){return value.binding==attribute.binding;});
-                                const auto format=dxgi_format(attribute.format);
-                                if(!semantic || binding==vertex.bindings.end() || !format){request.input_layout_known=false;break;}
-                                const bool instance=binding->inputRate==VK_VERTEX_INPUT_RATE_INSTANCE;
-                                request.input_elements.push_back({semantic->name,semantic->index,format,attribute.binding,attribute.offset,uint32_t(instance),uint32_t(instance)});
+                            const auto& pipe=pipeline->second;
+                            const bool dynamic=std::find(pipe.dynamic_states.begin(),pipe.dynamic_states.end(),VK_DYNAMIC_STATE_VERTEX_INPUT_EXT)!=pipe.dynamic_states.end();
+                            if(!dynamic || (r.vertex_input && r.vertex_input->complete)){
+                                const auto& bindings=dynamic?r.vertex_input->bindings:pipe.bindings;
+                                const auto& attributes=dynamic?r.vertex_input->attributes:pipe.attributes;
+                                request.input_layout_known=true;
+                                for(const auto& a:attributes){
+                                    const auto* semantic=found->second.value->semantic(a.location);
+                                    const auto b=std::find_if(bindings.begin(),bindings.end(),[&](const auto& v){return v.binding==a.binding;});
+                                    const auto format=dxgi_format(VkFormat(a.format));
+                                    if(!semantic || b==bindings.end() || a.binding>=kMaxVb || !format){request.input_layout_known=false;break;}
+                                    request.input_elements.push_back({semantic->name,semantic->index,format,a.binding,a.offset,b->per_instance,b->per_instance?b->divisor:0});
+                                }
+                                if(!request.input_layout_known)request.input_elements.clear();
                             }
-                            if(!request.input_layout_known)request.input_elements.clear();
                         }
                     }
                 }

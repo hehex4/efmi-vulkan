@@ -41,22 +41,60 @@ void NativeGraphicsRestore::record(Device* device,VkCommandBuffer command,VkPipe
     // pipeline invalidates exactly its static states; dynamic states replay last.
     for(int value=VK_DYNAMIC_STATE_VIEWPORT;value<=VK_DYNAMIC_STATE_STENCIL_REFERENCE;++value)
         replay(d,command,dynamic,VkDynamicState(value));
+    auto required_state=[&](VkDynamicState s){return std::find(required.begin(),required.end(),s)!=required.end();};
+    auto restore_input=[&](bool after){
+        const bool declaration=input_known && (!after || required_state(VK_DYNAMIC_STATE_VERTEX_INPUT_EXT));
+        if(declaration)d.CmdSetVertexInputEXT(command,uint32_t(input_bindings.size()),input_bindings.data(),
+                                             uint32_t(input_attributes.size()),input_attributes.data());
+        if(topology!=UINT32_MAX && (!after || required_state(VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY)))
+            set_topology(command,VkPrimitiveTopology(topology));
+        if(restart!=UINT32_MAX && (!after || required_state(VK_DYNAMIC_STATE_PRIMITIVE_RESTART_ENABLE)))set_restart(command,restart);
+        for(const auto& v:vertices){
+            bool stride=v.stride_known && (!after || required_state(VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE));
+            if(stride && declaration)for(const auto& b:input_bindings)if(b.binding==v.slot && b.stride==v.stride){stride=false;break;}
+            if(stride)bind_vertices(command,v.slot,1,&v.buffer,&v.offset,nullptr,&v.stride);
+            else if(after)d.CmdBindVertexBuffers(command,v.slot,1,&v.buffer,&v.offset);
+        }
+    };
+    restore_input(false);
     if(selected || pipeline)d.CmdBindPipeline(command,VK_PIPELINE_BIND_POINT_GRAPHICS,selected?selected:pipeline);
     for(const auto state:required)replay(d,command,dynamic,state);
     record_sets(command,VK_PIPELINE_BIND_POINT_GRAPHICS);
-    for(const auto& vertex:vertices)d.CmdBindVertexBuffers(command,vertex.slot,1,&vertex.buffer,&vertex.offset);
+    restore_input(true);
     if(index)d.CmdBindIndexBuffer(command,index,index_offset,index_type);
 }
 bool prepare_native_graphics_restore(Device* device,const CmdBuf* cb,NativeGraphicsRestore& output,std::string& why,bool resource_lock_held){
     auto refuse=[&](const char* text){why=text;return false;};
     if(!device || !cb || device->passive || !g_cfg.track_resources || !cb->graphics_sets_complete || !cb->graphics_dynamic.complete)
         return refuse("Graphics bindings and dynamic state are not completely tracked");
-    if(cb->m2_extended_bind)return refuse("Graphics restoration needs exact effective vertex/index binding windows");
+    if(cb->untracked_vertex_strides || (cb->m2_extended_bind && cb->native_geometry && !cb->native_geometry->empty()))
+        return refuse("Graphics restoration needs the complete effective extended IA state");
     if(cb->gfx_pipeline && !cb->gfx_bound)return refuse("Actual graphics pipeline is unknown");
     if(!device->d.CmdBindPipeline || !device->d.CmdBindVertexBuffers || !device->d.CmdBindIndexBuffer ||
        !commands_available(device->d,cb->graphics_dynamic))return refuse("Graphics restoration commands are unavailable");
     std::shared_lock<std::shared_mutex> lock(device->res_mx,std::defer_lock);if(!resource_lock_held)lock.lock();
     NativeGraphicsRestore next;next.pipeline=cb->gfx_bound;next.dynamic=cb->graphics_dynamic;
+    const bool core13=std::min(device->api_version,device->app_api_version)>=VK_API_VERSION_1_3;
+    next.bind_vertices=core13?device->d.CmdBindVertexBuffers2:device->d.CmdBindVertexBuffers2EXT;
+    next.set_topology=core13?device->d.CmdSetPrimitiveTopology:device->d.CmdSetPrimitiveTopologyEXT;
+    next.set_restart=core13?device->d.CmdSetPrimitiveRestartEnable:device->d.CmdSetPrimitiveRestartEnableEXT;
+    next.topology=cb->topology;next.restart=cb->primitive_restart;
+    if((next.topology!=UINT32_MAX && !next.set_topology) || (next.restart!=UINT32_MAX && !next.set_restart))
+        return refuse("Graphics restoration lacks the recorded topology/restart commands");
+    if(cb->vertex_input){
+        if(!cb->vertex_input->complete || !device->d.CmdSetVertexInputEXT)return refuse("Graphics restoration lacks the dynamic vertex declaration");
+        for(const auto& b:cb->vertex_input->bindings){
+            VkVertexInputBindingDescription2EXT value{VK_STRUCTURE_TYPE_VERTEX_INPUT_BINDING_DESCRIPTION_2_EXT};
+            value.binding=b.binding;value.stride=b.stride;value.inputRate=b.per_instance?VK_VERTEX_INPUT_RATE_INSTANCE:VK_VERTEX_INPUT_RATE_VERTEX;
+            value.divisor=b.divisor;next.input_bindings.push_back(value);
+        }
+        for(const auto& a:cb->vertex_input->attributes){
+            VkVertexInputAttributeDescription2EXT value{VK_STRUCTURE_TYPE_VERTEX_INPUT_ATTRIBUTE_DESCRIPTION_2_EXT};
+            value.location=a.location;value.binding=a.binding;value.format=VkFormat(a.format);value.offset=a.offset;
+            next.input_attributes.push_back(value);
+        }
+        next.input_known=true;
+    }
     if(cb->gfx_pipeline){
         const auto pipeline=device->pipes.find(cb->gfx_pipeline);
         if(pipeline==device->pipes.end() || !pipeline->second.recipe || !pipeline->second.recipe->geometry_complete || pipeline->second.recipe->compute)
@@ -74,7 +112,13 @@ bool prepare_native_graphics_restore(Device* device,const CmdBuf* cb,NativeGraph
             }else if(state>=VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK && state<=VK_DYNAMIC_STATE_STENCIL_REFERENCE){
                 if(next.dynamic.stencil_faces[state-VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK]!=VK_STENCIL_FACE_FRONT_AND_BACK)
                     return refuse("Graphics restoration lacks a stencil face value");
-            }else return refuse("Graphics restoration requires an extended dynamic-state adapter");
+            }else if(state==VK_DYNAMIC_STATE_VERTEX_INPUT_EXT){
+                if(!next.input_known)return refuse("Graphics restoration lacks the active vertex declaration");
+            }else if(state==VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY){
+                if(next.topology==UINT32_MAX)return refuse("Graphics restoration lacks the active primitive topology");
+            }else if(state==VK_DYNAMIC_STATE_PRIMITIVE_RESTART_ENABLE){
+                if(next.restart==UINT32_MAX)return refuse("Graphics restoration lacks the active primitive restart value");
+            }else if(state!=VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE)return refuse("Graphics restoration requires an extended dynamic-state adapter");
         }
     }
     auto private_buffer=[&](const std::shared_ptr<const efmi::frontend::NativeResource>& resource,bool vertex){
@@ -90,11 +134,27 @@ bool prepare_native_graphics_restore(Device* device,const CmdBuf* cb,NativeGraph
                 next.vertices.push_back({slot,VkBuffer(found->second->buffer),found->second->offset});continue;
             }
         }
-        const auto& vertex=cb->vb[slot];if(!vertex.buf)continue;
+        const auto& vertex=cb->vb[slot];
+        if(!vertex.buf){
+            if(vertex.stride_known){
+                const auto known=std::find_if(next.input_bindings.begin(),next.input_bindings.end(),[&](const auto& b){return b.binding==slot && b.stride==vertex.stride;});
+                if(known==next.input_bindings.end())return refuse("Unbound vertex slot has an independently set stride");
+            }
+            continue;
+        }
         const auto found=device->bufs.find(vertex.buf);
         if(found==device->bufs.end() || vertex.off>=found->second.size || !(found->second.usage&VK_BUFFER_USAGE_VERTEX_BUFFER_BIT))
             return refuse("Graphics restoration vertex binding is unavailable");
-        next.vertices.push_back({slot,vertex.buf,vertex.off});
+        // Prepared vertex/index fetch currently uses the full remaining allocation.
+        if(vertex.size!=VK_WHOLE_SIZE && vertex.size!=found->second.size-vertex.off)
+            return refuse("Graphics restoration needs bounded original vertex fetch");
+        if(vertex.stride_known && !next.bind_vertices){
+            const auto binding=std::find_if(next.input_bindings.begin(),next.input_bindings.end(),[&](const auto& b){return b.binding==slot && b.stride==vertex.stride;});
+            const auto required=[&](VkDynamicState s){return std::find(next.required.begin(),next.required.end(),s)!=next.required.end();};
+            if(binding==next.input_bindings.end() || (required(VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE) && !required(VK_DYNAMIC_STATE_VERTEX_INPUT_EXT)))
+                return refuse("Graphics restoration cannot reapply a separately set vertex stride");
+        }
+        next.vertices.push_back({slot,vertex.buf,vertex.off,vertex.stride,vertex.stride_known});
     }
     if(cb->native_geometry && cb->native_geometry->index_overridden){const auto& index=cb->native_geometry->index;
         if(!private_buffer(index,false))return refuse("Graphics restoration needs a retained effective index binding");
@@ -103,6 +163,7 @@ bool prepare_native_graphics_restore(Device* device,const CmdBuf* cb,NativeGraph
         if(found==device->bufs.end() || !(found->second.usage&VK_BUFFER_USAGE_INDEX_BUFFER_BIT) ||
            (cb->index_size!=2 && cb->index_size!=4) || cb->ib_off%cb->index_size || cb->ib_off>=found->second.size)
             return refuse("Graphics restoration index binding is unavailable");
+        if(cb->ib_range!=VK_WHOLE_SIZE && cb->ib_range!=found->second.size-cb->ib_off)return refuse("Graphics restoration needs bounded original index fetch");
         next.index=cb->ib;next.index_offset=cb->ib_off;next.index_type=cb->index_size==2?VK_INDEX_TYPE_UINT16:VK_INDEX_TYPE_UINT32;
     }
     if(!prepare_native_descriptor_restore(device,cb->sets,cb->dyn,next,why,true))return false;

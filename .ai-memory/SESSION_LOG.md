@@ -4472,3 +4472,15 @@ dynamic setter previously returned 64 instead of the actual 8. Three live
 pipeline modes pass 12 checks, existing IA queries 34, tracker 1047, ABI 16
 and text 761 pass. Logs: ia-stride-{before,regression}.out. Extended binding
 restoration and application input layout projection still need completion.
+
+## D-355: Restore original dynamic input around CustomShader work
+
+D-355 verified at 3.6.9 / ABI 23c5246c8797088c. Three inherited graphics
+cases improved from 9/15 to 15/15, with fresh replacement pixels in dynamic
+vertex input, independent stride and static-after-dynamic modes. The layer
+copies setter arrays, projects exact source semantics and restores the original
+declaration, stride, topology and restart in order. IA self-reference compares
+the effective physical binding. Original IA queries 46, tracker 1054 and ABI
+16 pass. Logs: graphics-dynamic-{before,binding-regression}.out. Limited
+vertex/index windows and persistent changed bindings still need coverage.
+Sandbox only; no game deployment.

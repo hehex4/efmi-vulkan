@@ -43,6 +43,10 @@ static void application_ia_cases()
     address.kind=B::Index;
     check(native_resource(&d,&cb,draw,address,index,why) && index.keep && index.offset==32 && index.range==224 && index.format==42 && index.index_size==4,
           "application IA retains the actual index format and binding offset");
+    draw.ib_range=24;
+    check(native_resource(&d,&cb,draw,address,missing,why) && missing.range==24 && missing.size==256,
+          "A sized index binding keeps its physical window separate from the original allocation");
+    draw.ib_range=VK_WHOLE_SIZE;
     auto persistent=std::make_shared<NativeGeometryState>();persistent->index_overridden=true;
     auto retained=std::make_shared<efmi::frontend::NativeResource>(index);retained->index_size=2;retained->descriptor_type=0;
     persistent->index=retained;cb.native_geometry=persistent;
