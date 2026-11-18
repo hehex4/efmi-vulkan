@@ -23,7 +23,7 @@ std::vector<std::wstring> GpuShaderRuntime::install(DrawPlanAdapter& adapter){
     require(!adapter_,"GPU shader runtime cannot belong to two generations");adapter_=&adapter;
     resources_.draw_commands([this](auto& c,auto& s,auto& why){return draw(c,s,why);});
     auto boundaries=resources_.install(adapter);
-    adapter.prepared_original([this]{return patched_original_;},[this](auto& state,auto& why){return execute_original(state,why);});
+    adapter.prepared_original([this]{return patched_original_ || resources_.caller_changed();},[this](auto& state,auto& why){return execute_original(state,why);});
     adapter.draw_prepare([this](auto& s,auto& why){try{apply_input_layout(s);return true;}catch(const std::exception& e){why=widen(e.what());return false;}});
     adapter.shader_commands([this](auto& c,auto& s,auto& why){return run(c,s,why);});
     RuntimeParseCustomShaders([this](const auto& declaration){compile(declaration);});return boundaries;
@@ -200,12 +200,10 @@ bool GpuShaderRuntime::execute_original(CommandListState& state,std::wstring& wh
         }
         if(call.type==DrawCall::DispatchIndirect){
             require(adapter_ && adapter_->planning_prepared(),"Indirect caller dispatch needs retained application arguments");
-            const auto& args=indirect_arguments_;
-            require(args.bound && args.buffer && args.keep && (args.usage&VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT) &&
-                args.offset%4==0 && args.offset<=args.size && args.size-args.offset>=12,"Indirect caller dispatch lacks retained argument range/usage");
-            auto buffer=resources_.commands().import_buffer(VkBuffer(args.buffer),args.size,args.usage,VkDeviceMemory(args.memory),
-                args.memory_offset,args.memory_size,args.keep);
-            commands_.dispatch_indirect(compute_,descriptors({&compute_->program()}),buffer,args.offset);++dispatches_;return true;
+            const auto& buffer=resources_.caller_resource().buffer;
+            if(resources_.caller_changed() && !buffer)return true;
+            require(buffer && indirect_arguments_.bound,"Indirect caller dispatch lacks retained argument range/usage");
+            commands_.dispatch_indirect(compute_,descriptors({&compute_->program()}),buffer,indirect_arguments_.offset);++dispatches_;return true;
         }
         if(call.type==DrawCall::Dispatch){
             if(call.ThreadGroupCountX && call.ThreadGroupCountY && call.ThreadGroupCountZ){

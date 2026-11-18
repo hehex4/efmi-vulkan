@@ -3026,3 +3026,7 @@ FF and continue samplers/indirect this/current Store. No game action.
 ## D-350: Share prepared compute caller forwarding with original CustomShaders
 
 Keep the current compute shader and source arguments for draw = from_caller. A known null shader does no work. Bound native indirect offsets must fit the original unsigned 32-bit field. The indirect argument allocation is retained through the consuming GPU commands.
+
+## D-351: Keep the indirect resource local to the original caller
+
+The root argument resource is separate from IA, descriptor and attachment bindings. Import the full allocation through the existing identity registry, retain the independent argument offset, and release call-local changes on acceptance or rollback. Native indirect multi-draw and count-buffer commands require their own source semantics.

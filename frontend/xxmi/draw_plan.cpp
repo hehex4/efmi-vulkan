@@ -1570,7 +1570,13 @@ struct DrawPlanAdapter::Runtime {
             const auto* info = state->call_info;
             if(planning_prepared() || (facts && facts().native_calls)){
                 if(draw->type==DrawCommandType::FROM_CALLER){
-                    if(!info)return;item.operation=PlanOperation::Caller;indexed(item,*state);return;
+                    if(!info)return;
+                    if(planning_prepared() && prepared_original_gate && prepared_original_gate()){
+                        std::wstring why;
+                        if(!prepared_original_call(*state,why))refuse(why);
+                        cut_plan();return;
+                    }
+                    item.operation=PlanOperation::Caller;indexed(item,*state);return;
                 }
                 if(draw->type==DrawCommandType::DISPATCH){
                     item.operation=PlanOperation::Dispatch;item.index_count=positive(draw->args[0],state);

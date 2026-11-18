@@ -14,13 +14,13 @@ bool native_dynamic_outputs(const CmdBuf* cb, uint32_t context, uint32_t& mask)
     return true;
 }
 
-namespace {
-uint32_t buffer_bind_flags(uint32_t usage) {
+uint32_t native_buffer_bind_flags(uint32_t usage) {
     return ((usage&VK_BUFFER_USAGE_VERTEX_BUFFER_BIT)?1u:0u) | ((usage&VK_BUFFER_USAGE_INDEX_BUFFER_BIT)?2u:0u) |
         ((usage&VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT)?4u:0u) |
         ((usage&(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT))?8u:0u) |
         ((usage&(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT))?128u:0u);
 }
+namespace {
 bool ia_resource(Device* device,CmdBuf* cb,const DrawRec& draw,const efmi::frontend::NativeBinding& address,
                  efmi::frontend::NativeResource& output,std::string& why)
 {
@@ -36,7 +36,7 @@ bool ia_resource(Device* device,CmdBuf* cb,const DrawRec& draw,const efmi::front
             const auto& resource=vertex?found->second:state.index;
             if(resource){
                 output=*resource;output.descriptor_type=VK_DESCRIPTOR_TYPE_MAX_ENUM;
-                output.bind_flags=buffer_bind_flags(output.usage);
+                output.bind_flags=native_buffer_bind_flags(output.usage);
                 if(!vertex){output.format=output.resource_format=output.index_size==2?57u:42u;output.format_known=true;}
             }
             return true;
@@ -52,7 +52,7 @@ bool ia_resource(Device* device,CmdBuf* cb,const DrawRec& draw,const efmi::front
     output.size=buffer.size;output.offset=vertex?draw.vb[address.slot].off:draw.ib_off;
     if(output.offset>output.size)return refuse("Native IA offset exceeds the buffer");
     output.range=output.size-output.offset;
-    output.usage=buffer.usage;output.bind_flags=buffer_bind_flags(buffer.usage);
+    output.usage=buffer.usage;output.bind_flags=native_buffer_bind_flags(buffer.usage);
     output.memory=uint64_t(buffer.mem);output.memory_offset=buffer.mem_off;output.memory_size=buffer.mem_size;
     if(buffer.lifetime && !buffer.lifetime->dependencies.empty())output.keep=buffer.lifetime;
     if(vertex){
@@ -279,7 +279,7 @@ bool native_resource_locked(Device* device, CmdBuf* cb, const DrawRec& draw, con
         }
         const auto usage = buffer->second.usage;
         output.usage=usage;
-        output.bind_flags = buffer_bind_flags(usage);
+        output.bind_flags = native_buffer_bind_flags(usage);
         return true;
     }
     if (image) {

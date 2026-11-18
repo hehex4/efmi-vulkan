@@ -135,6 +135,8 @@ void GpuResourceRuntime::remember(SlotRangeCopyOperation& op){
 }
 void GpuResourceRuntime::rollback_prepared() noexcept {
     if(!prepared_state_)return;auto& undo=*prepared_state_;
+    caller_resource_={};original_caller_buffer_=VK_NULL_HANDLE;caller_known_=caller_changed_=false;
+
     for(const auto& value:undo.declarations){value.second.restore(*value.first);if(!value.second.substantiated)substantiated_.erase(value.first);}
     for(const auto& value:undo.shader_limits){value.first->frame_no=value.second.first;value.first->executions_this_frame=value.second.second;}
     if(undo.pools)undo.pools->restore_metadata();
@@ -172,7 +174,9 @@ std::shared_ptr<const gpu::PreparedResourceCommands> GpuResourceRuntime::cut_pre
 void GpuResourceRuntime::accept_prepared(){
     if(active_ || !prepared_state_ || commands_.preparing() || commands_.pending() || failed_)
         throw std::runtime_error("Prepared registry admission requires a successfully sealed scope");
-    commands_.accept_prepared();*prepared_state_->admission=true;prepared_state_.reset();
+    commands_.accept_prepared();
+    caller_resource_={};original_caller_buffer_=VK_NULL_HANDLE;caller_known_=caller_changed_=false;
+    *prepared_state_->admission=true;prepared_state_.reset();
     application_image_observer_={};
 }
 }

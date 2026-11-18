@@ -19,7 +19,7 @@ from build_shader_model_index import encode_sources
 
 def main():
     case = sys.argv[1] if len(sys.argv) > 1 else 'enabled'
-    if case not in ('enabled', 'unknown_source', 'unknown_layout', 'nested', 'reference', 'state', 'state_nested',
+    if case not in ('enabled', 'unknown_source', 'unknown_layout', 'direct_root_this', 'nested', 'reference', 'state', 'state_nested',
                     'indirect', 'indirect_nonindexed', 'indirect_count', 'regex', 'regex_nested', 'regex_nomatch', 'regex_caller_unknown', 'regex_caller', 'regex_caller_indirect', 'regex_caller_skip', 'regex_caller_pixel', 'regex_caller_self_ref', 'regex_caller_indirect_self_ref'):
         raise ValueError('Unknown inherited graphics fixture')
     original_caller = case in ('regex_caller', 'regex_caller_indirect', 'regex_caller_skip', 'regex_caller_pixel', 'regex_caller_self_ref', 'regex_caller_indirect_self_ref')
@@ -73,6 +73,9 @@ def main():
         'o0 = ref set_viewport o0\noD = null\n' + ''.join('o%d = null\n' % i for i in range(1, 8)) +
         ('run = CustomShaderNested\n' if case in ('nested', 'state_nested', 'regex_nested') else '') +
         'ResourceOriginalVB = ref vb0\nvb0 = ref ResourceTriangle\ndraw = from_caller\nvb0 = ref ResourceOriginalVB\n[CustomShaderNested]\nvs = offscreen.hlsl\ndraw = 3,0\n', encoding='ascii')
+    if case == 'direct_root_this':
+        ini = mods / 'graphics.ini'
+        ini.write_text(ini.read_text().replace('if rt_width == 4', 'if rt_width == 4 && ib->size > 0 && this->size == -2'), encoding='ascii')
     if case == 'reference':
         ini = mods / 'graphics.ini'
         ini.write_text(ini.read_text().replace('ResourceSaved = copy o0', 'ResourceSaved = ref o0'), encoding='ascii')
@@ -137,7 +140,7 @@ def main():
         checks.equal(sb.proc.returncode, 0, 'Inherited graphics sandbox exits normally')
         (root / (case + '-stdout.txt')).write_text(sb.output(), encoding='utf-8')
         (root / (case + '-layer.log')).write_text(sb.log(), encoding='utf-8')
-    accepted = case in ('enabled', 'nested', 'reference', 'state', 'state_nested', 'indirect', 'indirect_nonindexed', 'regex', 'regex_nested', 'regex_nomatch', 'regex_caller', 'regex_caller_indirect', 'regex_caller_skip', 'regex_caller_pixel', 'regex_caller_self_ref', 'regex_caller_indirect_self_ref')
+    accepted = case in ('enabled', 'direct_root_this', 'nested', 'reference', 'state', 'state_nested', 'indirect', 'indirect_nonindexed', 'regex', 'regex_nested', 'regex_nomatch', 'regex_caller', 'regex_caller_indirect', 'regex_caller_skip', 'regex_caller_pixel', 'regex_caller_self_ref', 'regex_caller_indirect_self_ref')
     checks.check(pixels.exists(), 'This process produced a fresh completed image')
     checks.equal(colored_pixels(pixels, (0, 0, 255) if case == 'regex_caller_pixel' else (255, 255, 0)) > 200, accepted and case not in ('regex_nomatch', 'regex_caller_skip'), 'Inherited VS/IA produce actual replacement pixels; unknown proof preserves the caller')
     reason = status.get('shader_overrides', {}).get('last_reason', '')

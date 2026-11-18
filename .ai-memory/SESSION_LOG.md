@@ -4429,3 +4429,14 @@ direct path. Inherited compute 12, indirect compute regex 16, image self-referen
 10, transaction 5, text 761, configuration CPU 57 and full interpreter 602 pass.
 Evidence: compute-from-caller-{before,regression,cpu,interpreter}.out.
 Next correct native root this and its mutable indirect arguments. Sandbox only.
+
+## D-351: Original caller resource scope
+
+D-351 verified at 3.6.6 / ABI a9e9eb296b5ec282. Direct calls see a null
+root this, including indexed draws. Single indirect calls expose the full
+argument buffer independently of its offset. Redirecting the argument changes
+GPU output; restoring the original buffer permits native forwarding. Five
+production cases pass 21 checks (old indirect guard read 0, expected 23).
+Prepared 155, CPU 57, interpreter 602, tracker 1042 and ABI 16 pass.
+Logs: indirect-this-{final,regression,prepared,cpu,interpreter}.out. Sandbox only.
+Next resolve original Store cache, bounds, and ordered GPU feedback.

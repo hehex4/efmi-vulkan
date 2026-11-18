@@ -7,6 +7,15 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
+D-351 verified at 3.6.6 / ABI a9e9eb296b5ec282. Direct calls see a null
+root this, including indexed draws. Single indirect calls expose the full
+argument buffer independently of its offset. Redirecting the argument changes
+GPU output; restoring the original buffer permits native forwarding. Five
+production cases pass 21 checks (old indirect guard read 0, expected 23).
+Prepared 155, CPU 57, interpreter 602, tracker 1042 and ABI 16 pass.
+Logs: indirect-this-{final,regression,prepared,cpu,interpreter}.out. Sandbox only.
+Next resolve original Store cache, bounds, and ordered GPU feedback.
+
 D-350 verified at 3.6.5 / ca3dfae1e8932a4d. Original compute from_caller
 direct and offset-16 indirect both read GPU 23 (8 checks), versus 7 from the old
 direct path. Inherited compute 12, indirect compute regex 16, image self-reference

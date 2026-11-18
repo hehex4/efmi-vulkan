@@ -8,6 +8,7 @@ void GpuResourceRuntime::begin_prepared(const ApplicationResourceState& applicat
         "Application binding snapshot exceeds its budget");
     begin_prepared();
     try{
+        caller_resource_={};caller_known_=false;caller_changed_=false;
         Bindings slots;
         decltype(source_identities_) identities;
         std::map<uint64_t,std::shared_ptr<const SourceResourceIdentity>> source_facts;
@@ -27,10 +28,10 @@ void GpuResourceRuntime::begin_prepared(const ApplicationResourceState& applicat
         for(const auto& input:application.buffers){
             using T=ResourceCopyTargetType;
             const auto type=input.type;
-            require(type==T::VERTEX_BUFFER || type==T::INDEX_BUFFER || type==T::CONSTANT_BUFFER ||
+            require(type==T::THIS_RESOURCE || type==T::VERTEX_BUFFER || type==T::INDEX_BUFFER || type==T::CONSTANT_BUFFER ||
                 type==T::SHADER_RESOURCE || type==T::UNORDERED_ACCESS_VIEW,"Application import needs a buffer source slot");
             ResourceCopyTarget target;target.type=type;target.shader_type=input.stage;target.slot=input.slot;
-            CommandListState state;const auto key=slot(target,state);
+            CommandListState state;const auto key=type==T::THIS_RESOURCE?Slot{0,type,0}:slot(target,state);
             require(!slots.count(key),"Application snapshot contains a duplicate source slot");
             const auto& r=input.resource;
             GpuResourceBinding value;
@@ -57,7 +58,7 @@ void GpuResourceRuntime::begin_prepared(const ApplicationResourceState& applicat
                     desc.ByteWidth%desc.StructureByteStride==0):desc.StructureByteStride==0),"Application source structure description is invalid");
                 const UINT flag=type==T::VERTEX_BUFFER?D3D11_BIND_VERTEX_BUFFER:type==T::INDEX_BUFFER?D3D11_BIND_INDEX_BUFFER:
                     type==T::CONSTANT_BUFFER?D3D11_BIND_CONSTANT_BUFFER:type==T::SHADER_RESOURCE?D3D11_BIND_SHADER_RESOURCE:D3D11_BIND_UNORDERED_ACCESS;
-                require((desc.BindFlags&flag)!=0,"Application source slot lacks its original bind flag");
+                require(type==T::THIS_RESOURCE || (desc.BindFlags&flag)!=0,"Application source slot lacks its original bind flag");
                 auto previous=imported_buffers_.find(r.identity);
                 if(previous!=imported_buffers_.end())value.buffer=previous->second.buffer.lock();
                 if(value.buffer){
@@ -106,6 +107,13 @@ void GpuResourceRuntime::begin_prepared(const ApplicationResourceState& applicat
                 identify(r.identity,input.identity,value.buffer);
             }
             slots.emplace(key,std::move(value));
+        }
+        // An indirect argument pointer is local to the call, outside the bound pipeline slots.
+        auto root=slots.extract(Slot{0,ResourceCopyTargetType::THIS_RESOURCE,0});
+        if(!root.empty()){
+            caller_resource_=std::move(root.mapped());
+            original_caller_buffer_=caller_resource_.buffer?caller_resource_.buffer->buffer():VK_NULL_HANDLE;
+            caller_known_=true;
         }
         std::map<uint64_t,GpuResourceBinding> observed_images;
         auto observe=[&](const std::shared_ptr<const ApplicationImageSource>& source){

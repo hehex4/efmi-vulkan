@@ -10,6 +10,15 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
+D-351 verified at 3.6.6 / ABI a9e9eb296b5ec282. Direct calls see a null
+root this, including indexed draws. Single indirect calls expose the full
+argument buffer independently of its offset. Redirecting the argument changes
+GPU output; restoring the original buffer permits native forwarding. Five
+production cases pass 21 checks (old indirect guard read 0, expected 23).
+Prepared 155, CPU 57, interpreter 602, tracker 1042 and ABI 16 pass.
+Logs: indirect-this-{final,regression,prepared,cpu,interpreter}.out. Sandbox only.
+Next resolve original Store cache, bounds, and ordered GPU feedback.
+
 D-350 verified at 3.6.5 / ca3dfae1e8932a4d. Original compute from_caller
 direct and offset-16 indirect both read GPU 23 (8 checks), versus 7 from the old
 direct path. Inherited compute 12, indirect compute regex 16, image self-reference

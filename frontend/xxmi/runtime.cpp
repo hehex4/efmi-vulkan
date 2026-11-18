@@ -907,7 +907,7 @@ bool IniRuntime::run_draw(const RuntimeDraw& input, assets::FilePlan& output, st
         auto s = p.command_state(); s.call_info = &call; std::wstring why;
         ResourceCopyTarget index_target;
         index_target.type = ResourceCopyTargetType::INDEX_BUFFER;
-        s.this_target = &index_target;
+        s.this_target = input.native_calls ? nullptr : &index_target;
         if (p.extension && !p.extension->before_draw(input, s, why)) throw std::runtime_error(utf8(why));
         phase("phase before_draw");
         if(!matches.empty() || shader_lists || p.adapter.planning_prepared()){

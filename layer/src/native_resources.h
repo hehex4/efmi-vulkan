@@ -3,6 +3,7 @@
 #include "../../frontend/xxmi/native_bindings.h"
 
 namespace efvk {
+uint32_t native_buffer_bind_flags(uint32_t usage);
 bool native_resource_locked(Device*, CmdBuf*, const DrawRec&, const efmi::frontend::NativeBinding&,
                             efmi::frontend::NativeResource&, std::string&);
 // Presence only: no layout proof or ownership is acquired from these immutable snapshots.

@@ -164,6 +164,8 @@ public:
     const GpuResourceBinding& ini_parameters() const {return parameters_;}
     // Recorded uploads, not completed GPU execution or application binding.
     uint64_t parameter_uploads() const {return parameter_uploads_;}
+    const GpuResourceBinding& caller_resource() const {return caller_resource_;}
+    bool caller_changed() const {return caller_changed_;}
     gpu::ResourceCommands& commands(){return commands_;}
     struct OutputState {
         D3D11_VIEWPORT viewport{};
@@ -185,6 +187,9 @@ private:
     void remember(CustomResourcePool*);
     void remember(PoolCopyOperation&);
     void rollback_prepared() noexcept;
+    GpuResourceBinding caller_resource_;
+    VkBuffer original_caller_buffer_=VK_NULL_HANDLE;
+    bool caller_known_=false,caller_changed_=false;
     struct ImportedBuffer {
         std::weak_ptr<gpu::BufferResource> buffer;
         D3D11_BUFFER_DESC description{};

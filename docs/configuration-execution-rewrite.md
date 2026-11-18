@@ -330,7 +330,10 @@ single-indirect caller boundaries. Actual vertex/pixel output, skip, unmatched,
 nested restore and unknown-stage guards pass 40 checks; owned graphics 334 and
 prepared 155 remain validation-clean.
 
+D-349 through D-351 preserve image self-references, forward direct/indirect compute
+from_caller and implement the original call-local indirect argument resource.
+
 These are scoped sandbox/GPU results. Compatibility is not complete:
-inherited samplers/comparison operations, indirect root this, current GPU Store boundaries, broader queue/source
+inherited samplers/comparison operations, current GPU Store boundaries, broader queue/source
 contracts and obsolete capture fixture migration remain. No game acceptance is
 implied and native-route work follows completion of this compatibility rewrite.

@@ -19,7 +19,7 @@ inline bool native_application_state(Device* device,CmdBuf* cb,const DrawRec& dr
         const auto found=device->bufs.find(draw.indirect);
         if(found!=device->bufs.end()){
             const auto& buffer=found->second;args.size=buffer.size;args.usage=buffer.usage;
-            args.identity=uint64_t(buffer.id)<<2;args.dimension=1;
+            args.bind_flags=native_buffer_bind_flags(buffer.usage);args.identity=uint64_t(buffer.id)<<2;args.dimension=1;
             args.memory=uint64_t(buffer.mem);args.memory_offset=buffer.mem_off;args.memory_size=buffer.mem_size;
             if(buffer.lifetime && !buffer.lifetime->dependencies.empty())args.keep=buffer.lifetime;
         }

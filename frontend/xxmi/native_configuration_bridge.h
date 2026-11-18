@@ -86,11 +86,30 @@ std::unique_ptr<PreparedConfigurationDraw> OwnedRuntime::prepare_native_draw(std
                 binding.resource=r;binding.source_known=true;binding.identity=identity;binding.stride=r.stride;binding.retained=r.prepared_source;
                 binding.description.ByteWidth=UINT(r.size);binding.description.BindFlags=r.bind_flags;
                 binding.description.StructureByteStride=entry.structure_stride;
+                if(r.usage&VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT)binding.description.MiscFlags|=D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS;
                 if(entry.structure_stride)binding.description.MiscFlags|=D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
                 if(entry.raw)binding.description.MiscFlags|=D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
                 if(r.prepared_source)binding.description=r.prepared_source->description;
                 binding.format=DXGI_FORMAT(r.format);application.buffers.push_back(std::move(binding));
             }
+        }
+        const auto& args=input.indirect_arguments;
+        if(draw.indirect && args.bound && args.keep && args.size && args.size<=UINT_MAX){
+            GpuResourceRuntime::ApplicationBufferBinding binding;
+            for(const auto& alias:application.buffers){
+                if(alias.resource.identity==args.identity){binding=alias;break;}
+            }
+            binding.type=ResourceCopyTargetType::THIS_RESOURCE;
+            binding.stage=0;binding.slot=0;binding.stride=0;binding.format=DXGI_FORMAT_UNKNOWN;
+            binding.resource=args;binding.resource.offset=0;binding.resource.range=args.size;
+            binding.source_known=true;binding.description.ByteWidth=UINT(args.size);
+            binding.description.BindFlags=args.bind_flags;binding.description.MiscFlags|=D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS;
+            if(!binding.identity){
+                auto identity=std::make_shared<SourceResourceIdentity>();
+                identity->tracking=SourceResourceIdentity::Tracking::Tracked;
+                binding.identity=std::move(identity);
+            }
+            application.buffers.push_back(std::move(binding));
         }
         auto observed=draw;if(input.source_declaration)observed.source_declaration=input.source_declaration;
         observed.indirect_arguments=input.indirect_arguments;

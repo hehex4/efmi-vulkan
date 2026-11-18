@@ -1,5 +1,12 @@
 # EFMI Vulkan - Architecture
 
+At 3.6.6, the compatibility executor projects retained source bindings and
+exact paired shader programs into original command lists. Direct and single
+indirect callers support inherited compute/graphics and patterned ShaderRegex
+within proven state. The indirect argument pointer is call-local and mutable.
+CustomShader scope retains independent caller offsets and restores stage state.
+Inherited samplers, current GPU Store and wider queue/layout coverage remain.
+
 D-332 through D-337 connect installed Core initialization/bone import, exact
 paired shader models, original patternless regex entry, retained prepared graphics
 and core application graphics state restoration. Original CustomShader graphics

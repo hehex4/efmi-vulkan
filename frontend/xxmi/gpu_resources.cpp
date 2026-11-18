@@ -51,8 +51,14 @@ VkBufferUsageFlags usage(const D3D11_BUFFER_DESC& d) {
     require(!(d.BindFlags&~(D3D11_BIND_VERTEX_BUFFER|D3D11_BIND_INDEX_BUFFER|D3D11_BIND_CONSTANT_BUFFER|D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_UNORDERED_ACCESS)),"GPU buffer bind flags need another adapter");
     return result;
 }
+bool indirect_call(const CommandListState& state){
+    if(!state.call_info)return false;
+    const auto type=state.call_info->type;
+    return type==DrawCall::DispatchIndirect || type==DrawCall::DrawInstancedIndirect || type==DrawCall::DrawIndexedInstancedIndirect;
+}
 uint32_t bind_flag(Target t) {
     switch(t){
+    case Target::THIS_RESOURCE:return 0;
     case Target::VERTEX_BUFFER:return D3D11_BIND_VERTEX_BUFFER;
     case Target::INDEX_BUFFER:return D3D11_BIND_INDEX_BUFFER;
     case Target::CONSTANT_BUFFER:return D3D11_BIND_CONSTANT_BUFFER;
@@ -174,8 +180,9 @@ void GpuResourceRuntime::suspend(){active();require(site_!=ExecutionSite::Prepar
 void GpuResourceRuntime::discard(){commands_.discard();rollback_prepared();active_=false;failed_=false;prepared_plan_=false;application_image_observer_={};}
 void GpuResourceRuntime::active() const {require(active_,"GPU resource operation has no outside-render-pass execution scope");}
 ResourceCopyTarget& GpuResourceRuntime::effective(ResourceCopyTarget& t,CommandListState& state) {
-    if(t.type!=Target::THIS_RESOURCE)return t;
-    require(state.this_target && state.this_target->type!=Target::THIS_RESOURCE,"GPU this target missing or cyclic");return *state.this_target;
+    if(t.type!=Target::THIS_RESOURCE || !state.this_target)return t;
+    require(state.this_target->type!=Target::THIS_RESOURCE,"Cyclic GPU this target");
+    return *state.this_target;
 }
 GpuResourceRuntime::Slot GpuResourceRuntime::slot(ResourceCopyTarget& t,CommandListState& state) {
     unsigned limit=0;bool stage=false;
@@ -216,6 +223,8 @@ GpuResourceBinding GpuResourceRuntime::load(CustomResource& r,ResourceCopyTarget
     if(first && destination){
         D3D11_RESOURCE_MISC_FLAG misc=D3D11_RESOURCE_MISC_FLAG(0);
         const auto flags=destination->BindFlags(state,&misc);
+        if(destination->type==Target::THIS_RESOURCE && !state->this_target && indirect_call(*state))
+            misc=D3D11_RESOURCE_MISC_FLAG(misc|D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS);
         r.bind_flags=D3D11_BIND_FLAG(r.bind_flags|flags);r.misc_flags=D3D11_RESOURCE_MISC_FLAG(r.misc_flags|misc);
     }
     require(resources_.size()<65536,"GPU resource declaration budget exceeded");
@@ -353,7 +362,12 @@ GpuResourceBinding GpuResourceRuntime::get(ResourceCopyTarget& input,CommandList
     auto& t=effective(input,state);GpuResourceBinding b;
     require(!t.IsRange(),"GPU range command requires the slot-range adapter");
     if(t.type==Target::EMPTY)return {};
-    if(t.type==Target::INI_PARAMS){
+    if(t.type==Target::THIS_RESOURCE){
+        if(!indirect_call(state))return {};
+        require(caller_known_,"Indirect this needs a proven single caller argument allocation");
+        b=caller_resource_;b.drop_view();b.format=DXGI_FORMAT_UNKNOWN;
+        b.offset=b.stride=b.source_stride=b.visible_size=0;b.region=false;
+    }else if(t.type==Target::INI_PARAMS){
         require(parameters_initialized_,"GPU parameters used before initialization");b=parameters_;
         // The original special target returns its image/view without supplying
         // any out-of-band format or buffer metadata. Reading never flushes it.
@@ -398,6 +412,13 @@ GpuResourceBinding GpuResourceRuntime::get(ResourceCopyTarget& input,CommandList
 void GpuResourceRuntime::set(ResourceCopyTarget& input,CommandListState& state,const GpuResourceBinding& b) {
     auto& t=effective(input,state);
     require(t.evaluation_mode==Mode::RESOURCE && !t.IsRange(),"GPU assignment needs a single resource target");
+    if(t.type==Target::THIS_RESOURCE){
+        if(!indirect_call(state))return;
+        require(caller_known_,"Cannot redirect an unproven indirect caller");
+        require(!b || b.buffer,"Indirect this requires a buffer resource");
+        caller_changed_=(b.buffer?b.buffer->buffer():VK_NULL_HANDLE)!=original_caller_buffer_;
+        caller_resource_=b;caller_resource_.drop_view();return;
+    }
     if(b.image && backbuffer_ && b.image==backbuffer_.image && (t.type==Target::RENDER_TARGET || t.type==Target::UNORDERED_ACCESS_VIEW))backbuffer_targeted_=true;
     if(t.type==Target::CUSTOM_RESOURCE){auto* r=declaration(t,state,true);require(r!=nullptr,"GPU resource destination missing");
         remember(*r);
@@ -429,6 +450,7 @@ void GpuResourceRuntime::copy(ResourceCopyOperation& op,CommandListState& state)
         uint32_t(ResourceCopyOptions::MONO)|uint32_t(ResourceCopyOptions::SET_VIEWPORT)|uint32_t(ResourceCopyOptions::RESOLVE_MSAA);
     require(!(uint32_t(op.options)&~allowed),"GPU copy option requires an additional adapter");
     auto& dst=effective(op.dst,state);
+    if(dst.type==Target::THIS_RESOURCE && !indirect_call(state))return;
     remember(dst.custom_resource_pool);remember(op.src.custom_resource_pool);
     if(op.src.type==Target::EMPTY){set(dst,state,{});return;} // Explicit null ignores unless_null upstream.
     // A reference substantiates its source with the destination's bind flags; a copy does not (D-151).
@@ -499,6 +521,7 @@ void GpuResourceRuntime::copy_to(ResourceCopyOperation& op,ResourceCopyTarget& d
     if(source.image){image_copy(op,dst,state,std::move(source),custom,cache);return;}
     GpuResourceBinding out=source;out.description.BindFlags=custom?custom->bind_flags:bind_flag(dst.type);
     if(custom)out.description.MiscFlags|=custom->misc_flags;
+    if(dst.type==Target::THIS_RESOURCE)out.description.MiscFlags|=D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS;
     if(!(out.description.BindFlags&(D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_UNORDERED_ACCESS)))out.description.MiscFlags&=~D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
     UINT source_end=source.visible_size,destination_size=0;
     const bool source_view=source.view!=GpuResourceBinding::View::None;
