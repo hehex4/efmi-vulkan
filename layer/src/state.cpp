@@ -445,6 +445,7 @@ void on_alloc_memory(Device* dev, VkDeviceMemory mem, const VkMemoryAllocateInfo
         m.lifetime=std::make_shared<MemoryLifetime>();m.lifetime->device=dev->handle;
         m.lifetime->handle=mem;m.lifetime->destroy=dev->d.FreeMemory;
     }
+    m.plain_allocation = info->pNext == nullptr;
     m.size = info->allocationSize;
     m.type_index = info->memoryTypeIndex;
 }

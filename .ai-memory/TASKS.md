@@ -7,6 +7,17 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
+D-352 verified at 3.6.7 / ABI a0fb558d54581641. Original Store preserves
+the variable on a null source, reads a proven cached float at its allocation
+index and writes zero outside the copy region. Prepared cancellation restores
+the Store destination, including the existing pool journal. The application
+reader accepts only a live coherent mapping of a private read-only buffer with
+no other bound objects. In-range writable GPU data still needs ordered feedback.
+Production four cases 16/16 (baseline cached 2/4), other cache queries 4/4,
+configuration 396, prepared 155, tracker 1042, ABI 16 and text 761 pass.
+See store-cache-{before,regression,configuration,prepared}.out. Sandbox only.
+Next migrate remaining package-era fixtures and continue native source state.
+
 D-351 verified at 3.6.6 / ABI a9e9eb296b5ec282. Direct calls see a null
 root this, including indexed draws. Single indirect calls expose the full
 argument buffer independently of its offset. Redirecting the argument changes

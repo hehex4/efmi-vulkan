@@ -19,6 +19,8 @@ struct SourceResourceIdentity {
     // Empty means no completed CPU observation; never initiates GPU submission.
     using CachedData=std::shared_ptr<const std::vector<uint8_t>>;
     std::function<CachedData()> cached_data;
+    // Store may observe only an up-to-date cache of this physical allocation.
+    std::function<bool(uint64_t,float&)> read_cached_float;
 };
 using SourceResourceDescription=std::variant<std::monostate,D3D11_BUFFER_DESC,
     D3D11_TEXTURE1D_DESC,D3D11_TEXTURE2D_DESC,D3D11_TEXTURE3D_DESC>;

@@ -40,6 +40,7 @@ elif $attempt <= 4
  run = CommandListReplace
 elif $attempt == 5
  clear = ResourceCopy 99
+ store = $feedback, ResourceCopy, 4
  store = $feedback, ResourceCopy, 0
 elif $attempt == 6
  cs-u0 = ref ResourceCopy
@@ -109,6 +110,7 @@ endif
     begin(11);record(resources.finish_prepared());
     check(read(slot(),{31,37,41,43}) && read(slot(1),{31,37,41,43}),"Retry reinitializes lazy source and per-instruction destination after cancellation");
     begin(12);check(resources.failed(),"A later unsupported operation fails the entire speculative GPU scope");
+    check(ini->status().variables.at("$feedback")==0,"Out-of-range Store is visible to later commands before cancellation");
     refuses([&]{resources.finish_prepared();},"A failed registry cannot seal partial commands");
     resources.discard();check(ini->status().variables.at("$feedback")==-1 && read(slot(),{31,37,41,43}),
         "Failure rolls back the earlier clear and leaves synchronous feedback untouched");

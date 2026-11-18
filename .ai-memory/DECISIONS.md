@@ -3030,3 +3030,14 @@ Keep the current compute shader and source arguments for draw = from_caller. A k
 ## D-351: Keep the indirect resource local to the original caller
 
 The root argument resource is separate from IA, descriptor and attachment bindings. Import the full allocation through the existing identity registry, retain the independent argument offset, and release call-local changes on acceptance or rollback. Native indirect multi-draw and count-buffer commands require their own source semantics.
+
+## D-352: Read Store from verified current CPU data before requesting GPU feedback
+
+CommandList.cpp 1758-1825 and 1936-1954 read an allocation-relative float from
+the handle cache, preserve a missing source and zero a failed bounds check.
+Only an in-range miss needs immediate-context staging and a completed map.
+DX11 supplies reference-counted deferred lifetime, hazard tracking and one-context
+order. Vulkan retains its source and separates current mapped read-only data from
+writable GPU data. Cancelling a prepared Store restores its output. Hash cache
+snapshots and memory still writable through another object do not prove this
+value. The layer never submits an application's unfinished recording for Store.

@@ -65,6 +65,7 @@ struct GpuResourceRuntime::PreparedState {
     };
     std::shared_ptr<bool> admission=std::make_shared<bool>(false);
     std::map<CustomResource*,Declaration> declarations;
+    std::map<CommandListVariable*,float> store_values;
     std::map<CustomShader*,std::pair<unsigned,int>> shader_limits;
     ResourceMapUndo<decltype(resources_)> resources;
     ResourceMapUndo<decltype(cached_sources_)> cached_sources;
@@ -139,6 +140,7 @@ void GpuResourceRuntime::rollback_prepared() noexcept {
 
     for(const auto& value:undo.declarations){value.second.restore(*value.first);if(!value.second.substantiated)substantiated_.erase(value.first);}
     for(const auto& value:undo.shader_limits){value.first->frame_no=value.second.first;value.first->executions_this_frame=value.second.second;}
+    for(const auto& item:undo.store_values)item.first->fval=item.second;
     if(undo.pools)undo.pools->restore_metadata();
     undo.resources.restore(resources_);undo.copies.restore(copies_);
     undo.cached_sources.restore(cached_sources_);

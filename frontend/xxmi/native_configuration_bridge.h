@@ -36,6 +36,12 @@ std::unique_ptr<PreparedConfigurationDraw> OwnedRuntime::prepare_native_draw(std
         std::map<Key,const NativeApplicationBinding*> addresses;
         std::map<uint64_t,std::shared_ptr<const SourceResourceIdentity>> identities;
         std::map<uint64_t,std::shared_ptr<const GpuResourceRuntime::ApplicationImageSource>> images;
+        auto store_reader=[&](SourceResourceIdentity& identity,const NativeResource& resource){
+            if(resource.buffer && !(resource.identity&3) && input.read_cached_float)
+                identity.read_cached_float=[read=input.read_cached_float,id=resource.identity](uint64_t offset,float& value){
+                    return read(id,offset,value);
+                };
+        };
         for(const auto& entry:input.bindings){
             const auto k=key(entry.address);const auto& r=entry.resource;
             application.mapped_slots.insert(k);
@@ -45,7 +51,7 @@ std::unique_ptr<PreparedConfigurationDraw> OwnedRuntime::prepare_native_draw(std
             if(!identity){auto value=std::make_shared<SourceResourceIdentity>();value->tracking=(r.identity&3)==3?
                 SourceResourceIdentity::Tracking::Untracked:SourceResourceIdentity::Tracking::Tracked;
                 value->hash_known=r.hash_known;value->hash=r.hash_known?r.hash:0;
-                value->cached_data=entry.cached_data;
+                value->cached_data=entry.cached_data;store_reader(*value,r);
                 if(entry.region_hash)value->region_hash=[read=entry.region_hash](UINT offset,UINT size,uint32_t& hash,std::wstring& why){
                     if(read(offset,size,hash))return true;why=L"Native application buffer region has no completed readable contents";return false;};
                 identity=std::move(value);}
@@ -107,7 +113,7 @@ std::unique_ptr<PreparedConfigurationDraw> OwnedRuntime::prepare_native_draw(std
             if(!binding.identity){
                 auto identity=std::make_shared<SourceResourceIdentity>();
                 identity->tracking=SourceResourceIdentity::Tracking::Tracked;
-                binding.identity=std::move(identity);
+                store_reader(*identity,args);binding.identity=std::move(identity);
             }
             application.buffers.push_back(std::move(binding));
         }

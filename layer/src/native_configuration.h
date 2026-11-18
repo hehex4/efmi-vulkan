@@ -24,6 +24,29 @@ inline bool native_application_state(Device* device,CmdBuf* cb,const DrawRec& dr
             if(buffer.lifetime && !buffer.lifetime->dependencies.empty())args.keep=buffer.lifetime;
         }
     }
+    next.read_cached_float=[device](uint64_t identity,uint64_t offset,float& value){
+        const auto id=uint32_t(identity>>2);
+        if(!id || (uint64_t(id)<<2)!=identity)return false;
+        std::shared_lock<std::shared_mutex> guard(device->res_mx);
+        const auto handle=device->buf_by_id.find(id);
+        if(handle==device->buf_by_id.end())return false;
+        const auto found=device->bufs.find(handle->second);
+        if(found==device->bufs.end())return false;
+        const auto& buffer=found->second;
+        constexpr VkBufferUsageFlags read_only=VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_INDEX_BUFFER_BIT|
+            VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT|VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT|
+            VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT|VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        if(!buffer.capture_safe || (buffer.usage&~read_only))return false;
+        const auto memory=device->mems.find(buffer.mem);
+        if(memory==device->mems.end())return false;
+        const auto& m=memory->second;
+        if(!m.plain_allocation || !m.mapped || m.buffers.size()!=1 || m.buffers.front()!=handle->second ||
+           !m.images.empty() || m.type_index>=device->memory_properties.memoryTypeCount ||
+           !(device->memory_properties.memoryTypes[m.type_index].propertyFlags&VK_MEMORY_PROPERTY_HOST_COHERENT_BIT))return false;
+        float word=0;
+        if(read_buffer_locked(device,buffer,offset,sizeof(word),reinterpret_cast<uint8_t*>(&word))!=SRC_MAPPED)return false;
+        value=word;return true;
+    };
     auto append=[&](B address,const S* declaration){
         const DeclarationAddress declaration_key{address.stage,address.kind,address.slot};
         declarations.erase(declaration_key);

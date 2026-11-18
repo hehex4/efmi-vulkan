@@ -4440,3 +4440,16 @@ production cases pass 21 checks (old indirect guard read 0, expected 23).
 Prepared 155, CPU 57, interpreter 602, tracker 1042 and ABI 16 pass.
 Logs: indirect-this-{final,regression,prepared,cpu,interpreter}.out. Sandbox only.
 Next resolve original Store cache, bounds, and ordered GPU feedback.
+
+## D-352: Original Store with observable source values
+
+D-352 verified at 3.6.7 / ABI a0fb558d54581641. Original Store preserves
+the variable on a null source, reads a proven cached float at its allocation
+index and writes zero outside the copy region. Prepared cancellation restores
+the Store destination, including the existing pool journal. The application
+reader accepts only a live coherent mapping of a private read-only buffer with
+no other bound objects. In-range writable GPU data still needs ordered feedback.
+Production four cases 16/16 (baseline cached 2/4), other cache queries 4/4,
+configuration 396, prepared 155, tracker 1042, ABI 16 and text 761 pass.
+See store-cache-{before,regression,configuration,prepared}.out. Sandbox only.
+Next migrate remaining package-era fixtures and continue native source state.

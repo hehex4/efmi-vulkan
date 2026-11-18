@@ -3,6 +3,7 @@ from pathlib import Path
 import json
 import struct
 import time
+import sys
 from harness import Checks, Sandbox, ROOT, configuration_root
 from native_compute_test import compile_shader, read_compute_result
 from efmi_vk.hashes import crc32c
@@ -10,7 +11,10 @@ from efmi_vk.probe_client import ProbeClient
 
 
 def main():
-    checks = Checks("native cached source queries")
+    case = sys.argv[1] if len(sys.argv)>1 else "queries"
+    if case not in ("queries", "store_cached", "store_empty", "store_bounds", "store_gpu"):
+        raise ValueError("Unknown cached source fixture")
+    checks = Checks("native cached source " + case)
     root = Path(ROOT) / "build/native-cached-source"
     mods = root / "Mods"
     mods.mkdir(parents=True, exist_ok=True)
@@ -27,9 +31,17 @@ def main():
         "vk_binding = cs-cb0, 0, 2\nhandling = skip\nResourceSaved = ref cs-cb0\n"
         "x0 = ResourceSaved->HashRegion(0,16)\ny0 = ResourceSaved->SpatialHash(0,1,2,1)\n"
         "run = CustomShaderQuery\n[ResourceSaved]\n[CustomShaderQuery]\ncs = query.hlsl\ndispatch = 1,1,1\n", encoding="ascii")
+    if case.startswith("store_"):
+        target, index = {"store_cached": ("cs-cb0", 0), "store_empty": ("ResourceEmpty", 0),
+                         "store_bounds": ("cs-u0", 4), "store_gpu": ("cs-u0", 0)}[case]
+        ini = mods / "query.ini"
+        text = "[Constants]\nglobal $value = 31\n[ResourceEmpty]\n" + ini.read_text()
+        begin, end = text.index("ResourceSaved = ref"), text.index("run = CustomShaderQuery")
+        ini.write_text(text[:begin] + f"store = $value, {target}, {index}\nx0 = $value\ny0 = 0\n" + text[end:], encoding="ascii")
     settings = root / "settings"
     settings.mkdir(exist_ok=True)
     result = root / "result.raw"
+    result.unlink(missing_ok=True)
     env = dict(EFMI_VK_CONFIGURATION=configuration_root(mods), EFMI_VK_M2_SETTINGS=str(settings), EFMI_VK_M2_ENABLED="1")
     with Sandbox(threads=0, seconds=4, validation=True, env_extra=env,
                  extra_args=["--compute-shader", str(shader), "--compute-output", str(result),
@@ -49,9 +61,12 @@ def main():
     value ^= value >> 13
     region = ((1 + ((value & 0x3FFFFFFF) >> 23)) << 23) | (value & 0x7FFFFF)
     # The binding-scene readback reserves word 1 for the alternate output buffer.
-    checks.equal(words, (region, 0, 16 << 20, 23), "original region/spatial query bits reach the GPU through IniParams")
+    expected = {"queries": (region, 0, 16 << 20, 23), "store_cached": (0x41800000, 0, 0, 23),
+                "store_empty": (0x41f80000, 0, 0, 23), "store_bounds": (0, 0, 0, 23),
+                "store_gpu": (0x41800000, 0, 0, 0)}[case]
+    checks.equal(words, expected, "original command result reaches the completed GPU output")
     hooks = status.get("shader_overrides", {})
-    checks.check(hooks.get("executed", 0) > 0 and not hooks.get("last_reason"), "production cache queries execute without fallback")
+    checks.check(("completion feedback" in hooks.get("last_reason", "")) if case == "store_gpu" else hooks.get("executed", 0) > 0 and not hooks.get("last_reason"), "production cache queries execute without fallback")
     checks.check("VUID-" not in sb.output() and "Validation Error" not in sb.output(), "Vulkan and synchronization validation clean")
     (root / "status.json").write_text(json.dumps(status, indent=2), encoding="ascii")
     print("artifacts:", root)

@@ -276,7 +276,7 @@ void GpuResourceRuntime::identify_resource(const GpuResourceBinding& binding,Sou
     require(!prepared_state_,"Source identities are published outside a prepared registry transaction");
     require(bool(binding),"Resource identity requires a live owned allocation");
     require(identity.hash_known || !identity.hash,"Unknown original resource hash has an asserted value");
-    require(identity.tracking==SourceResourceIdentity::Tracking::Tracked || (!identity.hash_known && !identity.region_hash && !identity.cached_data),
+    require(identity.tracking==SourceResourceIdentity::Tracking::Tracked || (!identity.hash_known && !identity.region_hash && !identity.cached_data && !identity.read_cached_float),
             "Untracked resource has asserted source hash facts");
     const std::weak_ptr<void> key=resource_owner(binding);
     if(identity.tracking==SourceResourceIdentity::Tracking::Untracked){source_identities_.erase(key);return;}
@@ -705,7 +705,6 @@ void GpuResourceRuntime::ranges(SlotRangeCopyOperation& op,CommandListState& sta
     if(op.options&ResourceCopyOptions::NO_VIEW_CACHE)for(auto& cached:views)cached={};
 }
 void GpuResourceRuntime::store(StoreCommand& op,CommandListState& state) {
-    require(!prepared_state_,"Prepared store requires host completion feedback");
     auto source=get(op.src,state);if(!source)return; // Original null keeps the previous variable value.
     require(!source.image,"Original store requires a buffer source");
     require(op.offset_expression!=nullptr,"GPU store offset missing");
@@ -713,10 +712,18 @@ void GpuResourceRuntime::store(StoreCommand& op,CommandListState& state) {
     UINT64 from=0,size=0;UINT value_offset=0;float value=0;
     // The original treats the offset as a 4-byte element index even for
     // structured buffers, and returns zero for an out-of-range read.
-    if(op.CalculateCopyRegion(source.description,sizeof(float),offset,&from,&size,&value_offset) &&
+    const auto facts=source_identities_.find(std::weak_ptr<void>(source.buffer));
+    const bool cached=(source.description.BindFlags&UINT(G->cache_resource_data)) &&
+        facts!=source_identities_.end() && facts->second.read_cached_float && facts->second.read_cached_float(offset,value);
+    if(!cached && op.CalculateCopyRegion(source.description,sizeof(float),offset,&from,&size,&value_offset) &&
        from<=source.description.ByteWidth && size<=source.description.ByteWidth-from){
+        require(!prepared_state_,"Prepared store requires host completion feedback");
         require(queue_!=VK_NULL_HANDLE,"Original store needs immediate GPU feedback, which a scope without its queue cannot give");
         auto bytes=commands_.readback(queue_,source.buffer,from,size);memcpy(&value,bytes.data()+value_offset,sizeof(value));
+    }
+    if(prepared_state_){
+        if(op.var)prepared_state_->store_values.try_emplace(op.var,op.var->fval);
+        else remember(op.pool_var.custom_resource_pool);
     }
     op.SetOutputValue(&state,value);
 }

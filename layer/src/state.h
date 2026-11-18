@@ -220,6 +220,7 @@ struct MemInfo {
     uint8_t* mapped = nullptr;
     uint64_t map_off = 0;
     uint64_t map_size = 0;
+    bool plain_allocation = false; // No external memory or device-address allocation chain.
     bool write_combined = false; // OS page policy of the current mapped range
     std::vector<VkBuffer> buffers;
     std::vector<VkImage> images;

@@ -16,12 +16,13 @@ void GpuResourceRuntime::begin_prepared(const ApplicationResourceState& applicat
             require(bool(facts),"Application source tracking state is unknown");const auto& identity=*facts;
             require(identity.hash_known || !identity.hash,"Unknown source hash has an asserted value");
             require(identity.tracking==SourceResourceIdentity::Tracking::Tracked ||
-                (!identity.hash_known && !identity.region_hash && !identity.cached_data),"Untracked source has asserted hash/cache facts");
+                (!identity.hash_known && !identity.region_hash && !identity.cached_data && !identity.read_cached_float),"Untracked source has asserted hash/cache facts");
             const auto found=source_facts.find(id);
             if(found!=source_facts.end())require(found->second==facts ||
                 (found->second->tracking==identity.tracking && found->second->hash_known==identity.hash_known &&
                  found->second->hash==identity.hash && !found->second->region_hash && !identity.region_hash &&
-                 !found->second->cached_data && !identity.cached_data),
+                 !found->second->cached_data && !identity.cached_data &&
+                 !found->second->read_cached_float && !identity.read_cached_float),
                 "Application aliases have conflicting source identity facts");
             else{source_facts.emplace(id,facts);identities.emplace(std::move(owner),identity);}
         };
