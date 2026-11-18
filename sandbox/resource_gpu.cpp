@@ -1603,6 +1603,7 @@ int wmain(int argc,wchar_t** argv){
     }
     if(argc==3 && !wcscmp(argv[1],L"--bytecode-resources")){
         try{{Device device;device.init(false,false,true,false,false,false,true,true,true);
+            typed_word_store(device,std::filesystem::absolute(argv[2])/"typed-word-store");
             bytecode_resources(device,std::filesystem::absolute(argv[2]),gpu::DxbcFloat32Mode::Software);}
             {Device device;device.init(false,false,true,false,false,true);
             bytecode_resources(device,std::filesystem::absolute(argv[2])/"hardware");}
@@ -1656,6 +1657,7 @@ int wmain(int argc,wchar_t** argv){
         bytecode_graphics(device,root/"bytecode-software-graphics",gpu::DxbcFloat32Mode::Software);
         bytecode_resources(device,root/"bytecode-software-resources",gpu::DxbcFloat32Mode::Software);
         bytecode_float32(device,root/"bytecode-float32");
+        typed_word_store(device,root/"typed-word-store");
         bytecode_ini_views(device,root/"bytecode-ini-views");
         original_reference_fallback(device,root/"reference-fallback");
         {Device bytecode_device;bytecode_device.init(false,false,true,false,false,true);

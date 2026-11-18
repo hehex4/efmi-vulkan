@@ -72,6 +72,7 @@ struct ShaderDescriptor {
     Sampler sampler;
     // An original null resource: written as a null descriptor, only with null_descriptors.
     bool null=false;
+    bool original_typed_uav=false; // Preserve the original DXGI view while making a private shader view.
 };
 // Owned compute and graphics execution in exactly the resource queue domain.
 // Graphics uses private render passes. Recorded invocations retain immutable

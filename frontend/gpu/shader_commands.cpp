@@ -446,9 +446,14 @@ std::shared_ptr<ShaderInvocation> ShaderCommands::descriptors(const std::shared_
     for(const auto& binding:pipeline->bindings)for(uint32_t element=0;element<binding.count;++element){
         const auto found=provided.find({binding.binding,element});require(found!=provided.end(),"Missing shader descriptor array element");const auto& value=*found->second;
         auto storage_format=[&](VkFormat format,bool buffer){
-            const auto& f=format_info(format);bool reads=false,writes=false,atomic=false;
+            bool reads=false,writes=false,atomic=false;
             for(const auto& use:pipeline->usage.storage_images)if(use.binding==binding.binding && use.element==element){
                 reads|=use.read;writes|=use.write;atomic|=use.atomic;}
+            // Original D3D11 store_uav_typed writes all four words unchanged to this float buffer view.
+            if(buffer && value.original_typed_uav && writes && !reads && !atomic &&
+               format==VK_FORMAT_R32G32B32A32_SFLOAT && binding.scalar_type==2 && binding.scalar_width==32)
+                format=VK_FORMAT_R32G32B32A32_UINT;
+            const auto& f=format_info(format);
             if(binding.image_format)require(binding.image_format==f.storage_format,"Storage view format differs from the shader format");
             else if(reads || writes){
                 require(d->resource.format_features2 && d->resource.GetFormatProperties2,"Unformatted storage needs enabled format feature queries");
@@ -465,6 +470,7 @@ std::shared_ptr<ShaderInvocation> ShaderCommands::descriptors(const std::shared_
                 d->resource.GetFormatProperties(d->resource.physical,format,&properties);
                 require(buffer?bool(properties.bufferFeatures&VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_ATOMIC_BIT):
                     bool(properties.optimalTilingFeatures&VK_FORMAT_FEATURE_STORAGE_IMAGE_ATOMIC_BIT),"Storage view format lacks atomic support");}
+            return format;
         };
         VkWriteDescriptorSet write={VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};write.dstBinding=binding.binding;write.dstArrayElement=element;write.descriptorCount=1;write.descriptorType=binding.type;
         if(value.null){
@@ -490,7 +496,9 @@ std::shared_ptr<ShaderInvocation> ShaderCommands::descriptors(const std::shared_
                     value.size<=(uniform?limits.maxUniformBufferRange:limits.maxStorageBufferRange) &&
                     (uniform?value.size>=binding.block_size:(!binding.stride || value.size>=binding.stride)),"Shader buffer range/usage/alignment invalid");
                 buffers.push_back({value.buffer->buffer(),value.offset,value.size});write.pBufferInfo=&buffers.back();
-            }else{const auto& format=format_info(value.format);const bool read=binding.type==VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+            }else{const bool read=binding.type==VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+                const auto view_format=read?value.format:storage_format(value.format,true);
+                const auto& format=format_info(view_format);
                 // The offset alignment of every texel usage the buffer has (the view's creation checks each).
                 VkDeviceSize alignment=limits.minTexelBufferOffsetAlignment;
                 if(d->host.texel_alignment && format.bytes){
@@ -506,10 +514,9 @@ std::shared_ptr<ShaderInvocation> ShaderCommands::descriptors(const std::shared_
                     value.offset%alignment==0 && value.offset%format.bytes==0 && value.size%format.bytes==0 &&
                     value.size/format.bytes<=limits.maxTexelBufferElements && binding.scalar_width==32 && binding.scalar_type==format.scalar_type &&
                     (value.buffer->usage()&(read?VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT:VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT)),"Shader texel-buffer view is incompatible");
-                if(!read)storage_format(value.format,true);
-                VkFormatProperties properties{};require(d->resource.GetFormatProperties,"Shader format query unavailable");d->resource.GetFormatProperties(d->resource.physical,value.format,&properties);
+                VkFormatProperties properties{};require(d->resource.GetFormatProperties,"Shader format query unavailable");d->resource.GetFormatProperties(d->resource.physical,view_format,&properties);
                 require(properties.bufferFeatures&(read?VK_FORMAT_FEATURE_UNIFORM_TEXEL_BUFFER_BIT:VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_BIT),"Texel-buffer format unsupported");
-                VkBufferViewCreateInfo view={VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO};view.buffer=value.buffer->buffer();view.offset=value.offset;view.range=value.size;view.format=value.format;
+                VkBufferViewCreateInfo view={VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO};view.buffer=value.buffer->buffer();view.offset=value.offset;view.range=value.size;view.format=view_format;
                 VkBufferView handle=VK_NULL_HANDLE;checked(d->CreateBufferView(d->resource.device,&view,nullptr,&handle),"Create shader buffer view");
                 invocation->views.push_back(handle);write.pTexelBufferView=&invocation->views.back();
             }

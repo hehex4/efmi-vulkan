@@ -39,6 +39,42 @@ static std::vector<std::vector<uint8_t>> native_bytecode_views(const gpu::HlslPr
     }
     return result;
 }
+static void typed_word_store(Device& d,const std::filesystem::path& root){
+    static const char* shader=R"hlsl(RWBuffer<uint4> Output:register(u0);
+[numthreads(1,1,1)] void main(uint3 id:SV_DispatchThreadID){
+    Output[id.x]=uint4(7+id.x,0x3f800001,0x80000000,0x7fc12345);
+})hlsl";
+    gpu::DxbcCompiler compiler(L"F:/vulkan/vkd3d-2.1-build/efmi-vkd3d-shader.dll");
+    const auto program=translated_bytecode(compiler,bytecode_source('c',shader),'c',gpu::DxbcFloat32Mode::Software);
+    ShaderFixture f(d,root,R"ini([Constants]
+cs-u0 = ref ResourceWords
+[ResourceWords]
+type = RWBuffer
+format = R32G32B32A32_FLOAT
+array = 2
+[Present]
+dispatch = 2, 1, 1
+)ini");
+    f.backend->set_programs({program});auto& resources=f.backend->resources();
+    auto output=resources.binding(L'c',ResourceCopyTargetType::UNORDERED_ACCESS_VIEW,0);
+    const auto expected=native_bytecode_views(program,{{'u',0,output}},resources.commands(),d.queue).at(0);
+    const uint32_t words[]={7,0x3f800001u,0x80000000u,0x7fc12345u,8,0x3f800001u,0x80000000u,0x7fc12345u};
+    check(expected.size()==sizeof(words) && !memcmp(expected.data(),words,sizeof(words)),
+          "D3D11 stores full uint words through a four-component float UAV");
+    f.present();
+    check(resources.commands().readback(d.queue,output.buffer,0,output.buffer->size())==expected &&
+          resources.binding(L'c',ResourceCopyTargetType::UNORDERED_ACCESS_VIEW,0).view_format==DXGI_FORMAT_R32G32B32A32_FLOAT,
+          "Private shader view preserves native D3D11 store bytes and the original queried UAV format");
+    const auto read_write=bytecode_source('c',R"hlsl(RWBuffer<uint4> Output:register(u0);
+[numthreads(1,1,1)] void main(uint3 id:SV_DispatchThreadID){Output[id.x]+=uint4(1,2,3,4);})hlsl");
+    f.backend->set_programs({translated_bytecode(compiler,read_write,'c',gpu::DxbcFloat32Mode::Software)});
+    resources.begin(d.queue,frontend::GpuResourceRuntime::ExecutionSite::OutsideRenderPass);
+    declined(*f.ini,resources,f.ini->present({},++f.frame,0,f.why),"texel-buffer view is incompatible",
+             "An original UAV with typed loads cannot take the store-only view");
+    check(resources.commands().readback(d.queue,output.buffer,0,output.buffer->size())==expected,
+          "Declining an unproven typed load preserves all original bytes");
+    output={};f.release();
+}
 static void bytecode_ini_views(Device& d,const std::filesystem::path& root){
     gpu::DxbcCompiler compiler(L"F:/vulkan/vkd3d-2.1-build/efmi-vkd3d-shader.dll");
     using Kind=gpu::ShaderBufferKind;

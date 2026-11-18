@@ -334,6 +334,8 @@ std::vector<gpu::ShaderDescriptor> GpuShaderRuntime::descriptors(const std::vect
                 else{value.offset=source.view_offset;value.size=source.view_size;
                     if(source.view_format!=DXGI_FORMAT_UNKNOWN && source.view_format!=DXGI_FORMAT_R32_TYPELESS)
                         value.format=source_image_format(source.view_format).format;
+                    value.original_typed_uav=target==ResourceCopyTargetType::UNORDERED_ACCESS_VIEW &&
+                        source.view_format!=DXGI_FORMAT_UNKNOWN && source.view_format!=DXGI_FORMAT_R32_TYPELESS;
                     const auto kind=binding.source_buffer;
                     if(kind==gpu::ShaderBufferKind::Structured){
                         require(source.view_format==DXGI_FORMAT_UNKNOWN && (source.description.MiscFlags&D3D11_RESOURCE_MISC_BUFFER_STRUCTURED) &&

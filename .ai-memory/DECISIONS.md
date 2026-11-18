@@ -3085,3 +3085,7 @@ Use ResourceHash.cpp matches_draw_info and find_texture_override_for_hash withou
 ## D-359: Preserve the original depth resource family across output and sampled views
 
 Follow original CommandList.cpp FillInMissingInfo, MakeDSVFormat and MakeNonDSVFormat. D3D11 gives the resource and each view separate descriptors and keeps its references alive while tracking hazards on its context. The bridge retains the application allocation, its actual usage and layout, maps its compatible typeless family once and selects the typed view by slot and aspect. A view alone cannot prove an unknown allocation. These projections describe compatibility rather than recovering historical D3D creation flags.
+
+## D-360: Execute an original uint4 typed store through its float UAV
+
+Original CommandList.cpp sets the actual UAV on the immediate context. The D3D11 reference executes and reads back the original shader against the original typed view. Keep the observed UINT-to-four-FLOAT word-store behavior local to the actual Vulkan invocation, only for write-only, non-atomic uses proven from the executable. All Vulkan format features and ranges still apply. The private view is retained through the invocation, with existing barriers and submission ownership.
