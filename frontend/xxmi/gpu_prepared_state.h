@@ -21,6 +21,12 @@ template<class Map> struct ResourceMapUndo {
     }
 };
 struct GpuResourceRuntime::PreparedState {
+    // Resource queries report through the INI operand fallback, then admission rolls back.
+    // Retain the first resource exception until the host observes that failed scope.
+    std::exception_ptr resource_error;
+    void remember_resource_error() noexcept {
+        if(!resource_error)resource_error=std::current_exception();
+    }
     struct Pools {
         CustomResources* resources=&customResources;
         CommandListVariables* variables=&command_list_globals;
@@ -165,11 +171,13 @@ void GpuResourceRuntime::begin_prepared_plan(const ApplicationResourceState& sta
 }
 std::shared_ptr<const gpu::PreparedResourceCommands> GpuResourceRuntime::finish_prepared(){
     active();
+    if(failed_ && prepared_state_ && prepared_state_->resource_error)std::rethrow_exception(prepared_state_->resource_error);
     if(!prepared_state_ || failed_)throw std::runtime_error("Cannot seal a failed or ordinary resource scope");
     auto result=commands_.finish_prepared();active_=false;return result;
 }
 std::shared_ptr<const gpu::PreparedResourceCommands> GpuResourceRuntime::cut_prepared(){
     active();
+    if(failed_ && prepared_state_ && prepared_state_->resource_error)std::rethrow_exception(prepared_state_->resource_error);
     if(!prepared_state_ || failed_)throw std::runtime_error("Cannot cut a failed or ordinary resource scope");
     return commands_.cut_prepared();
 }

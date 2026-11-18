@@ -3093,3 +3093,7 @@ Original CommandList.cpp sets the actual UAV on the immediate context. The D3D11
 ## D-361: Negotiate format feature flags for original storage views
 
 Read the pinned original CSSetUnorderedAccessViews dispatch path and check overlapping writable view binding on an actual D3D11 context. The original owns hazard unbinding, command order and retained views. Vulkan records the per-format read/write capabilities on the logical device, verifies them before use and materializes the original slot transition. Keep per-format checks and logical feature checks separate.
+
+## D-362: Retain the first original resource failure through plan rollback
+
+The original CheckTextureOverrideCommand logs its source command, and GetResourceSize queries the actual context slot. D3D11 can retain resources even for a stage that does not consume them. Keep unavailable distinct from unbound and from a known buffer while reporting the actual register that first failed. The scoped exception expires on rollback. A later operation must not replace evidence from the first.

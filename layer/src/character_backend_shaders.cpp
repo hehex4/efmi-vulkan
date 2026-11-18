@@ -728,7 +728,11 @@ bool shader_draw_unmatched(CharacterBackend& b, CmdBuf* cb, const DrawRec& r, co
             // D-162: what the host cannot do leaves the draw to the game, the lists having run to their end.
             b.shader_draws_refused.fetch_add(1, std::memory_order_relaxed);
             std::lock_guard<std::mutex> lock(b.shader_note_mx);
-            if (b.shader_note.empty()) { b.shader_note = reason; logf("ShaderOverride at a draw no Mod section matched: %s; the game's draw stays", reason.c_str()); }
+            if (b.shader_note.empty()) {
+                b.shader_note = reason;
+                logf("Original draw transaction refused (IB %08x count %u VS %08x PS %08x): %s",
+                     request.hash, request.count, modules.hashes[0], modules.hashes[4], reason.c_str());
+            }
         } else {
             const auto& plan=prepared->plan();
             bool pending=false;

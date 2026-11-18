@@ -356,7 +356,11 @@ bool GpuResourceRuntime::match_source(ResourceCopyTarget& target,CommandListStat
             else throw std::runtime_error("Original image dimension is unknown");
         }
         return true;
-    }catch(const std::exception& e){if(active_ && (prepared_state_ || commands_.recorded()!=mark))failed_=true;reason=widen(e.what());return false;}
+    }catch(const std::exception& e){
+        if(prepared_state_)prepared_state_->remember_resource_error();
+        if(active_ && (prepared_state_ || commands_.recorded()!=mark))failed_=true;
+        reason=widen(e.what());return false;
+    }
 }
 GpuResourceBinding GpuResourceRuntime::get(ResourceCopyTarget& input,CommandListState& state,ResourceCopyTarget* destination) {
     auto& t=effective(input,state);GpuResourceBinding b;
@@ -755,7 +759,8 @@ bool GpuResourceRuntime::run(CommandListCommand& command,CommandListState& state
         }
         else throw std::runtime_error("GPU draw/dispatch needs a shader execution adapter");
         return true;
-    }catch(const std::exception& e){reason=widen(e.what())+L": "+command.ini_line;dropped(widen(e.what()));return false;}
+    }catch(const std::exception& e){if(prepared_state_)prepared_state_->remember_resource_error();
+        reason=widen(e.what())+L": "+command.ini_line;dropped(widen(e.what()));return false;}
 }
 bool GpuResourceRuntime::query(ResourceCopyTarget& input,CommandListState& state,float& result,std::wstring& reason) {
     const uint64_t mark=commands_.recorded();
@@ -821,7 +826,11 @@ bool GpuResourceRuntime::query(ResourceCopyTarget& input,CommandListState& state
         default:throw std::runtime_error("GPU resource property requires source-semantic adaptation");
         }
         return true;
-    }catch(const std::exception& e){if(active_ && (prepared_state_ || commands_.recorded()!=mark))failed_=true;reason=widen(e.what());return false;}
+    }catch(const std::exception& e){
+        if(prepared_state_)prepared_state_->remember_resource_error();
+        if(active_ && (prepared_state_ || commands_.recorded()!=mark))failed_=true;
+        reason=widen(e.what());return false;
+    }
 }
 bool GpuResourceRuntime::render_target(CommandListState&,bool& bound,float& width,float& height,std::wstring& reason) {
     try{active();bound=false;
@@ -836,8 +845,12 @@ bool GpuResourceRuntime::render_target(CommandListState&,bool& bound,float& widt
 }
 GpuResourceBinding GpuResourceRuntime::binding(wchar_t stage,Target type,unsigned index) const {
     const auto found=slots_.find({stage,type,index});
-    require(found!=slots_.end() || !unknown_application_slots_ || site_!=ExecutionSite::Prepared,
-        "Original command reads a source slot unavailable in the native application context");
+    if(found==slots_.end() && unknown_application_slots_ && site_==ExecutionSite::Prepared){
+        ResourceCopyTarget target;target.type=type;target.shader_type=stage;SlotId id;
+        const auto slot=slot_of(target,index,id)?slot_name(id):L"this";
+        throw std::runtime_error("Original command reads a source slot unavailable in the native application context: "+
+                                 std::string(slot.begin(),slot.end()));
+    }
     return found==slots_.end()?GpuResourceBinding{}:found->second;
 }
 }

@@ -4523,3 +4523,7 @@ D-360 verified at 3.7.4 / ABI 0e6e2de2d78acd00. D3D11 WARP writes the exact uint
 ## D-361: Negotiate format feature flags for original storage views
 
 D-361 verified at 3.7.5 / ABI 0e6e2de2d78acd00. Configured Vulkan 1.1/1.2 devices request advertised KHR_format_feature_flags2. Backend and diagnostics now see the extension list actually used at device creation. The vk03 replay no longer reports the Core texel store or missing format feature query. It still refuses 213/870 transactions and three geometry groups remain empty. D3D11 WARP confirms that binding the same texture-array UAV to u1 clears u0. Correcting the old duplicate-UAV expectation brings loaded storage images from 62/75 to 75/75, configuration 403 and ABI 16 clean. Logs: storage-feature-{replay,verified,warp}.out. No deployment.
+
+## D-362: Retain the first original resource failure through plan rollback
+
+D-362 verified at 3.7.6 / ABI 0e6e2de2d78acd00. Prepared cut/seal retains the earliest resource exception and reports the original register. A double unavailable-slot test through the normal root entry returns ps-cb2. Configuration GPU 404 and ABI 16 pass. The installed vk03 replay identifies its first refusal at IB 38faea2c, count 71907, VS d29292e6 and PS 573dc667: ps-cb2 is unobserved. Three groups still have zero pixels; 657/870 transactions execute. See build/first-resource-failure-{gpu,replay,regression}.out. Sandbox only.

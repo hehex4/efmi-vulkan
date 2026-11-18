@@ -6,6 +6,7 @@ static void prepared_host_cases(Device& d,const std::filesystem::path& root){
 )hlsl");
     write(root/"d3dx.ini",R"ini([Constants]
 global $calls = 0
+global $missing_value = 0
 ResourceOutput = copy ResourceSource
 [ResourceSource]
 type = StructuredBuffer
@@ -33,6 +34,11 @@ post ps-t0 = null
 vk_hash = 1122aabd
 handling = skip
 post ps-t1 = ref ResourceSource
+[ShaderOverrideMissingSlots]
+vk_hash = 1122aabe
+$missing_value = ps-cb2->size
+$missing_value = ps-t8->size
+draw = 3,0
 [ShaderOverrideRefused]
 vk_hash = 1122aabc
 run = CustomShaderInherited
@@ -57,6 +63,11 @@ dispatch = 1,1,1
     application.omitted_slots_unbound=false;
     check(!owned->prepare_draw(ini,draw,application,true,why) && !owned->scope_active(),
         "Host preparation refuses an incomplete application snapshot without a leaked scope");
+    application.allow_unknown_slots=true;
+    { auto missing=draw;missing.stage_hashes[0]=0x1122aabe;
+      check(!owned->prepare_draw(ini,missing,application,true,why) && why.find("ps-cb2")!=std::string::npos,
+            "First unavailable original register survives later queries and transaction rollback"); }
+    application.allow_unknown_slots=false;
     application.omitted_slots_unbound=true;
     {
         frontend::OwnedRuntime other(d.resource,shader_host(d),tools,root);
