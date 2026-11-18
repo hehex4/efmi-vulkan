@@ -3089,3 +3089,7 @@ Follow original CommandList.cpp FillInMissingInfo, MakeDSVFormat and MakeNonDSVF
 ## D-360: Execute an original uint4 typed store through its float UAV
 
 Original CommandList.cpp sets the actual UAV on the immediate context. The D3D11 reference executes and reads back the original shader against the original typed view. Keep the observed UINT-to-four-FLOAT word-store behavior local to the actual Vulkan invocation, only for write-only, non-atomic uses proven from the executable. All Vulkan format features and ranges still apply. The private view is retained through the invocation, with existing barriers and submission ownership.
+
+## D-361: Negotiate format feature flags for original storage views
+
+Read the pinned original CSSetUnorderedAccessViews dispatch path and check overlapping writable view binding on an actual D3D11 context. The original owns hazard unbinding, command order and retained views. Vulkan records the per-format read/write capabilities on the logical device, verifies them before use and materializes the original slot transition. Keep per-format checks and logical feature checks separate.

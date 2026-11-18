@@ -1776,6 +1776,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
     bool null_descriptors = false, null_descriptors_added = false, robustness_requested = false;
     bool draw_parameters = false, draw_parameters_added = false;
     bool float_controls_requested=false,float_controls_added=false,depth_clamp_added=false,geometry_added=false,indirect_instance_added=false;
+    bool format_flags_requested=false,format_flags_added=false;
     VkPhysicalDeviceFeatures owned_core_features{};
     VkBool32* app_depth_clamp=nullptr;
     VkBool32* app_geometry=nullptr;
@@ -1798,6 +1799,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
         priority_requested |= !strcmp(info->ppEnabledExtensionNames[i], VK_EXT_MEMORY_PRIORITY_EXTENSION_NAME);
         pageable_requested |= !strcmp(info->ppEnabledExtensionNames[i], VK_EXT_PAGEABLE_DEVICE_LOCAL_MEMORY_EXTENSION_NAME);
         float_controls_requested |= !strcmp(info->ppEnabledExtensionNames[i], VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME);
+        format_flags_requested |= !strcmp(info->ppEnabledExtensionNames[i], VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME);
     }
     for (auto p = static_cast<const VkBaseInStructure*>(info->pNext); p; p = p->pNext) {
         if(p->sType==VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2){
@@ -1834,6 +1836,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
     }
     const uint32_t app_api = inst ? inst->app_api_version : VK_API_VERSION_1_0;
     if (character_configured() && inst && inst->EnumerateDeviceExtensionProperties && inst->GetPhysicalDeviceFeatures2) {
+        bool format_flags_supported=false;
         bool robustness_supported = false, timeline_supported = false, priority_supported = false, pageable_supported = false, float_controls_supported=false;
         uint32_t count = 0;
         if (inst->EnumerateDeviceExtensionProperties(phys, nullptr, &count, nullptr) == VK_SUCCESS && count && count < 4096) {
@@ -1845,6 +1848,7 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
                     priority_supported |= !strcmp(available[i].extensionName, VK_EXT_MEMORY_PRIORITY_EXTENSION_NAME);
                     pageable_supported |= !strcmp(available[i].extensionName, VK_EXT_PAGEABLE_DEVICE_LOCAL_MEMORY_EXTENSION_NAME);
                     float_controls_supported |= !strcmp(available[i].extensionName, VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME);
+                    format_flags_supported |= !strcmp(available[i].extensionName, VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME);
                 }
         }
         robustness_supported = robustness_supported && !robustness_requested;
@@ -1870,6 +1874,10 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
         VkPhysicalDeviceProperties supported_properties{};
         if(inst->GetPhysicalDeviceProperties)inst->GetPhysicalDeviceProperties(phys,&supported_properties);
         const auto effective_api=std::min(app_api,supported_properties.apiVersion);
+        // Original typed UAVs require per-format load/store facts for formatless SPIR-V.
+        if(effective_api>=VK_API_VERSION_1_1 && effective_api<VK_API_VERSION_1_3 && !format_flags_requested && format_flags_supported){
+            extensions.push_back(VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME);format_flags_added=changed=true;
+        }
         if(effective_api>=VK_API_VERSION_1_1 && effective_api<VK_API_VERSION_1_2 && !float_controls_requested && float_controls_supported){
             extensions.push_back(VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME);float_controls_added=changed=true;
         }
@@ -2009,6 +2017,8 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
     else logf("upload queue: none, uploads go through the application's submissions");
     if (inst)
         dev->app_api_version = inst->app_api_version;
+    // Consumers inspect the extensions of the device actually created, including layer requests.
+    dev->extensions.assign(extensions.begin(),extensions.end());
     for (const HookEntry& h : g_hooks)
         next_slot(dev->d, h) = gdpa(*device, h.name);
     if (inst && inst->GetPhysicalDeviceProperties) {
@@ -2037,15 +2047,14 @@ VKAPI_ATTR VkResult VKAPI_CALL hk_CreateDevice(VkPhysicalDevice phys, const VkDe
             }
         }
     }
-    for (uint32_t i = 0; i < info->enabledExtensionCount; i++)
-        dev->extensions.push_back(info->ppEnabledExtensionNames[i]);
     logf("device created on %s, %u extensions enabled, application API 0x%x, null descriptors %s", dev->gpu_name,
-         info->enabledExtensionCount, dev->app_api_version,
+         uint32_t(dev->extensions.size()), dev->app_api_version,
          null_descriptors_added ? "added" : null_descriptors ? "enabled by the application" : "off");
     if (dev->draw_parameters) logf("shader draw parameters %s", dev->draw_parameters_added ? "added" : "enabled by the application");
     if(float_controls_added || depth_clamp_added || geometry_added)logf("original shader execution: float controls %s, depth clamp %s, geometry %s",
         float_controls_added?"added":"unchanged",depth_clamp_added?"added":"unchanged",geometry_added?"added":"unchanged");
     if(indirect_instance_added)logf("original indirect graphics: first-instance feature added");
+    if(format_flags_added)logf("original storage views: added format feature flags2 queries");
     logf("timeline semaphores %s, memory priority %s, pageable device memory %s",
          dev->timeline_semaphores ? (dev->timeline_semaphores_added ? "added" : "enabled by the application") : "off",
          dev->memory_priority ? (dev->memory_priority_added ? "added" : "enabled by the application") : "off",

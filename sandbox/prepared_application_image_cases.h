@@ -1,4 +1,18 @@
 static void prepared_application_image_cases(Device& d,const std::filesystem::path& root){
+    // Observe the original context transition used by the loaded storage-image fixtures.
+    {
+        ImageNativeReference native;
+        D3D11_TEXTURE2D_DESC desc{};desc.Width=desc.Height=desc.MipLevels=1;desc.ArraySize=3;
+        desc.Format=DXGI_FORMAT_R32_UINT;desc.SampleDesc.Count=1;desc.BindFlags=D3D11_BIND_UNORDERED_ACCESS;
+        ImageNativeReference::Ptr<ID3D11Texture2D> image;
+        check(SUCCEEDED(native.device->CreateTexture2D(&desc,nullptr,&image)),"Create original storage array");
+        ImageNativeReference::Ptr<ID3D11UnorderedAccessView> view,old_slot,new_slot;
+        check(SUCCEEDED(native.device->CreateUnorderedAccessView(image.Get(),nullptr,&view)),"Create original storage array UAV");
+        auto* raw=view.Get();native.context->CSSetUnorderedAccessViews(0,1,&raw,nullptr);
+        native.context->CSSetUnorderedAccessViews(1,1,&raw,nullptr);
+        native.context->CSGetUnorderedAccessViews(0,1,&old_slot);native.context->CSGetUnorderedAccessViews(1,1,&new_slot);
+        check(!old_slot && new_slot.Get()==raw,"Rebinding an overlapping texture UAV to u1 clears u0 on D3D11");
+    }
     std::filesystem::create_directories(root);
     write(root/"ordered.hlsl",R"hlsl(Texture2DArray<uint> Input : register(t0);
 RWStructuredBuffer<uint> Output : register(u0);

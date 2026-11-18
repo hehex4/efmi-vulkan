@@ -4519,3 +4519,7 @@ D-359 verified at 3.7.3 / ABI 0e6e2de2d78acd00. D16, D32, D24S8 and D32S8 have s
 ## D-360: Execute an original uint4 typed store through its float UAV
 
 D-360 verified at 3.7.4 / ABI 0e6e2de2d78acd00. D3D11 WARP writes the exact uint4 bit patterns (including a NaN payload and signed zero) through an R32G32B32A32_FLOAT UAV. The private Vulkan invocation uses a UINT buffer view for proven store-only instructions while the original binding reports FLOAT. The read/write guard preserves the previous bytes. Bytecode resources pass 152 checks with clean validation, tracker 1061 and ABI 16 pass. The vk03 30-frame replay replaces the texel type refusal with a missing format feature query on the Vulkan 1.2 device. Three geometry groups remain empty and 213 transactions refuse. See build/typed-word-store-{before,check,replay}.out. Sandbox only.
+
+## D-361: Negotiate format feature flags for original storage views
+
+D-361 verified at 3.7.5 / ABI 0e6e2de2d78acd00. Configured Vulkan 1.1/1.2 devices request advertised KHR_format_feature_flags2. Backend and diagnostics now see the extension list actually used at device creation. The vk03 replay no longer reports the Core texel store or missing format feature query. It still refuses 213/870 transactions and three geometry groups remain empty. D3D11 WARP confirms that binding the same texture-array UAV to u1 clears u0. Correcting the old duplicate-UAV expectation brings loaded storage images from 62/75 to 75/75, configuration 403 and ABI 16 clean. Logs: storage-feature-{replay,verified,warp}.out. No deployment.

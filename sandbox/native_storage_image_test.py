@@ -23,6 +23,22 @@ def unformatted(path):
     path.write_bytes(struct.pack('<%dI'%len(words),*words))
     subprocess.run([str(VALIDATOR),'--target-env','vulkan1.1',str(path)],check=True,capture_output=True,timeout=30)
 
+def original_output(layer, mode, blocked):
+    # D3D11 removes the overlapping writable view from u0 when the list sets u1.
+    source, destination = 1 + 3 * layer, 37 + 3 * layer
+    if blocked:
+        return source + 100 * sum(destination + 5 * n for n in range(1, 5))
+    first_calls = 2 if mode == 'dispatch' else 1
+    initial = sum(source + 5 * n for n in range(1, first_calls + 1))
+    # The application clears the source, dispatches twice, then rebinds its original set.
+    if mode == 'post':
+        subsequent = sum(destination + 5 * n for n in range(1, 4))
+    else:
+        cleared = 9 + 3 * layer
+        subsequent = cleared + 5 + cleared + 10 + destination + 5
+    return 100 * (initial + subsequent)
+
+
 def scene(checks,case):
     formatless=case.startswith('formatless');mode=case.removeprefix('formatless_') if formatless else case
     if mode in ('formatless','core'):mode='reference'
@@ -56,8 +72,8 @@ def scene(checks,case):
         with ProbeClient(sb.pid) as probe:status=probe.status()
         sb.proc.wait(timeout=30);checks.equal(sb.proc.returncode,0,case+': original application exits normally')
         (root/'layer.log').write_bytes(Path(sb.log_path).read_bytes());(root/'stdout.txt').write_text(sb.output(),encoding='utf-8')
-    blocked=case in ('two_queues','sync2','numeric');base=19801 if blocked else 14706 if mode=='post' else 9217 if mode=='dispatch' else 8106
-    expected=base*layers+1203*layers*(layers-1)//2
+    blocked=case in ('two_queues','sync2','numeric')
+    expected=sum(original_output(layer,mode,blocked) for layer in range(layers))
     checks.equal(struct.unpack_from('<I',read_compute_result(output))[0],expected,case+': GPU writes and original rebind produce expected values')
     calls=status.get('replacement',{}).get('shader_overrides',{})
     if blocked:checks.check(('queue' if case=='two_queues' else 'numeric' if numeric else 'synchronization2') in calls.get('last_reason',''),case+': unsupported access graph explicitly refused')
