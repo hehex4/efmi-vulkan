@@ -29,7 +29,17 @@ static void application_ia_cases()
     draw.vb[0].stride_known=true;draw.vb[0].stride=12;draw.vb[0].size=48;
     check(native_resource(&d,&cb,draw,address,missing,why) && missing.stride==12 && missing.range==48 && missing.size==256,
           "dynamic vertex properties keep binding windows separate from allocation size");
+    auto dynamic=std::make_shared<DynamicVertexInput>();draw.vertex_input=dynamic;
+    dynamic->bindings.push_back({0,20,0,1});recipe->dynamic={VK_DYNAMIC_STATE_VERTEX_INPUT_EXT};
+    check(!native_resource(&d,&cb,draw,address,missing,why),"Partial dynamic declaration cannot supply a vertex stride");
+    dynamic->complete=true;
+    check(native_resource(&d,&cb,draw,address,missing,why) && missing.stride==20,"Dynamic declaration supplies its own stride without a pipeline stride override");
+    recipe->dynamic.push_back(VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE);
+    check(native_resource(&d,&cb,draw,address,missing,why) && missing.stride==12,"An enabled dynamic binding stride overrides the declaration");
+    dynamic->bindings.clear();
+    check(!native_resource(&d,&cb,draw,address,missing,why),"A binding from an earlier dynamic declaration cannot survive its replacement");
     recipe->dynamic.clear();draw.vb[0].size=VK_WHOLE_SIZE;
+    check(native_resource(&d,&cb,draw,address,missing,why) && missing.stride==8,"A static pipeline ignores prior dynamic input and binding stride");
     address.kind=B::Index;
     check(native_resource(&d,&cb,draw,address,index,why) && index.keep && index.offset==32 && index.range==224 && index.format==42 && index.index_size==4,
           "application IA retains the actual index format and binding offset");

@@ -1521,7 +1521,8 @@ static void record_draw(VkCommandBuffer cb, int i)
     i %= kDrawCount;
     const DrawDef& d = kDraws[i];
     if(g.dynamic_geometry){
-        const VkDeviceSize offset=0,size=sizeof(kVertices),stride=!g.geometry_shader_scene && d.count==3?0:8;
+        // The static pipeline ignores the previously set declaration and binding stride.
+        const VkDeviceSize offset=0,size=sizeof(kVertices),stride=g.dynamic_geometry==6?64:!g.geometry_shader_scene && d.count==3?0:8;
         const uint32_t slot=g.dynamic_geometry>=4 && d.count==3?1:0;
         if(g.dynamic_geometry>=4){
             VkVertexInputBindingDescription2EXT binding{VK_STRUCTURE_TYPE_VERTEX_INPUT_BINDING_DESCRIPTION_2_EXT};

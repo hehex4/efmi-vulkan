@@ -3041,3 +3041,12 @@ order. Vulkan retains its source and separates current mapped read-only data fro
 writable GPU data. Cancelling a prepared Store restores its output. Hash cache
 snapshots and memory still writable through another object do not prove this
 value. The layer never submits an application's unfinished recording for Store.
+
+## D-354: Project the pipeline's effective vertex stride
+
+CommandList.cpp 9736 and 10421 read IAGetVertexBuffers on the current context.
+DX11 owns references, deferred lifetime, hazards and one context's order.
+Vulkan keeps the draw's declaration and binding metadata alive. Only an active
+dynamic vertex declaration replaces the static one. A separately enabled
+dynamic binding stride overrides it. Incomplete or absent dynamic locations
+cannot supply a stride.

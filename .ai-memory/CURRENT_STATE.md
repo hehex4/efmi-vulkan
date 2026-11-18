@@ -10,6 +10,13 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
+D-354 verified at 3.6.8 / ABI a0fb558d54581641. Original vertex queries
+select the stride of the active pipeline. A static pipeline following a
+dynamic setter previously returned 64 instead of the actual 8. Three live
+pipeline modes pass 12 checks, existing IA queries 34, tracker 1047, ABI 16
+and text 761 pass. Logs: ia-stride-{before,regression}.out. Extended binding
+restoration and application input layout projection still need completion.
+
 D-353 keeps 3.6.7 / a0fb558d54581641. Twelve frame-analysis and hunting
 fixtures now open their own root d3dx.ini and its Include list. They no longer
 provide obsolete Mods/Core path variables or a missing Core include. One live

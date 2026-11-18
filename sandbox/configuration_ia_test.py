@@ -2,9 +2,10 @@
 import json
 from pathlib import Path
 import struct
+import sys
 import time
 
-from harness import Checks, Sandbox, configuration_root, test_dir
+from harness import Checks, Sandbox, ROOT, configuration_root, test_dir
 from runtime_test import sandbox_shader_hashes
 from efmi_vk.hashes import crc32c
 from efmi_vk.probe_client import ProbeClient
@@ -53,8 +54,40 @@ def scene(checks, region_hashes):
     print('artifacts:', root)
 
 
+def vertex_stride(checks, mode):
+    root = Path(ROOT) / 'build/configuration-ia-stride'
+    mods = root / 'Mods'
+    mods.mkdir(parents=True, exist_ok=True)
+    vertex, _ = sandbox_shader_hashes()
+    # Mesh4 uses slot 1 for a dynamic declaration and slot 0 in the static pipeline.
+    slot = 0 if mode == 6 else 1
+    (mods / 'queries.ini').write_text(
+        'namespace = ia\n[Constants]\nglobal $stride = -999\n'
+        '[ShaderOverrideEntry]\nvk_hash = %08x\nchecktextureoverride = ib\n' % vertex +
+        '[TextureOverrideQuery]\nhash = %08x\nmatch_first_index = 6\nmatch_index_count = 3\n' %
+        crc32c(struct.pack('<3I', 14, 15, 16)) + f'$stride = vb{slot}->stride\n', encoding='ascii')
+    env = dict(EFMI_VK_CONFIGURATION=configuration_root(mods), EFMI_VK_M2_SETTINGS=str(root / 'settings'), EFMI_VK_M2_ENABLED='1')
+    with Sandbox(seconds=3, threads=0, validation=True, env_extra=env,
+                 extra_args=['--geometry-dynamic', str(mode), '--api', '1.3']) as sb:
+        with ProbeClient(sb.pid) as probe:
+            time.sleep(.7)
+            status = probe.status().get('replacement', {})
+        sb.proc.wait(timeout=15)
+        checks.equal(sb.proc.returncode, 0, 'application exits normally')
+        checks.check(not any(x in sb.output() for x in ('Validation Error', 'VUID-', 'SYNC-HAZARD')), 'validation clean')
+    variables = status.get('configuration_generation', {}).get('ini', {}).get('variables', {})
+    checks.equal(variables.get('$\\ia\\stride'), -1 if mode == 4 else 8, 'original query sees the active IA stride')
+    hooks = status.get('shader_overrides', {})
+    checks.check(hooks.get('executed', 0) > 0 and not hooks.get('last_reason'), 'original shader entry executes')
+    (root / f'status-{mode}.json').write_text(json.dumps(status, indent=2), encoding='ascii')
+
+
 def main():
     checks = Checks('configuration IA facts')
+    if len(sys.argv) == 2:
+        mode = {'dynamic': 4, 'stride': 5, 'static': 6}[sys.argv[1]]
+        vertex_stride(checks, mode)
+        return checks.finish()
     for region_hashes in (False, True):
         scene(checks, region_hashes)
     return checks.finish()

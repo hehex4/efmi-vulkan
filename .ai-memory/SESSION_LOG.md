@@ -4463,3 +4463,12 @@ sandbox case per changed entry passes 123 checks, covering original F9/F10
 input, exports, geometry, targets and the hunting overlay. Evidence:
 root-fixtures-regression.out. Remaining capture-replay and mesh fixtures still
 need migration. Current GPU feedback and sampler/state contracts remain open.
+
+## D-354: Select current vertex stride for original IA queries
+
+D-354 verified at 3.6.8 / ABI a0fb558d54581641. Original vertex queries
+select the stride of the active pipeline. A static pipeline following a
+dynamic setter previously returned 64 instead of the actual 8. Three live
+pipeline modes pass 12 checks, existing IA queries 34, tracker 1047, ABI 16
+and text 761 pass. Logs: ia-stride-{before,regression}.out. Extended binding
+restoration and application input layout projection still need completion.

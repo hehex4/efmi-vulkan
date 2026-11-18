@@ -7,6 +7,13 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
+D-354 verified at 3.6.8 / ABI a0fb558d54581641. Original vertex queries
+select the stride of the active pipeline. A static pipeline following a
+dynamic setter previously returned 64 instead of the actual 8. Three live
+pipeline modes pass 12 checks, existing IA queries 34, tracker 1047, ABI 16
+and text 761 pass. Logs: ia-stride-{before,regression}.out. Extended binding
+restoration and application input layout projection still need completion.
+
 D-353 keeps 3.6.7 / a0fb558d54581641. Twelve frame-analysis and hunting
 fixtures now open their own root d3dx.ini and its Include list. They no longer
 provide obsolete Mods/Core path variables or a missing Core include. One live
