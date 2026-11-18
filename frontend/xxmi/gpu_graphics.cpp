@@ -252,6 +252,8 @@ bool GpuShaderRuntime::draw_graphics(DrawCommand& command,CommandListState& stat
         draw.scissor={{left,top},{uint32_t(right-left),uint32_t(bottom-top)}};}
     if(draw.indexed){const auto index=resources_.binding(L'\0',Target::INDEX_BUFFER,0);require(bool(index.buffer),"Source null index buffer needs null-fetch emulation");
         require(index.format==DXGI_FORMAT_R16_UINT || index.format==DXGI_FORMAT_R32_UINT,"Source index format is invalid");draw.indices=index.buffer;draw.index_offset=index.offset;
+        const auto size=index.ia_bytes(index.offset);require(size>0,"Original index offset leaves its binding window");
+        if(size<index.buffer->size()-index.offset)draw.index_size=size;
         draw.index_type=index.format==DXGI_FORMAT_R16_UINT?VK_INDEX_TYPE_UINT16:VK_INDEX_TYPE_UINT32;}
     auto config=description(graphics_,draw,bool(stages_[4]),bool(stages_[3]));vertex_inputs(*stages_[0],config,draw);auto key=pipeline_key(stages_,config);
     auto found=graphics_pipelines_.find(key);gpu::Graphics pipeline;

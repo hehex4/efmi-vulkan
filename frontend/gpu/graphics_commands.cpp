@@ -187,24 +187,28 @@ void ShaderCommands::draw(const Graphics& pipeline,const std::vector<ShaderDescr
         outputs.push_back(view);views.push_back(view->view());};
     for(size_t i=0;i<draw.colors.size();++i)target(draw.colors[i],state.colors[i],false);target(draw.depth,state.depth_format,true);
     std::map<uint32_t,const GraphicsVertexBuffer*> vertices;
-    for(const auto& buffer:draw.vertices){require(vertices.emplace(buffer.slot,&buffer).second,"Duplicate graphics vertex buffer");commands.validate(buffer.buffer,buffer.offset,1);
+    for(const auto& buffer:draw.vertices){require(vertices.emplace(buffer.slot,&buffer).second,"Duplicate graphics vertex buffer");commands.validate(buffer.buffer,buffer.offset,buffer.size==VK_WHOLE_SIZE?1:buffer.size);
+        require(buffer.size==VK_WHOLE_SIZE || d->host.sized_vertices,"Bounded graphics vertex binding command unavailable");
         require(buffer.buffer->usage()&VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,"Graphics stream lacks vertex buffer usage");}
     require(vertices.size()==state.streams.size(),"Graphics vertex stream count differs from pipeline");
     for(const auto& divisor:state.divisors)if(divisor.divisor!=1 && (draw.arguments || draw.first_instance))
         require(d->host.divisor_first_instance,"Nonzero or GPU-produced instance base requires divisor device support");
     for(const auto& stream:state.streams){const auto found=vertices.find(stream.binding);require(found!=vertices.end(),"Missing graphics vertex stream");
         const auto& buffer=*found->second;
-        for(const auto& attribute:state.attributes)if(attribute.binding==stream.binding){const uint64_t first=uint64_t(buffer.offset)+attribute.offset;
-            require(first<buffer.buffer->size() && format(attribute.format).bytes<=buffer.buffer->size()-first,"Vertex attribute begins outside its buffer");}
+        const auto size=buffer.size==VK_WHOLE_SIZE?buffer.buffer->size()-buffer.offset:buffer.size;
+        for(const auto& attribute:state.attributes)if(attribute.binding==stream.binding)
+            require(attribute.offset<size && format(attribute.format).bytes<=size-attribute.offset,"Vertex attribute begins outside its binding window");
         // Indexed and indirect GPU indices remain the caller's domain contract.
         if(!draw.arguments && (!draw.indexed || stream.inputRate==VK_VERTEX_INPUT_RATE_INSTANCE) && stream.stride){
             uint32_t divisor=1;for(const auto& value:state.divisors)if(value.binding==stream.binding)divisor=value.divisor;
             const uint64_t index=stream.inputRate==VK_VERTEX_INPUT_RATE_VERTEX?uint64_t(draw.first)+draw.count-1:
                 uint64_t(draw.first_instance)+(divisor?(draw.instances-1)/divisor:0);
-            for(const auto& attribute:state.attributes)if(attribute.binding==stream.binding)require(index<=(UINT64_MAX-buffer.offset-attribute.offset)/stream.stride &&
-                uint64_t(buffer.offset)+index*stream.stride+attribute.offset<=buffer.buffer->size()-format(attribute.format).bytes,"Direct vertex fetch exceeds source allocation");}}
+            for(const auto& attribute:state.attributes)if(attribute.binding==stream.binding)require(index<=(size-attribute.offset-format(attribute.format).bytes)/stream.stride,"Direct vertex fetch exceeds its binding window");}}
     if(draw.indexed){require(draw.index_type==VK_INDEX_TYPE_UINT16 || draw.index_type==VK_INDEX_TYPE_UINT32,"Graphics index type unsupported");const uint32_t size=draw.index_type==VK_INDEX_TYPE_UINT16?2:4;
-        commands.validate(draw.indices,draw.index_offset,draw.arguments?size:(uint64_t(draw.first)+draw.count)*size);
+        const auto required=draw.arguments?size:(uint64_t(draw.first)+draw.count)*size;
+        commands.validate(draw.indices,draw.index_offset,draw.index_size==VK_WHOLE_SIZE?required:draw.index_size);
+        require(draw.index_size==VK_WHOLE_SIZE || (draw.index_size%size==0 && d->host.sized_indices),"Bounded graphics index binding unavailable or misaligned");
+        require(draw.index_size==VK_WHOLE_SIZE || required<=draw.index_size,"Direct index fetch exceeds its binding window");
         require(draw.index_offset%size==0 && (draw.indices->usage()&VK_BUFFER_USAGE_INDEX_BUFFER_BIT),"Graphics index usage/alignment invalid");}
     if(draw.arguments){require(d->resource.enabled_features.drawIndirectFirstInstance,"Owned indirect graphics requires enabled nonzero first-instance support");
         commands.validate(draw.arguments,draw.argument_offset,draw.indexed?sizeof(VkDrawIndexedIndirectCommand):sizeof(VkDrawIndirectCommand));
@@ -236,8 +240,8 @@ void ShaderCommands::draw(const Graphics& pipeline,const std::vector<ShaderDescr
     }
     // Indexed/indirect fetches may touch any element in the retained binding.
     for(const auto& entry:vertices){const auto& buffer=*entry.second;
-        commands.buffer_access(buffer.buffer,buffer.offset,buffer.buffer->size()-buffer.offset,VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT);}
-    if(draw.indexed)commands.buffer_access(draw.indices,draw.index_offset,draw.indices->size()-draw.index_offset,VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,VK_ACCESS_INDEX_READ_BIT);
+        commands.buffer_access(buffer.buffer,buffer.offset,buffer.size==VK_WHOLE_SIZE?buffer.buffer->size()-buffer.offset:buffer.size,VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT);}
+    if(draw.indexed)commands.buffer_access(draw.indices,draw.index_offset,draw.index_size==VK_WHOLE_SIZE?draw.indices->size()-draw.index_offset:draw.index_size,VK_PIPELINE_STAGE_VERTEX_INPUT_BIT,VK_ACCESS_INDEX_READ_BIT);
     if(draw.arguments)commands.buffer_access(draw.arguments,draw.argument_offset,draw.indexed?sizeof(VkDrawIndexedIndirectCommand):sizeof(VkDrawIndirectCommand),
         VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT,VK_ACCESS_INDIRECT_COMMAND_READ_BIT);
     commands.emit([d,pipeline,invocation](VkCommandBuffer command){
@@ -246,8 +250,14 @@ void ShaderCommands::draw(const Graphics& pipeline,const std::vector<ShaderDescr
     d->CmdBeginRenderPass(command,&pass,VK_SUBPASS_CONTENTS_INLINE);d->CmdBindPipeline(command,VK_PIPELINE_BIND_POINT_GRAPHICS,pipeline->impl_->pipeline);
     d->CmdBindDescriptorSets(command,VK_PIPELINE_BIND_POINT_GRAPHICS,pipeline->impl_->layout,0,1,&invocation->set,0,nullptr);
     d->CmdSetViewport(command,0,1,&draw.viewport);d->CmdSetScissor(command,0,1,&draw.scissor);
-    for(const auto& entry:draw.vertices){const auto handle=entry.buffer->buffer();d->CmdBindVertexBuffers(command,entry.slot,1,&handle,&entry.offset);}
-    if(draw.indexed)d->CmdBindIndexBuffer(command,draw.indices->buffer(),draw.index_offset,draw.index_type);
+    for(const auto& entry:draw.vertices){const auto handle=entry.buffer->buffer();
+        if(entry.size==VK_WHOLE_SIZE)d->CmdBindVertexBuffers(command,entry.slot,1,&handle,&entry.offset);
+        else d->host.sized_vertices(command,entry.slot,1,&handle,&entry.offset,&entry.size,nullptr);
+    }
+    if(draw.indexed){
+        if(draw.index_size==VK_WHOLE_SIZE)d->CmdBindIndexBuffer(command,draw.indices->buffer(),draw.index_offset,draw.index_type);
+        else d->host.sized_indices(command,draw.indices->buffer(),draw.index_offset,draw.index_size,draw.index_type);
+    }
     if(draw.arguments){if(draw.indexed)d->CmdDrawIndexedIndirect(command,draw.arguments->buffer(),draw.argument_offset,1,sizeof(VkDrawIndexedIndirectCommand));
         else d->CmdDrawIndirect(command,draw.arguments->buffer(),draw.argument_offset,1,sizeof(VkDrawIndirectCommand));}
     else if(draw.indexed)d->CmdDrawIndexed(command,draw.count,draw.instances,draw.first,draw.vertex_offset,draw.first_instance);

@@ -49,7 +49,8 @@ void GpuShaderRuntime::vertex_inputs(const gpu::HlslProgram& vertex,gpu::Graphic
         }
         if(streams.emplace(element.slot,VkVertexInputBindingDescription{element.slot,stride,instanced?VK_VERTEX_INPUT_RATE_INSTANCE:VK_VERTEX_INPUT_RATE_VERTEX}).second && divisor)
             config.divisors.push_back({element.slot,element.step});
-        buffers.emplace(element.slot,gpu::GraphicsVertexBuffer{element.slot,source.buffer,offset});config.attributes.push_back({input.location,element.slot,format,element.offset});
+        const auto size=source.ia_bytes(offset);require(size>0,"Original vertex offset leaves its binding window");
+        buffers.emplace(element.slot,gpu::GraphicsVertexBuffer{element.slot,source.buffer,offset,size==source.buffer->size()-offset?VK_WHOLE_SIZE:size});config.attributes.push_back({input.location,element.slot,format,element.offset});
     }
     for(const auto& pair:streams)config.streams.push_back(pair.second);for(const auto& pair:buffers)draw.vertices.push_back(pair.second);
 }

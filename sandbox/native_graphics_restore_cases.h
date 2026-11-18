@@ -7,7 +7,10 @@ static uint32_t vertex_slot,index_type;
 static VkDeviceSize vertex_offset,index_offset;
 static float width,blend_red;
 static uint32_t input_stride,input_divisor,input_binding,active_topology,active_restart;
-static VkDeviceSize bound_stride;
+static VkDeviceSize bound_stride,vertex_window,index_window;
+static VKAPI_ATTR void VKAPI_CALL sized_indices(VkCommandBuffer,VkBuffer,VkDeviceSize offset,VkDeviceSize size,VkIndexType type){
+    index_offset=offset;index_window=size;index_type=type;calls.push_back(108);
+}
 static VKAPI_ATTR void VKAPI_CALL input(VkCommandBuffer,uint32_t count,const VkVertexInputBindingDescription2EXT* b,
                                          uint32_t attributes,const VkVertexInputAttributeDescription2EXT* a){
     if(count==1 && attributes==1){input_stride=b->stride;input_divisor=b->divisor;input_binding=a->binding;}
@@ -16,7 +19,8 @@ static VKAPI_ATTR void VKAPI_CALL input(VkCommandBuffer,uint32_t count,const VkV
 static VKAPI_ATTR void VKAPI_CALL topology(VkCommandBuffer,VkPrimitiveTopology value){active_topology=value;calls.push_back(105);}
 static VKAPI_ATTR void VKAPI_CALL restart(VkCommandBuffer,VkBool32 value){active_restart=value;calls.push_back(106);}
 static VKAPI_ATTR void VKAPI_CALL sized_vertices(VkCommandBuffer,uint32_t first,uint32_t,const VkBuffer*,const VkDeviceSize*,
-                                                const VkDeviceSize*,const VkDeviceSize* stride){
+                                                const VkDeviceSize* size,const VkDeviceSize* stride){
+    if(size)vertex_window=*size;
     if(stride){vertex_slot=first;bound_stride=*stride;}calls.push_back(107);
 }
 static VkViewport viewport;
@@ -90,9 +94,13 @@ static void native_graphics_restore_cases(){
     d.d.CmdSetVertexInputEXT=t::input;d.d.CmdBindVertexBuffers2EXT=t::sized_vertices;
     d.d.CmdSetPrimitiveTopologyEXT=t::topology;d.d.CmdSetPrimitiveRestartEnableEXT=t::restart;
     check(prepare_native_graphics_restore(&d,&cb,result,why),"Known dynamic input, independent stride, topology and restart prepare");
+    cb.vb[3].size=32;cb.ib_range=10;d.d.CmdBindIndexBuffer2KHR=t::sized_indices;
+    check(prepare_native_graphics_restore(&d,&cb,result,why),"Bounded vertex and index buffers prepare with exact downstream commands");
     input->bindings[0].stride=64;input->attributes[0].binding=1;t::calls.clear();result.record(&d,h<VkCommandBuffer>(46005));
     check(t::input_stride==16 && t::input_divisor==2 && t::input_binding==3 && t::bound_stride==24 && t::vertex_slot==3,
         "Dynamic restoration retains declaration bytes, instance divisor and the last independent stride");
+    check(t::vertex_window==32 && t::index_window==10 && t::index_offset==12 && t::index_type==VK_INDEX_TYPE_UINT16,
+          "Restoration binds the original limited byte ranges including the nonzero index offset");
     auto pipeline_at=std::find(t::calls.begin(),t::calls.end(),100);
     auto input_at=std::find(pipeline_at,t::calls.end(),104);
     check(pipeline_at!=t::calls.end() && input_at!=t::calls.end() && std::find(input_at,t::calls.end(),107)!=t::calls.end() &&

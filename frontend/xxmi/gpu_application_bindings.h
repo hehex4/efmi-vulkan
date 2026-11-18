@@ -90,6 +90,9 @@ void GpuResourceRuntime::begin_prepared(const ApplicationResourceState& applicat
                 if(input.retained)value.initialization=input.retained->initialization;
                 value.description=desc;value.format=input.format;value.stride=input.stride;
                 value.offset=UINT(r.offset);value.visible_size=UINT(r.range);
+                if((type==T::INDEX_BUFFER || type==T::VERTEX_BUFFER) && r.range<r.size-r.offset){
+                    value.ia_begin=r.offset;value.ia_end=r.offset+r.range;
+                }
                 if(type==T::SHADER_RESOURCE || type==T::UNORDERED_ACCESS_VIEW){
                     const UINT width=structured?desc.StructureByteStride:dxgi_format_size(input.format);
                     require(width && r.offset%width==0 && r.range%width==0 &&

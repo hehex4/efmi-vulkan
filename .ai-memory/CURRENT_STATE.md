@@ -10,6 +10,15 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
+D-356 verified at 3.7.0 / ABI 982743f310db2326. Original IA references preserve
+finite Vulkan byte windows independently of the resource's size metadata.
+Private draws validate the window, record that interval for hazards, bind it
+and restore it to the application. The loaded sandbox renders a triangle with
+24 vertex bytes and six index bytes; separate direct overruns preserve the
+application. Results: 11/15 before, 15/15 after, dynamic graphics 15, owned
+graphics 334, prepared 155, tracker 1056, ABI 16. Logs: bounded-ia-*.out.
+Sandbox only. Inherited samplers, ordered GPU Store and legacy replay remain.
+
 D-355 verified at 3.6.9 / ABI 23c5246c8797088c. Three inherited graphics
 cases improved from 9/15 to 15/15, with fresh replacement pixels in dynamic
 vertex input, independent stride and static-after-dynamic modes. The layer

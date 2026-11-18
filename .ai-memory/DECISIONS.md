@@ -3058,3 +3058,12 @@ The D3D11 context holds references until GPU retirement, orders draws and handle
 hazards. Vulkan retains and replays known setter values around the private
 pipeline and draws with exact archived vertex semantics. Binding windows and
 independent strides must be reproducible before private work is recorded.
+
+## D-356: Retain bounded original IA across prepared and application draws
+
+CommandList.cpp 9736/9742 and 10067/10072 use the IA buffer, byte offset,
+stride or index type. D3D11 retains live COM references, defers destruction
+and orders hazards on its context. A Vulkan sized binding has a physical
+window apart from its buffer description. A ref carries that provenance, a
+new allocation starts a fresh range. Validate and bind the same interval
+for private work and restore the caller with the supported core/extension command.

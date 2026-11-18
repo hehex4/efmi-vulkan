@@ -20,6 +20,27 @@ uint32_t native_buffer_bind_flags(uint32_t usage) {
         ((usage&(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT))?8u:0u) |
         ((usage&(VK_BUFFER_USAGE_STORAGE_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT))?128u:0u);
 }
+bool native_vertex_stride(const GraphicsRecipe& recipe,const DrawRec& draw,uint32_t slot,uint32_t& stride,std::string& why){
+    auto refuse=[&](const char* reason){why=reason;return false;};
+    const bool dynamic_input=std::find(recipe.dynamic.begin(),recipe.dynamic.end(),VK_DYNAMIC_STATE_VERTEX_INPUT_EXT)!=recipe.dynamic.end();
+    const bool dynamic_stride=std::find(recipe.dynamic.begin(),recipe.dynamic.end(),VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE)!=recipe.dynamic.end();
+    if(dynamic_input){
+        if(!draw.vertex_input || !draw.vertex_input->complete)return refuse("Native IA dynamic declaration is unknown");
+        const auto& bindings=draw.vertex_input->bindings;
+        const auto binding=std::find_if(bindings.begin(),bindings.end(),[&](const auto& b){return b.binding==slot;});
+        if(binding==bindings.end())return refuse("Native IA slot has no current dynamic declaration");
+        stride=binding->stride;
+    }
+    if(dynamic_stride){
+        if(!draw.vb[slot].stride_known)return refuse("Native IA dynamic stride is unknown");
+        stride=draw.vb[slot].stride;
+    }else if(!dynamic_input){
+        const auto binding=std::find_if(recipe.vertex.bindings.begin(),recipe.vertex.bindings.end(),[&](const auto& b){return b.binding==slot;});
+        if(binding==recipe.vertex.bindings.end())return refuse("Native IA slot has no static stride declaration");
+        stride=binding->stride;
+    }
+    return true;
+}
 namespace {
 bool ia_resource(Device* device,CmdBuf* cb,const DrawRec& draw,const efmi::frontend::NativeBinding& address,
                  efmi::frontend::NativeResource& output,std::string& why)
@@ -61,23 +82,7 @@ bool ia_resource(Device* device,CmdBuf* cb,const DrawRec& draw,const efmi::front
         const auto pipeline=device->pipes.find(draw.pipeline);
         if(pipeline==device->pipes.end() || !pipeline->second.recipe)return refuse("Native IA declaration is unavailable");
         const auto& recipe=*pipeline->second.recipe;
-        const bool dynamic_input=std::find(recipe.dynamic.begin(),recipe.dynamic.end(),VK_DYNAMIC_STATE_VERTEX_INPUT_EXT)!=recipe.dynamic.end();
-        const bool dynamic_stride=std::find(recipe.dynamic.begin(),recipe.dynamic.end(),VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE)!=recipe.dynamic.end();
-        if(dynamic_input){
-            if(!draw.vertex_input || !draw.vertex_input->complete)return refuse("Native IA dynamic declaration is unknown");
-            const auto& bindings=draw.vertex_input->bindings;
-            const auto binding=std::find_if(bindings.begin(),bindings.end(),[&](const auto& b){return b.binding==address.slot;});
-            if(binding==bindings.end())return refuse("Native IA slot has no current dynamic declaration");
-            output.stride=binding->stride;
-        }
-        if(dynamic_stride){
-            if(!bound.stride_known)return refuse("Native IA dynamic stride is unknown");
-            output.stride=bound.stride;
-        }else if(!dynamic_input){
-            const auto binding=std::find_if(recipe.vertex.bindings.begin(),recipe.vertex.bindings.end(),[&](const auto& b){return b.binding==address.slot;});
-            if(binding==recipe.vertex.bindings.end())return refuse("Native IA slot has no static stride declaration");
-            output.stride=binding->stride;
-        }
+        if(!native_vertex_stride(recipe,draw,address.slot,output.stride,why))return false;
         output.format_known=true;
     }else{
         if(draw.index_size!=2 && draw.index_size!=4)return refuse("Native IA index type is unsupported");

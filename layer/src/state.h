@@ -652,6 +652,12 @@ struct Device {
     std::atomic<uint64_t> present_waits{0};
     PFN_vkSetDeviceLoaderData set_loader_data = nullptr;
     DeviceDispatch d;
+    PFN_vkCmdBindVertexBuffers2 sized_vertices() const {
+        return std::min(api_version,app_api_version)>=VK_API_VERSION_1_3?d.CmdBindVertexBuffers2:d.CmdBindVertexBuffers2EXT;
+    }
+    PFN_vkCmdBindIndexBuffer2 sized_indices() const {
+        return std::min(api_version,app_api_version)>=VK_API_VERSION_1_4?d.CmdBindIndexBuffer2:d.CmdBindIndexBuffer2KHR;
+    }
     // The character backend in use and the functions of the code it belongs to. Calls into it hold
     // character_mx shared; exchanging it (m2_backend.cpp) takes the lock exclusively. `staged` is a
     // backend of other code that is getting ready to take over.

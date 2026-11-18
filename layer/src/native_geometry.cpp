@@ -1,4 +1,5 @@
 #include "native_geometry.h"
+#include "native_resources.h"
 #include "command_owner.h"
 #include "native_targets.h"
 #include "resource_memory.h"
@@ -69,7 +70,7 @@ bool prepare_native_geometry(Device* device,CmdBuf* cb,const DrawRec& original,c
                              const NativeTargetPlan* targets,bool* pending)
 {
     auto refuse=[&](const char* reason){why=reason;return false;};
-    NativeGeometryPlan next;next.bindings.resize(plan.items.size());next.draws.resize(plan.items.size()+1);
+    NativeGeometryPlan next;next.bindings.resize(plan.items.size());next.binding_sizes.resize(plan.items.size(),VK_WHOLE_SIZE);next.draws.resize(plan.items.size()+1);
     auto state=cb->native_geometry?std::make_shared<NativeGeometryState>(*cb->native_geometry):std::make_shared<NativeGeometryState>();
     std::set<ResourceKey> retained;
     std::set<std::shared_ptr<const PipelineVariant>> retained_pipelines;
@@ -107,7 +108,7 @@ bool prepare_native_geometry(Device* device,CmdBuf* cb,const DrawRec& original,c
             if(!index || !index->bound)return refuse("Indexed geometry has a null index binding");
             gpu_indices=index->prepared_admission && plan.prepared_final_state && !index->index_bounds && device->enabled_features.robustBufferAccess;
             if((!index->index_bounds && !gpu_indices) || !index->index_size || index->offset>index->size ||
-               uint64_t(call.first)+call.count>(index->size-index->offset)/index->index_size)
+               uint64_t(call.first)+call.count>(index->range?index->range:index->size-index->offset)/index->index_size)
                 return refuse("Geometry draw exceeds the uploaded index buffer");
             const int64_t first=int64_t(index->index_min)+call.vertex_offset,last=int64_t(index->index_max)+call.vertex_offset;
             if(!gpu_indices && (first<0 || last<first))return refuse("Geometry base vertex leaves the vertex domain");
@@ -166,7 +167,7 @@ bool prepare_native_geometry(Device* device,CmdBuf* cb,const DrawRec& original,c
                 const auto& resource=replacement->second;
                 if(!resource || !resource->bound)return refuse("Geometry uses a null vertex binding");
                 if(resource->stride!=stride)return refuse("Geometry file stride needs a matching pipeline variant");
-                size=resource->size;offset=resource->offset;
+                offset=resource->offset;size=resource->range?offset+resource->range:resource->size;
             }else{
                 if(!app_valid[binding->binding] || app.off>app_sizes[binding->binding])return refuse("Geometry application vertex buffer is unavailable");
                 size=app_sizes[binding->binding];offset=app.off;
@@ -221,6 +222,18 @@ bool prepare_native_geometry(Device* device,CmdBuf* cb,const DrawRec& original,c
             if(resource && (!resource->bound || !resource->buffer || !resource->keep ||
                 !(resource->usage&(vertex?VK_BUFFER_USAGE_VERTEX_BUFFER_BIT:VK_BUFFER_USAGE_INDEX_BUFFER_BIT))))
                 return refuse("Geometry binding needs a retained buffer with the correct usage");
+            VkDeviceSize size=VK_WHOLE_SIZE;
+            if(resource){
+                if(resource->offset>=resource->size || resource->range>resource->size-resource->offset)
+                    return refuse("Geometry binding window is outside the retained allocation");
+                if(resource->range && resource->range<resource->size-resource->offset)size=resource->range;
+            }else if(item.application_slot>=0)size=vertex?original.vb[item.slot].size:original.ib_range;
+            if(size!=VK_WHOLE_SIZE){
+                if(vertex && !device->sized_vertices())return refuse("Geometry needs bounded vertex binding support");
+                const auto width=resource?resource->index_size:original.index_size;
+                if(!vertex && (!device->sized_indices() || !width || size%width))return refuse("Geometry needs an aligned bounded index binding");
+                next.binding_sizes[i]=size;
+            }
             const bool prepared=resource && resource->prepared_admission && plan.prepared_final_state;
             if(prepared && !(resource->initialization && resource->initial_contents)){
                 const bool ordered=targets && std::any_of(targets->events.begin(),targets->events.begin()+std::min(i,targets->events.size()),
@@ -235,15 +248,16 @@ bool prepare_native_geometry(Device* device,CmdBuf* cb,const DrawRec& original,c
                 (app_index_id && resource->identity==(uint64_t(app_index_id)<<2) && resource->buffer==uint64_t(original.ib) && resource->offset==original.ib_off));
             const bool original_reference=resource && !resource->uploaded_readonly && (!prepared || restored);
             if(original_reference){
-                if(resource->uploaded_mutable || cb->m2_extended_bind)return refuse("Original IA reference needs exact binding-window and producer proof");
+                if(resource->uploaded_mutable)return refuse("Original IA reference needs ordered producer proof");
                 if(vertex){
                     const auto& app=original.vb[item.slot];
-                    const auto binding=std::find_if(original_recipe->vertex.bindings.begin(),original_recipe->vertex.bindings.end(),[&](const auto& b){return b.binding==item.slot;});
+                    uint32_t stride=0;if(!native_vertex_stride(*original_recipe,original,item.slot,stride,why))return false;
                     if(!app_valid[item.slot] || resource->identity!=(uint64_t(app_ids[item.slot])<<2) || resource->buffer!=uint64_t(app.buf) ||
-                       resource->size!=app_sizes[item.slot] || resource->offset!=app.off || binding==original_recipe->vertex.bindings.end() || resource->stride!=binding->stride)
+                       resource->size!=app_sizes[item.slot] || resource->offset!=app.off || std::min(app.size,resource->size-app.off)!=std::min(size,resource->size-app.off) || resource->stride!=stride)
                         return refuse("Retained application vertices need the current original slot or an ordered import");
                 }else if(!app_index_id || resource->identity!=(uint64_t(app_index_id)<<2) || resource->buffer!=uint64_t(original.ib) ||
-                         resource->size!=app_index_size || resource->offset!=original.ib_off || resource->index_size!=original.index_size)
+                         resource->size!=app_index_size || resource->offset!=original.ib_off || resource->index_size!=original.index_size ||
+                         std::min(original.ib_range,resource->size-resource->offset)!=std::min(size,resource->size-resource->offset))
                     return refuse("Retained application indices need the current original slot or an ordered import");
             }
             if(resource && retained.insert(resource_key(*resource)).second && retained.size()>4096)
@@ -278,14 +292,19 @@ void record_native_geometry(Device* device,CmdBuf* cb,const efmi::assets::FilePl
 {
     const auto& item=plan.items[index];const auto& resource=item.native_resource;
     cb->native_geometry=geometry.bindings[index]->empty()?nullptr:geometry.bindings[index];
-    if(item.application_slot>=0){
-        if(item.operation==Operation::BindVertex){const auto& b=cb->vb[item.slot];device->d.CmdBindVertexBuffers(cb->handle,item.slot,1,&b.buf,&b.off);}
-        else device->d.CmdBindIndexBuffer(cb->handle,cb->ib,cb->ib_off,cb->index_size==2?VK_INDEX_TYPE_UINT16:VK_INDEX_TYPE_UINT32);
-    }else if(resource){
-        retain(device,cb,resource);
-        if(item.operation==Operation::BindVertex){const VkBuffer buffer=VkBuffer(resource->buffer);const VkDeviceSize offset=resource->offset;
-            device->d.CmdBindVertexBuffers(cb->handle,item.slot,1,&buffer,&offset);
-        }else device->d.CmdBindIndexBuffer(cb->handle,VkBuffer(resource->buffer),resource->offset,resource->index_size==2?VK_INDEX_TYPE_UINT16:VK_INDEX_TYPE_UINT32);
+    if(item.application_slot<0 && !resource)return;
+    const bool application=item.application_slot>=0,vertex=item.operation==Operation::BindVertex;
+    if(!application)retain(device,cb,resource);
+    const auto buffer=application?(vertex?cb->vb[item.slot].buf:cb->ib):VkBuffer(resource->buffer);
+    const VkDeviceSize offset=application?(vertex?cb->vb[item.slot].off:cb->ib_off):resource->offset;
+    const auto size=geometry.binding_sizes[index];
+    if(vertex){
+        if(size==VK_WHOLE_SIZE)device->d.CmdBindVertexBuffers(cb->handle,item.slot,1,&buffer,&offset);
+        else device->sized_vertices()(cb->handle,item.slot,1,&buffer,&offset,&size,nullptr);
+    }else{
+        const auto type=(application?cb->index_size:resource->index_size)==2?VK_INDEX_TYPE_UINT16:VK_INDEX_TYPE_UINT32;
+        if(size==VK_WHOLE_SIZE)device->d.CmdBindIndexBuffer(cb->handle,buffer,offset,type);
+        else device->sized_indices()(cb->handle,buffer,offset,size,type);
     }
 }
 void bind_native_geometry_pipeline(Device* device,CmdBuf* cb,const NativeGeometryPlan& geometry,size_t index)

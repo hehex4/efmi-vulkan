@@ -31,7 +31,7 @@ private:
     friend class ShaderCommands;
     std::shared_ptr<ShaderPipelineState> impl_;
 };
-struct GraphicsVertexBuffer {uint32_t slot=0;Buffer buffer;VkDeviceSize offset=0;};
+struct GraphicsVertexBuffer {uint32_t slot=0;Buffer buffer;VkDeviceSize offset=0,size=VK_WHOLE_SIZE;};
 struct GraphicsDraw {
     std::vector<ImageView> colors;
     ImageView depth;
@@ -44,7 +44,7 @@ struct GraphicsDraw {
     // are not inspected with a hidden CPU wait. Indirect first-instance support
     // must actually be enabled, even if a particular buffer happens to use zero.
     Buffer indices,arguments;
-    VkDeviceSize index_offset=0,argument_offset=0;
+    VkDeviceSize index_offset=0,argument_offset=0,index_size=VK_WHOLE_SIZE;
     VkIndexType index_type=VK_INDEX_TYPE_UINT32;
     uint32_t count=0,instances=1,first=0,first_instance=0;
     int32_t vertex_offset=0;

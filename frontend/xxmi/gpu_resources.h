@@ -24,6 +24,12 @@ struct GpuResourceBinding {
     D3D11_BUFFER_DESC description{};
     DXGI_FORMAT format=DXGI_FORMAT_UNKNOWN;
     uint32_t stride=0,source_stride=0,offset=0,visible_size=0;
+    // Physical IA bounds survive original ref commands that clear out-of-band size.
+    VkDeviceSize ia_begin=0,ia_end=VK_WHOLE_SIZE;
+    VkDeviceSize ia_bytes(VkDeviceSize start) const {
+        const auto end=buffer?std::min(ia_end,buffer->size()):0;
+        return start>=ia_begin && start<end?end-start:0;
+    }
     bool region=false;
     View view=View::None;
     DXGI_FORMAT view_format=DXGI_FORMAT_UNKNOWN;

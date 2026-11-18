@@ -519,7 +519,8 @@ void GpuResourceRuntime::copy_to(ResourceCopyOperation& op,ResourceCopyTarget& d
         if(no_view_cache)cache.drop_view();return;
     }
     if(source.image){image_copy(op,dst,state,std::move(source),custom,cache);return;}
-    GpuResourceBinding out=source;out.description.BindFlags=custom?custom->bind_flags:bind_flag(dst.type);
+    GpuResourceBinding out=source;out.ia_begin=0;out.ia_end=VK_WHOLE_SIZE;
+    out.description.BindFlags=custom?custom->bind_flags:bind_flag(dst.type);
     if(custom)out.description.MiscFlags|=custom->misc_flags;
     if(dst.type==Target::THIS_RESOURCE)out.description.MiscFlags|=D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS;
     if(!(out.description.BindFlags&(D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_UNORDERED_ACCESS)))out.description.MiscFlags&=~D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;

@@ -20,11 +20,7 @@ inline bool equal(ResourceCopyTargetType slot,const GpuResourceBinding& a,const 
     if(!a && !b)return true;
     using T=ResourceCopyTargetType;
     if((slot==T::INDEX_BUFFER || slot==T::VERTEX_BUFFER) && a.buffer && a.buffer==b.buffer && a.offset==b.offset){
-        const auto remaining=a.buffer->size()-a.offset;
-        auto range=[&](const GpuResourceBinding& value){
-            return value.visible_size?std::min<VkDeviceSize>(value.visible_size,remaining):remaining;
-        };
-        return range(a)==range(b) && (slot==T::INDEX_BUFFER?a.format==b.format:a.stride==b.stride);
+        return a.ia_bytes(a.offset)==b.ia_bytes(b.offset) && (slot==T::INDEX_BUFFER?a.format==b.format:a.stride==b.stride);
     }
     // Image query metadata (format/stride/size) can be filled by a ref copy
     // without changing the retained typed view passed to the native context.
@@ -182,6 +178,10 @@ std::unique_ptr<PreparedConfigurationDraw> OwnedRuntime::prepare_native_draw(std
                         resource->offset=view?value.view_offset:value.offset;
                         resource->range=view?value.view_size:value.visible_size;
                         if(!resource->range && resource->offset<resource->size)resource->range=resource->size-resource->offset;
+                        if(kind==NativeBinding::Vertex || kind==NativeBinding::Index){
+                            resource->offset=value.offset;resource->range=value.ia_bytes(value.offset);
+                            if(!resource->range)throw std::runtime_error("Original IA reference starts outside its binding window");
+                        }
                         if(kind==NativeBinding::Index){
                             resource->index_size=value.format==DXGI_FORMAT_R16_UINT?2:value.format==DXGI_FORMAT_R32_UINT?4:0;
                             const auto proof=snapshot->indices.find(value.buffer);

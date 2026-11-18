@@ -22,6 +22,7 @@ struct NativeGeometryContext {
 };
 struct NativeGeometryPlan {
     std::vector<std::shared_ptr<const NativeGeometryState>> bindings;
+    std::vector<VkDeviceSize> binding_sizes;
     struct Draw {std::shared_ptr<const PipelineVariant> variant;VkPipeline pipeline=VK_NULL_HANDLE;};
     std::vector<Draw> draws; // Last cell is the implicit application call.
 };

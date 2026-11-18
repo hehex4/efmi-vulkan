@@ -90,6 +90,7 @@ static PFN_vkCmdDrawIndirectCountKHR vkCmdDrawIndirectCountKHR;
 static PFN_vkCreateRenderPass2 vkCreateRenderPass2;
 static PFN_vkCmdBeginRenderPass2 vkCmdBeginRenderPass2;
 static PFN_vkCmdEndRenderPass2 vkCmdEndRenderPass2;
+static PFN_vkCmdBindIndexBuffer2KHR bounded_bind_index;
 static PFN_vkCmdBindVertexBuffers2 dynamic_bind_vertices;
 static PFN_vkCmdBeginRendering dynamic_begin_rendering;
 static PFN_vkCmdEndRendering dynamic_end_rendering;
@@ -235,7 +236,7 @@ struct App {
     bool mutable_sampler = false;
     bool no_null_descriptors = false;
     int dynamic_geometry = 0;
-    bool geometry_shader_scene = false;
+    bool geometry_shader_scene = false, bounded_ia = false;
     int extended_raster = 0;
     int restart_mode = 0;
     bool imageless = false;
@@ -585,6 +586,7 @@ static bool create_device()
     if(g.no_null_descriptors)exts.push_back(VK_EXT_ROBUSTNESS_2_EXTENSION_NAME);
     if(g.dynamic_rendering==2)exts.push_back(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
     if(g.dynamic_depth || g.unused_attachments)exts.push_back(VK_EXT_DYNAMIC_RENDERING_UNUSED_ATTACHMENTS_EXTENSION_NAME);
+    if(g.bounded_ia)exts.push_back(VK_KHR_MAINTENANCE_5_EXTENSION_NAME);
     if(g.dynamic_geometry==2)exts.push_back(VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME);
     if(g.restart_mode==2)exts.push_back(VK_EXT_EXTENDED_DYNAMIC_STATE_2_EXTENSION_NAME);
     if(g.dynamic_geometry>=4)exts.push_back(VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME);
@@ -618,6 +620,8 @@ static bool create_device()
     if(g.submit2){timeline.timelineSemaphore=VK_TRUE;timeline.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&timeline;}
     VkPhysicalDeviceMultiviewFeatures multiview{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES};
     if(g.capture_multiview){multiview.multiview=VK_TRUE;multiview.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&multiview;}
+    VkPhysicalDeviceMaintenance5FeaturesKHR maintenance5{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_5_FEATURES_KHR};
+    if(g.bounded_ia){maintenance5.maintenance5=VK_TRUE;maintenance5.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&maintenance5;}
     VkPhysicalDeviceExtendedDynamicStateFeaturesEXT extended{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT};
     if(g.dynamic_geometry==2){extended.extendedDynamicState=VK_TRUE;extended.pNext=const_cast<void*>(dinfo.pNext);dinfo.pNext=&extended;}
     VkPhysicalDeviceVertexInputDynamicStateFeaturesEXT input_dynamic{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_INPUT_DYNAMIC_STATE_FEATURES_EXT};
@@ -656,6 +660,11 @@ static bool create_device()
         raster_CmdSetStencilOp=reinterpret_cast<PFN_vkCmdSetStencilOp>(vkGetDeviceProcAddr(g.device,"vkCmdSetStencilOp"));if(!raster_CmdSetStencilOp)return false;
         raster_CmdSetViewportWithCount=reinterpret_cast<PFN_vkCmdSetViewportWithCount>(vkGetDeviceProcAddr(g.device,"vkCmdSetViewportWithCount"));if(!raster_CmdSetViewportWithCount)return false;
         raster_CmdSetScissorWithCount=reinterpret_cast<PFN_vkCmdSetScissorWithCount>(vkGetDeviceProcAddr(g.device,"vkCmdSetScissorWithCount"));if(!raster_CmdSetScissorWithCount)return false;
+    }
+    if(g.bounded_ia){
+        bounded_bind_index=reinterpret_cast<PFN_vkCmdBindIndexBuffer2KHR>(vkGetDeviceProcAddr(g.device,"vkCmdBindIndexBuffer2KHR"));
+        dynamic_bind_vertices=reinterpret_cast<PFN_vkCmdBindVertexBuffers2>(vkGetDeviceProcAddr(g.device,"vkCmdBindVertexBuffers2"));
+        if(!bounded_bind_index || !dynamic_bind_vertices)return false;
     }
     if(g.dynamic_geometry){
         dynamic_bind_vertices=reinterpret_cast<PFN_vkCmdBindVertexBuffers2>(vkGetDeviceProcAddr(g.device,g.dynamic_geometry==2?"vkCmdBindVertexBuffers2EXT":"vkCmdBindVertexBuffers2"));
@@ -1165,6 +1174,7 @@ static bool create_resources()
     if (!make_buffer(g.vb, sizeof(kVertices) + (g.geometry_odd ? 1 : 0), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | capture_usage, true, true))
         return false;
     memcpy(g.vb.map, kVertices, sizeof(kVertices));
+    if(g.bounded_ia){const float triangle[3][2]={{-1,-1},{-1,3},{3,-1}};memcpy(g.vb.map,triangle,sizeof(triangle));}
     if (g.geometry_odd) static_cast<uint8_t*>(g.vb.map)[sizeof(kVertices)] = 0x5a;
 
     if (!make_buffer(g.ib_a, sizeof(kIndicesA), VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | capture_usage, false,
@@ -1541,7 +1551,12 @@ static void record_draw(VkCommandBuffer cb, int i)
         if(g.restart_mode)dynamic_restart(cb,d.count==3?VK_TRUE:VK_FALSE);
         if((g.dynamic_geometry==3 || g.dynamic_geometry==6))vkCmdBindPipeline(cb,VK_PIPELINE_BIND_POINT_GRAPHICS,g.pipeline);
     }
-    if (d.ib == 0)
+    if(g.bounded_ia){
+        const VkDeviceSize start=0,length=i==0?24:sizeof(kVertices);
+        dynamic_bind_vertices(cb,0,1,&g.vb.buf,&start,&length,nullptr);
+    }
+    if(g.bounded_ia && i==0)bounded_bind_index(cb,g.ib_a.buf,0,6,VK_INDEX_TYPE_UINT16);
+    else if (d.ib == 0)
         vkCmdBindIndexBuffer(cb, g.ib_a.buf, 0, VK_INDEX_TYPE_UINT16);
     else
         vkCmdBindIndexBuffer(cb, g.ib_b.buf, kPadB, VK_INDEX_TYPE_UINT32);
@@ -2271,6 +2286,8 @@ int wmain(int argc, wchar_t** argv)
             g.extended_raster = _wtoi(argv[++i]);
         else if (a == L"--primitive-restart" && i + 1 < argc)
             g.restart_mode = _wtoi(argv[++i]);
+        else if (a == L"--bounded-ia")
+            g.bounded_ia = true;
         else if (a == L"--geometry-shader-scene")
             g.geometry_shader_scene = true;
         else if (a == L"--geometry-dynamic" && i + 1 < argc)

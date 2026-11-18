@@ -52,7 +52,8 @@ void NativeGraphicsRestore::record(Device* device,VkCommandBuffer command,VkPipe
         for(const auto& v:vertices){
             bool stride=v.stride_known && (!after || required_state(VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE));
             if(stride && declaration)for(const auto& b:input_bindings)if(b.binding==v.slot && b.stride==v.stride){stride=false;break;}
-            if(stride)bind_vertices(command,v.slot,1,&v.buffer,&v.offset,nullptr,&v.stride);
+            if(stride || (after && v.size!=VK_WHOLE_SIZE))
+                bind_vertices(command,v.slot,1,&v.buffer,&v.offset,v.size==VK_WHOLE_SIZE?nullptr:&v.size,stride?&v.stride:nullptr);
             else if(after)d.CmdBindVertexBuffers(command,v.slot,1,&v.buffer,&v.offset);
         }
     };
@@ -61,7 +62,10 @@ void NativeGraphicsRestore::record(Device* device,VkCommandBuffer command,VkPipe
     for(const auto state:required)replay(d,command,dynamic,state);
     record_sets(command,VK_PIPELINE_BIND_POINT_GRAPHICS);
     restore_input(true);
-    if(index)d.CmdBindIndexBuffer(command,index,index_offset,index_type);
+    if(index){
+        if(index_range==VK_WHOLE_SIZE)d.CmdBindIndexBuffer(command,index,index_offset,index_type);
+        else bind_indices(command,index,index_offset,index_range,index_type);
+    }
 }
 bool prepare_native_graphics_restore(Device* device,const CmdBuf* cb,NativeGraphicsRestore& output,std::string& why,bool resource_lock_held){
     auto refuse=[&](const char* text){why=text;return false;};
@@ -75,7 +79,7 @@ bool prepare_native_graphics_restore(Device* device,const CmdBuf* cb,NativeGraph
     std::shared_lock<std::shared_mutex> lock(device->res_mx,std::defer_lock);if(!resource_lock_held)lock.lock();
     NativeGraphicsRestore next;next.pipeline=cb->gfx_bound;next.dynamic=cb->graphics_dynamic;
     const bool core13=std::min(device->api_version,device->app_api_version)>=VK_API_VERSION_1_3;
-    next.bind_vertices=core13?device->d.CmdBindVertexBuffers2:device->d.CmdBindVertexBuffers2EXT;
+    next.bind_vertices=device->sized_vertices();next.bind_indices=device->sized_indices();
     next.set_topology=core13?device->d.CmdSetPrimitiveTopology:device->d.CmdSetPrimitiveTopologyEXT;
     next.set_restart=core13?device->d.CmdSetPrimitiveRestartEnable:device->d.CmdSetPrimitiveRestartEnableEXT;
     next.topology=cb->topology;next.restart=cb->primitive_restart;
@@ -125,13 +129,17 @@ bool prepare_native_graphics_restore(Device* device,const CmdBuf* cb,NativeGraph
         if(!resource || !resource->bound || !resource->buffer || !resource->keep || resource->offset>=resource->size ||
            !(resource->usage&(vertex?VK_BUFFER_USAGE_VERTEX_BUFFER_BIT:VK_BUFFER_USAGE_INDEX_BUFFER_BIT)))return false;
         if(!vertex && ((resource->index_size!=2 && resource->index_size!=4) || resource->offset%resource->index_size))return false;
+        if(resource->range>resource->size-resource->offset)return false;
+        if(resource->range && resource->range<resource->size-resource->offset &&
+           (vertex?!next.bind_vertices:!next.bind_indices || resource->range%resource->index_size))return false;
         next.resources.push_back(resource);return true;
     };
     for(uint32_t slot=0;slot<kMaxVb;++slot){
         if(cb->native_geometry){const auto found=cb->native_geometry->vertices.find(slot);
             if(found!=cb->native_geometry->vertices.end()){
                 if(!private_buffer(found->second,true))return refuse("Graphics restoration needs a retained effective vertex binding");
-                next.vertices.push_back({slot,VkBuffer(found->second->buffer),found->second->offset});continue;
+                const auto& r=*found->second;
+                next.vertices.push_back({slot,VkBuffer(r.buffer),r.offset,0,false,r.range && r.range<r.size-r.offset?r.range:VK_WHOLE_SIZE});continue;
             }
         }
         const auto& vertex=cb->vb[slot];
@@ -145,25 +153,32 @@ bool prepare_native_graphics_restore(Device* device,const CmdBuf* cb,NativeGraph
         const auto found=device->bufs.find(vertex.buf);
         if(found==device->bufs.end() || vertex.off>=found->second.size || !(found->second.usage&VK_BUFFER_USAGE_VERTEX_BUFFER_BIT))
             return refuse("Graphics restoration vertex binding is unavailable");
-        // Prepared vertex/index fetch currently uses the full remaining allocation.
-        if(vertex.size!=VK_WHOLE_SIZE && vertex.size!=found->second.size-vertex.off)
-            return refuse("Graphics restoration needs bounded original vertex fetch");
+        const auto remaining=found->second.size-vertex.off;
+        const auto size=vertex.size==remaining?VK_WHOLE_SIZE:vertex.size;
+        if(size!=VK_WHOLE_SIZE && (size>remaining || !next.bind_vertices))
+            return refuse("Graphics restoration lacks the bounded vertex binding command or range");
         if(vertex.stride_known && !next.bind_vertices){
             const auto binding=std::find_if(next.input_bindings.begin(),next.input_bindings.end(),[&](const auto& b){return b.binding==slot && b.stride==vertex.stride;});
             const auto required=[&](VkDynamicState s){return std::find(next.required.begin(),next.required.end(),s)!=next.required.end();};
             if(binding==next.input_bindings.end() || (required(VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE) && !required(VK_DYNAMIC_STATE_VERTEX_INPUT_EXT)))
                 return refuse("Graphics restoration cannot reapply a separately set vertex stride");
         }
-        next.vertices.push_back({slot,vertex.buf,vertex.off,vertex.stride,vertex.stride_known});
+        next.vertices.push_back({slot,vertex.buf,vertex.off,vertex.stride,vertex.stride_known,size});
     }
     if(cb->native_geometry && cb->native_geometry->index_overridden){const auto& index=cb->native_geometry->index;
         if(!private_buffer(index,false))return refuse("Graphics restoration needs a retained effective index binding");
+        if(index->range && index->range<index->size-index->offset)next.index_range=index->range;
         next.index=VkBuffer(index->buffer);next.index_offset=index->offset;next.index_type=index->index_size==2?VK_INDEX_TYPE_UINT16:VK_INDEX_TYPE_UINT32;
     }else if(cb->ib){const auto found=device->bufs.find(cb->ib);
         if(found==device->bufs.end() || !(found->second.usage&VK_BUFFER_USAGE_INDEX_BUFFER_BIT) ||
            (cb->index_size!=2 && cb->index_size!=4) || cb->ib_off%cb->index_size || cb->ib_off>=found->second.size)
             return refuse("Graphics restoration index binding is unavailable");
-        if(cb->ib_range!=VK_WHOLE_SIZE && cb->ib_range!=found->second.size-cb->ib_off)return refuse("Graphics restoration needs bounded original index fetch");
+        const auto remaining=found->second.size-cb->ib_off;
+        if(cb->ib_range!=VK_WHOLE_SIZE && cb->ib_range!=remaining){
+            if(!next.bind_indices || cb->ib_range>remaining || cb->ib_range%cb->index_size)
+                return refuse("Graphics restoration lacks the bounded index binding command or range");
+            next.index_range=cb->ib_range;
+        }
         next.index=cb->ib;next.index_offset=cb->ib_off;next.index_type=cb->index_size==2?VK_INDEX_TYPE_UINT16:VK_INDEX_TYPE_UINT32;
     }
     if(!prepare_native_descriptor_restore(device,cb->sets,cb->dyn,next,why,true))return false;

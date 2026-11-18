@@ -4484,3 +4484,14 @@ the effective physical binding. Original IA queries 46, tracker 1054 and ABI
 16 pass. Logs: graphics-dynamic-{before,binding-regression}.out. Limited
 vertex/index windows and persistent changed bindings still need coverage.
 Sandbox only; no game deployment.
+
+## D-356: Retain bounded original IA across prepared and application draws
+
+D-356 verified at 3.7.0 / ABI 982743f310db2326. Original IA references preserve
+finite Vulkan byte windows independently of the resource's size metadata.
+Private draws validate the window, record that interval for hazards, bind it
+and restore it to the application. The loaded sandbox renders a triangle with
+24 vertex bytes and six index bytes; separate direct overruns preserve the
+application. Results: 11/15 before, 15/15 after, dynamic graphics 15, owned
+graphics 334, prepared 155, tracker 1056, ABI 16. Logs: bounded-ia-*.out.
+Sandbox only. Inherited samplers, ordered GPU Store and legacy replay remain.

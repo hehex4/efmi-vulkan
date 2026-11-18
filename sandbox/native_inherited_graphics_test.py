@@ -19,7 +19,8 @@ from build_shader_model_index import encode_sources
 
 def main():
     case = sys.argv[1] if len(sys.argv) > 1 else 'enabled'
-    if case not in ('enabled', 'unknown_source', 'unknown_layout', 'direct_root_this', 'dynamic_layout', 'dynamic_stride_layout', 'static_after_dynamic', 'nested', 'reference', 'state', 'state_nested',
+    bounded = case in ('bounded_ia', 'bounded_vertex_overrun', 'bounded_index_overrun')
+    if not bounded and case not in ('enabled', 'unknown_source', 'unknown_layout', 'direct_root_this', 'dynamic_layout', 'dynamic_stride_layout', 'static_after_dynamic', 'nested', 'reference', 'state', 'state_nested',
                     'indirect', 'indirect_nonindexed', 'indirect_count', 'regex', 'regex_nested', 'regex_nomatch', 'regex_caller_unknown', 'regex_caller', 'regex_caller_indirect', 'regex_caller_skip', 'regex_caller_pixel', 'regex_caller_self_ref', 'regex_caller_indirect_self_ref'):
         raise ValueError('Unknown inherited graphics fixture')
     original_caller = case in ('regex_caller', 'regex_caller_indirect', 'regex_caller_skip', 'regex_caller_pixel', 'regex_caller_self_ref', 'regex_caller_indirect_self_ref')
@@ -73,6 +74,12 @@ def main():
         'o0 = ref set_viewport o0\noD = null\n' + ''.join('o%d = null\n' % i for i in range(1, 8)) +
         ('run = CustomShaderNested\n' if case in ('nested', 'state_nested', 'regex_nested') else '') +
         'ResourceOriginalVB = ref vb0\nvb0 = ref ResourceTriangle\ndraw = from_caller\nvb0 = ref ResourceOriginalVB\n[CustomShaderNested]\nvs = offscreen.hlsl\ndraw = 3,0\n', encoding='ascii')
+    if bounded:
+        ini = mods / 'graphics.ini'
+        draw = {'bounded_ia': 'draw = from_caller', 'bounded_vertex_overrun': 'draw = 4,0',
+                'bounded_index_overrun': 'drawindexed = 4,0,0'}[case]
+        text = ini.read_text().replace('vb0 = ref ResourceTriangle\ndraw = from_caller', 'vb0 = ref ResourceOriginalVB\n' + draw)
+        ini.write_text(text, encoding='ascii')
     if case == 'direct_root_this':
         ini = mods / 'graphics.ini'
         ini.write_text(ini.read_text().replace('if rt_width == 4', 'if rt_width == 4 && ib->size > 0 && this->size == -2'), encoding='ascii')
@@ -126,6 +133,8 @@ def main():
                EFMI_VK_TEST_NOTICES_READBACK=str(pixels), EFMI_VK_TEST_NOTICES_READBACK_TRIGGER=str(trigger))
     args = ['--readable-swapchain', '--native-target']
     modes = {'dynamic_layout': 4, 'dynamic_stride_layout': 5, 'static_after_dynamic': 6}
+    if bounded:
+        args += ['--bounded-ia', '--api', '1.3']
     if case in modes:
         args += ['--geometry-dynamic', str(modes[case]), '--api', '1.3', '--geometry-shader-scene']
     if case.startswith('regex'):
@@ -146,11 +155,13 @@ def main():
         checks.equal(sb.proc.returncode, 0, 'Inherited graphics sandbox exits normally')
         (root / (case + '-stdout.txt')).write_text(sb.output(), encoding='utf-8')
         (root / (case + '-layer.log')).write_text(sb.log(), encoding='utf-8')
-    accepted = case in ('enabled', 'direct_root_this', 'dynamic_layout', 'dynamic_stride_layout', 'static_after_dynamic', 'nested', 'reference', 'state', 'state_nested', 'indirect', 'indirect_nonindexed', 'regex', 'regex_nested', 'regex_nomatch', 'regex_caller', 'regex_caller_indirect', 'regex_caller_skip', 'regex_caller_pixel', 'regex_caller_self_ref', 'regex_caller_indirect_self_ref')
+    accepted = case in ('bounded_ia', 'enabled', 'direct_root_this', 'dynamic_layout', 'dynamic_stride_layout', 'static_after_dynamic', 'nested', 'reference', 'state', 'state_nested', 'indirect', 'indirect_nonindexed', 'regex', 'regex_nested', 'regex_nomatch', 'regex_caller', 'regex_caller_indirect', 'regex_caller_skip', 'regex_caller_pixel', 'regex_caller_self_ref', 'regex_caller_indirect_self_ref')
     checks.check(pixels.exists(), 'This process produced a fresh completed image')
     checks.equal(colored_pixels(pixels, (0, 0, 255) if case == 'regex_caller_pixel' else (255, 255, 0)) > 200, accepted and case not in ('regex_nomatch', 'regex_caller_skip'), 'Inherited VS/IA produce actual replacement pixels; unknown proof preserves the caller')
     reason = status.get('shader_overrides', {}).get('last_reason', '')
     expected = 'unknown application graphics' if case in ('unknown_source', 'regex_caller_unknown') else 'argument' if case == 'indirect_count' else 'input layout'
+    if bounded:
+        expected = 'index fetch exceeds its binding window' if case == 'bounded_index_overrun' else 'vertex fetch exceeds its binding window'
     checks.check(not reason if accepted else expected in reason, 'Admission reports the precise source limitation')
     checks.check('VUID-' not in sb.output() and 'Validation Error' not in sb.output(), 'Vulkan and synchronization validation clean')
     (root / (case + '-status.json')).write_text(json.dumps(status, indent=2), encoding='ascii')

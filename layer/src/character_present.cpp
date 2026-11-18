@@ -148,6 +148,7 @@ std::shared_ptr<efmi::frontend::OwnedRuntime> OwnedPresenter::runtime(Device* de
         host.texel_alignment = device->texel_alignment; host.texel_alignment_properties = device->texel_alignment_properties;
         host.shader_draw_parameters = device->draw_parameters;
         host.pipeline_cache = pipeline_cache;
+        host.sized_vertices=device->sized_vertices();host.sized_indices=device->sized_indices();
         // The shipped CustomShader caches run through the exact translation (D-070). Without
         // denormal flushing the translation lowers it in software.
         efmi::frontend::OwnedRuntime::Tools owned;
