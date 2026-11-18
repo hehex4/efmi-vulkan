@@ -4,7 +4,6 @@ import json
 import sys
 import time
 from harness import Checks, Sandbox, test_dir
-from runtime_fixture import CORE
 from native_shader_test import compile_shader
 
 
@@ -23,9 +22,9 @@ def scene(checks,case):
     follow.write_text('\n'.join(common+['[numthreads(1,1,1)] void main() { output[0] += uint(round(255*'+sample('destination')+'.r)); }']),encoding='ascii')
     shader=compile_shader(first,root/'compiled','12345678','cs');later=compile_shader(follow,root/'compiled','87654321','cs')
     mods=root/'Mods';mods.mkdir();settings=root/'settings';settings.mkdir()
-    (root/'d3dx.ini').write_text('[Include]\ninclude = Core\\EFMI\\main.ini\ninclude_recursive = Mods\n[Rendering]\nrecursive_include = 1\n[Hunting]\nhunting = 1\nanalyse_frame = no_modifiers VK_F9\nanalyse_options = dump_rt dump_tex dump_cb dump_vb dump_ib buf\n',encoding='ascii')
+    (root/'d3dx.ini').write_text('[Include]\ninclude_recursive = Mods\n[Rendering]\nrecursive_include = 1\n[Hunting]\nhunting = 1\nanalyse_frame = no_modifiers VK_F9\nanalyse_options = dump_rt dump_tex dump_cb dump_vb dump_ib buf\n',encoding='ascii')
     keys=root/'keys.txt';keys.write_text('1\n',encoding='ascii')
-    env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_SETTINGS=str(settings),
+    env=dict(EFMI_VK_CONFIGURATION=str(root),EFMI_VK_M2_SETTINGS=str(settings),
              EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_KEYS=str(keys),VK_LAYER_VALIDATE_SYNC='1')
     args=['--compute-shader',str(shader),'--compute-image-reference',str(later),
           '--texture-shape','3' if layers==12 else '2' if cube else '1']

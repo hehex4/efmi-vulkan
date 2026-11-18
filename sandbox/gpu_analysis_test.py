@@ -7,7 +7,6 @@ import time
 
 from harness import Checks, Sandbox, test_dir
 from native_compute_test import compile_shader
-from runtime_fixture import CORE
 from efmi_vk.probe_client import ProbeClient
 
 
@@ -19,11 +18,11 @@ def scene(checks, case):
                       "[numthreads(1,1,1)] void main() { output[0] += 19; " + ("target[int2(0,0)] += 19; " if image_case else "") + "}\n", encoding="ascii")
     shader = compile_shader(source, root / "compiled", "12345678", "cs")
     mods = root / "Mods"; mods.mkdir()
-    (root / "d3dx.ini").write_text("[Include]\ninclude = Core\\EFMI\\main.ini\ninclude_recursive = Mods\n"
+    (root / "d3dx.ini").write_text("[Include]\ninclude_recursive = Mods\n"
         "[Rendering]\nrecursive_include = 1\n[Hunting]\nhunting = 1\nanalyse_frame = no_modifiers VK_F9\nanalyse_options = dump_rt dump_tex dump_cb dump_vb dump_ib buf\n", encoding="ascii")
     settings = root / "settings";settings.mkdir()
     keys = root / "keys.txt";keys.write_text("1\n", encoding="ascii")
-    env = dict(EFMI_VK_M2_MODS=str(mods), EFMI_VK_M2_CORE=str(CORE), EFMI_VK_M2_SETTINGS=str(settings),
+    env = dict(EFMI_VK_CONFIGURATION=str(root), EFMI_VK_M2_SETTINGS=str(settings),
                EFMI_VK_M2_ENABLED="1", EFMI_VK_TEST_KEYS=str(keys), VK_LAYER_VALIDATE_SYNC="1")
     args = ["--compute-shader", str(shader), "--compute-repeat", "2"]
     if case != "usage" and "--baseline" not in sys.argv: args.append("--compute-capture")

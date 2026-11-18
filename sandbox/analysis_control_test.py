@@ -5,7 +5,6 @@ import struct
 import sys
 import time
 from harness import Checks, Sandbox, test_dir
-from runtime_fixture import CORE
 from native_shader_test import compile_shader
 from efmi_vk.probe_client import ProbeClient
 
@@ -13,7 +12,7 @@ def scene(checks,case):
     root=Path(test_dir('analysis-control-'+case+'-'));mods=root/'Mods';mods.mkdir();settings=root/'settings';settings.mkdir()
     config=root/'d3dx.ini'
     def configure(options):
-        config.write_text('[Include]\ninclude = Core\\EFMI\\main.ini\ninclude_recursive = Mods\n[Rendering]\nrecursive_include = 1\n'
+        config.write_text('[Include]\ninclude_recursive = Mods\n[Rendering]\nrecursive_include = 1\n'
             '[Hunting]\nhunting = 1\nanalyse_frame = no_modifiers VK_F9\nanalyse_options = '+options+'\n',encoding='ascii')
     configure('log hold' if case=='log' else 'dump_rt buf'+('' if case=='normal' else ' hold'))
     keys=root/'keys.txt';keys.write_text('1\n',encoding='ascii')
@@ -22,7 +21,7 @@ def scene(checks,case):
     source.write_text(body,encoding='ascii')
     shader=compile_shader(source,root/'compiled','12345678','cs')
     args=['--compute-shader',str(shader),'--compute-capture']+(['--compute-storage-image'] if case=='image_hold' else [])
-    env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_KEYS=str(keys),VK_LAYER_VALIDATE_SYNC='1')
+    env=dict(EFMI_VK_CONFIGURATION=str(root),EFMI_VK_M2_SETTINGS=str(settings),EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_KEYS=str(keys),VK_LAYER_VALIDATE_SYNC='1')
     with Sandbox(seconds=7,validation=True,env_extra=env,extra_args=args) as sb:
         with ProbeClient(sb.pid) as probe:
             time.sleep(.5);keys.write_text('1 120\n',encoding='ascii');time.sleep(1.2)

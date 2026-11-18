@@ -5,16 +5,15 @@ import shutil
 import sys
 import time
 from harness import Checks,Sandbox,test_dir
-from runtime_fixture import CORE
 from efmi_vk.probe_client import ProbeClient
 
 def scene(checks,case):
     root=Path(test_dir('hunting-overlay-'+case+'-'));mods=root/'Mods';mods.mkdir()
     (mods/'test.ini').write_text('namespace = steady_hunting\n[Constants]\nglobal $touch = 0\n[KeyTouch]\nkey = VK_F8\n$touch = $touch + 1\n',encoding='ascii')
-    (root/'d3dx.ini').write_text('[Include]\ninclude = Core\\EFMI\\main.ini\ninclude_recursive = Mods\n[Rendering]\nrecursive_include = 1\n'
+    (root/'d3dx.ini').write_text('[Include]\ninclude_recursive = Mods\n[Rendering]\nrecursive_include = 1\n'
         '[Hunting]\nhunting = 1\nmarking_mode = original\nnext_pixelshader = VK_NUMPAD2\ntoggle_hunting = VK_DECIMAL\n',encoding='ascii')
     keys=root/'keys.txt';keys.write_text('1\n',encoding='ascii');pixels=root/'pixels.raw';trigger=root/'capture.trigger'
-    env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_SETTINGS=str(root/'settings'),EFMI_VK_M2_ENABLED='1',
+    env=dict(EFMI_VK_CONFIGURATION=str(root),EFMI_VK_M2_SETTINGS=str(root/'settings'),EFMI_VK_M2_ENABLED='1',
         EFMI_VK_TEST_KEYS=str(keys),EFMI_VK_TEST_NOTICES_READBACK=str(pixels),EFMI_VK_TEST_NOTICES_READBACK_TRIGGER=str(trigger),VK_LAYER_VALIDATE_SYNC='1')
     with Sandbox(seconds=12,validation=True,env_extra=env,extra_args=['--readable-swapchain']) as sb:
         with ProbeClient(sb.pid) as probe:

@@ -6,16 +6,15 @@ import sys
 import time
 
 from harness import Checks, Sandbox, test_dir
-from runtime_fixture import CORE
 from efmi_vk.hashes import crc32c
 
 
 def scene(checks, case):
     root=Path(test_dir("gpu-geometry-"+case+"-"));mods=root/"Mods";mods.mkdir()
-    (root/"d3dx.ini").write_text("[Include]\ninclude = Core\\EFMI\\main.ini\ninclude_recursive = Mods\n"
+    (root/"d3dx.ini").write_text("[Include]\ninclude_recursive = Mods\n"
         "[Rendering]\nrecursive_include = 1\n[Hunting]\nhunting = 1\nanalyse_frame = no_modifiers VK_F9\nanalyse_options = dump_rt dump_tex dump_cb dump_vb dump_ib buf\n",encoding="ascii")
     settings=root/"settings";settings.mkdir();keys=root/"keys.txt";keys.write_text("1\n",encoding="ascii")
-    env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_SETTINGS=str(settings),
+    env=dict(EFMI_VK_CONFIGURATION=str(root),EFMI_VK_M2_SETTINGS=str(settings),
              EFMI_VK_M2_ENABLED="1",EFMI_VK_TEST_KEYS=str(keys),VK_LAYER_VALIDATE_SYNC="1")
     args=[]
     if case!="usage" and "--baseline" not in sys.argv:args.append("--geometry-capture")

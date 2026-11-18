@@ -10,6 +10,14 @@
 - The user explicitly rejects character/Mod package loading in the compatibility route. Remove that architecture completely, follow the original loader and lazy resource execution, then finish the Vulkan-native route. This supersedes package discovery/activation choices; see docs/configuration-execution-rewrite.md.
 - Source inspection confirmed the mismatch; D-304 removes the former discovery, package generations and activation path. Generic resource/draw adapters are still being completed. No real-game action is authorized by this rewrite request.
 
+D-353 keeps 3.6.7 / a0fb558d54581641. Twelve frame-analysis and hunting
+fixtures now open their own root d3dx.ini and its Include list. They no longer
+provide obsolete Mods/Core path variables or a missing Core include. One live
+sandbox case per changed entry passes 123 checks, covering original F9/F10
+input, exports, geometry, targets and the hunting overlay. Evidence:
+root-fixtures-regression.out. Remaining capture-replay and mesh fixtures still
+need migration. Current GPU feedback and sampler/state contracts remain open.
+
 D-352 verified at 3.6.7 / ABI a0fb558d54581641. Original Store preserves
 the variable on a null source, reads a proven cached float at its allocation
 index and writes zero outside the copy region. Prepared cancellation restores

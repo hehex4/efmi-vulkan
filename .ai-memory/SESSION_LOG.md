@@ -4453,3 +4453,13 @@ Production four cases 16/16 (baseline cached 2/4), other cache queries 4/4,
 configuration 396, prepared 155, tracker 1042, ABI 16 and text 761 pass.
 See store-cache-{before,regression,configuration,prepared}.out. Sandbox only.
 Next migrate remaining package-era fixtures and continue native source state.
+
+## D-353: Run analysis fixtures from their original root configuration
+
+D-353 keeps 3.6.7 / a0fb558d54581641. Twelve frame-analysis and hunting
+fixtures now open their own root d3dx.ini and its Include list. They no longer
+provide obsolete Mods/Core path variables or a missing Core include. One live
+sandbox case per changed entry passes 123 checks, covering original F9/F10
+input, exports, geometry, targets and the hunting overlay. Evidence:
+root-fixtures-regression.out. Remaining capture-replay and mesh fixtures still
+need migration. Current GPU feedback and sampler/state contracts remain open.

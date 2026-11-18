@@ -7,6 +7,14 @@
 - First establish the root-configuration and resource-lifetime regression. Then integrate generic draw/resource execution and retire package controllers/configuration/status/tests. Preserve resource ownership, deferred destruction and explicit hazard/order proofs throughout.
 - After this rewrite, continue Vulkan-native I-01 queue scheduling, I-04 access phases, I-05 compute readiness and native capture/functionality. Real-game verification remains gated separately. Details: docs/configuration-execution-rewrite.md.
 
+D-353 keeps 3.6.7 / a0fb558d54581641. Twelve frame-analysis and hunting
+fixtures now open their own root d3dx.ini and its Include list. They no longer
+provide obsolete Mods/Core path variables or a missing Core include. One live
+sandbox case per changed entry passes 123 checks, covering original F9/F10
+input, exports, geometry, targets and the hunting overlay. Evidence:
+root-fixtures-regression.out. Remaining capture-replay and mesh fixtures still
+need migration. Current GPU feedback and sampler/state contracts remain open.
+
 D-352 verified at 3.6.7 / ABI a0fb558d54581641. Original Store preserves
 the variable on a null source, reads a proven cached float at its allocation
 index and writes zero outside the copy region. Prepared cancellation restores

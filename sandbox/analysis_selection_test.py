@@ -5,7 +5,6 @@ import struct
 import sys
 import time
 from harness import Checks, Sandbox, test_dir
-from runtime_fixture import CORE
 from native_shader_test import compile_shader
 
 OPTIONS={'missing':None,'log':'log','rt':'dump_rt buf','tex':'dump_tex buf','cb':'dump_cb buf',
@@ -18,10 +17,10 @@ def scene(checks,case):
     root=Path(test_dir('analysis-selection-'+case+'-'));mods=root/'Mods';mods.mkdir();settings=root/'settings';settings.mkdir()
     config=root/'d3dx.ini'
     def configure(options):
-        config.write_text('[Include]\ninclude = Core\\EFMI\\main.ini\ninclude_recursive = Mods\n[Rendering]\nrecursive_include = 1\n'
+        config.write_text('[Include]\ninclude_recursive = Mods\n[Rendering]\nrecursive_include = 1\n'
             '[Hunting]\nhunting = 1\nanalyse_frame = no_modifiers VK_F9\n'+('analyse_options = '+options+'\n' if options is not None else ''),encoding='ascii')
     configure(OPTIONS[case]);keys=root/'keys.txt';keys.write_text('1\n',encoding='ascii')
-    env=dict(EFMI_VK_M2_MODS=str(mods),EFMI_VK_M2_CORE=str(CORE),EFMI_VK_M2_SETTINGS=str(settings),
+    env=dict(EFMI_VK_CONFIGURATION=str(root),EFMI_VK_M2_SETTINGS=str(settings),
              EFMI_VK_M2_ENABLED='1',EFMI_VK_TEST_KEYS=str(keys),VK_LAYER_VALIDATE_SYNC='1')
     graphics=case in ('vertex','index','target');image=case.startswith('image_');sampled=case.startswith('sampled_')
     if graphics:args=['--geometry-capture','--capture-target']
